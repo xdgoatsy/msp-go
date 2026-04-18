@@ -1,0 +1,151 @@
+services:
+  # PostgreSQL 数据库（带 pgvector 扩展）
+  postgres:
+    image: pgvector/pgvector:pg18-trixie
+    container_name: msp_postgres
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql  # PostgreSQL 18+ 新格式
+      - ./backend/scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "effective_cache_size=1536MB"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "max_parallel_workers_per_gather=2"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "pg_stat_statements.track=all"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+    networks:
+      - msp_network
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: msp_redis
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    command: sh -c 'redis-server --requirepass "$${REDIS_PASSWORD}" --maxmemory 512mb --maxmemory-policy allkeys-lru'
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.0"
+        reservations:
+          memory: 256M
+    networks:
+      - msp_network
+
+  # 后端服务
+  backend:
+    image: ${DOCKER_USERNAME:-your-dockerhub-username}/backend:latest
+    container_name: msp_backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      - DEBUG=false
+      - ENVIRONMENT=production
+      - LLM_POOL_WARMUP_ENABLED=false
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+    ports:
+      - "127.0.0.1:${PY_AI_PORT:-8000}:8000"  # Python AI 服务端口
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/uploads:/app/uploads
+    networks:
+      - msp_network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 前端服务
+  frontend:
+    image: ${DOCKER_USERNAME:-your-dockerhub-username}/frontend:latest
+    container_name: msp_frontend
+    restart: unless-stopped
+    ports:
+      - "9000:80"  # 改用 9000 端口，避免端口冲突
+    depends_on:
+      - backend
+    networks:
+      - msp_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  msp_network:
+    driver: bridge

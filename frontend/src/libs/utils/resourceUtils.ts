@@ -1,0 +1,202 @@
+/**
+ * 资源工具函数
+ *
+ * 提供 URL/文件名解析、资源类型识别等功能
+ */
+
+import type { ResourceType } from '@/modules/resource/types/resource';
+
+/**
+ * 从 URL 提取标题
+ */
+export function extractTitleFromUrl(url: string): string {
+  try {
+    const urlObj = new URL(url);
+
+    // 尝试从路径提取
+    const segments = urlObj.pathname.split('/').filter(Boolean);
+    if (segments.length > 0) {
+      const lastSegment = segments[segments.length - 1];
+      // 移除文件扩展名和查询参数
+      const title = decodeURIComponent(lastSegment.replace(/\.[^/.]+$/, ''));
+      if (title && title.length > 0) {
+        return title;
+      }
+    }
+
+    // 回退到主机名
+    return urlObj.hostname.replace('www.', '');
+  } catch {
+    // URL 解析失败，截取前50个字符
+    return url.slice(0, 50);
+  }
+}
+
+/**
+ * 从 URL 识别资源类型
+ */
+export function detectResourceTypeFromUrl(url: string): ResourceType {
+  const lowerUrl = url.toLowerCase();
+
+  // 视频平台
+  if (
+    lowerUrl.includes('bilibili.com') ||
+    lowerUrl.includes('youtube.com') ||
+    lowerUrl.includes('youtu.be') ||
+    lowerUrl.includes('vimeo.com') ||
+    lowerUrl.includes('douyin.com') ||
+    lowerUrl.includes('ixigua.com')
+  ) {
+    return 'video';
+  }
+
+  // 文件扩展名检测
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname.toLowerCase();
+    const ext = pathname.split('.').pop()?.split('?')[0];
+
+    if (ext) {
+      // 视频扩展名
+      if (['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv', 'wmv'].includes(ext)) {
+        return 'video';
+      }
+      // 文档扩展名
+      if (['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'txt', 'md'].includes(ext)) {
+        return 'document';
+      }
+    }
+  } catch {
+    // URL 解析失败，忽略
+  }
+
+  // 外部链接默认视频类型
+  return 'video';
+}
+
+/**
+ * 从 URL 提取来源
+ */
+export function extractSourceFromUrl(url: string): string {
+  try {
+    const hostname = new URL(url).hostname.replace('www.', '');
+
+    // 常见平台映射
+    const sourceMap: Record<string, string> = {
+      'bilibili.com': 'Bilibili',
+      'youtube.com': 'YouTube',
+      'youtu.be': 'YouTube',
+      'vimeo.com': 'Vimeo',
+      'douyin.com': '抖音',
+      'ixigua.com': '西瓜视频',
+      'zhihu.com': '知乎',
+      'jianshu.com': '简书',
+      'csdn.net': 'CSDN',
+      'github.com': 'GitHub',
+      'gitee.com': 'Gitee',
+      'pan.baidu.com': '百度网盘',
+      'drive.google.com': 'Google Drive',
+      'docs.google.com': 'Google Docs',
+    };
+
+    // 查找匹配的平台
+    for (const [domain, source] of Object.entries(sourceMap)) {
+      if (hostname.includes(domain)) {
+        return source;
+      }
+    }
+
+    // 返回主机名作为来源
+    return hostname;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 从文件名提取标题
+ */
+export function extractTitleFromFilename(filename: string): string {
+  // 移除扩展名
+  return filename.replace(/\.[^/.]+$/, '');
+}
+
+/**
+ * 从文件扩展名识别资源类型
+ */
+export function detectResourceTypeFromFile(filename: string): ResourceType {
+  const ext = filename.split('.').pop()?.toLowerCase();
+
+  if (!ext) {
+    return 'document';
+  }
+
+  // 视频扩展名
+  const videoExts = ['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv', 'wmv', 'm4v'];
+  if (videoExts.includes(ext)) {
+    return 'video';
+  }
+
+  // 文档扩展名
+  const docExts = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'txt', 'md', 'rtf'];
+  if (docExts.includes(ext)) {
+    return 'document';
+  }
+
+  // 默认文档类型
+  return 'document';
+}
+
+/**
+ * 解析多行链接文本
+ * 返回去重后的有效 URL 列表
+ */
+export function parseLinksFromText(text: string): string[] {
+  const lines = text
+    .split(/[\n\r]+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const validUrls: string[] = [];
+  const seen = new Set<string>();
+
+  for (const line of lines) {
+    // 尝试解析为 URL
+    try {
+      const url = new URL(line);
+      const normalized = url.href;
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        validUrls.push(normalized);
+      }
+    } catch {
+      // 尝试添加 https:// 前缀
+      try {
+        const url = new URL('https://' + line);
+        const normalized = url.href;
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          validUrls.push(normalized);
+        }
+      } catch {
+        // 无效 URL，跳过
+      }
+    }
+  }
+
+  return validUrls;
+}
+
+/**
+ * 从资源中心页面 URL 查询串读取初始搜索词
+ */
+export function getInitialResourceSearch(locationSearch: string): string {
+  return new URLSearchParams(locationSearch).get('search')?.trim() || '';
+}
+
+/**
+ * 生成简单的唯一 ID
+ */
+export function generateTempId(): string {
+  return `temp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}

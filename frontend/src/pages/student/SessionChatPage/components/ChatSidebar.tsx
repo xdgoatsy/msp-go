@@ -1,0 +1,257 @@
+import React from 'react';
+import { Button } from '../../../../components/ui/Button';
+import {
+  Plus,
+  CheckSquare,
+  Trash2,
+  Loader2,
+  Clock,
+  Square,
+  PanelLeftClose,
+  PanelLeftOpen,
+  MessageCircle,
+  GraduationCap,
+  Target,
+  Lightbulb,
+} from 'lucide-react';
+import { cn } from '../../../../libs/utils/cn';
+import type { LearningSession } from '../../../../types';
+
+interface ChatSidebarProps {
+  isOpen: boolean;
+  sessions: LearningSession[];
+  currentSessionId?: string;
+  isSelectMode: boolean;
+  selectedSessionIds: string[];
+  deletingSessionId: string | null;
+  isBatchDeleting: boolean;
+  loading: boolean;
+  onToggleSidebar: () => void;
+  onNewSession: () => void;
+  onSelectSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void;
+  onToggleSelectMode: () => void;
+  onToggleSessionSelection: (sessionId: string) => void;
+  onSelectAll: () => void;
+  onBatchDelete: () => void;
+}
+
+const getModeIcon = (title: string) => {
+  if (title.includes('学习')) return <GraduationCap className="w-4 h-4" />;
+  if (title.includes('练习')) return <Target className="w-4 h-4" />;
+  if (title.includes('讲解')) return <Lightbulb className="w-4 h-4" />;
+  return <MessageCircle className="w-4 h-4" />;
+};
+
+const formatTime = (timestamp: string) => {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes}分钟前`;
+  if (hours < 24) return `${hours}小时前`;
+  if (days < 7) return `${days}天前`;
+  return date.toLocaleDateString();
+};
+
+export const ChatSidebar = React.memo<ChatSidebarProps>(
+  ({
+    isOpen,
+    sessions,
+    currentSessionId,
+    isSelectMode,
+    selectedSessionIds,
+    deletingSessionId,
+    isBatchDeleting,
+    loading,
+    onToggleSidebar,
+    onNewSession,
+    onSelectSession,
+    onDeleteSession,
+    onToggleSelectMode,
+    onToggleSessionSelection,
+    onSelectAll,
+    onBatchDelete,
+  }) => {
+    return (
+      <>
+        {/* 侧边栏 */}
+        <div
+          className={cn(
+            'w-72 border-r border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 flex flex-col transition-[margin] duration-300',
+            !isOpen && '-ml-72'
+          )}
+        >
+          {/* 侧边栏头部 */}
+          <div className="p-3 border-b border-surface-200 dark:border-surface-700">
+            <div className="flex items-center justify-between mb-1 gap-2 whitespace-nowrap text-xs">
+              <h2 className="text-lg font-semibold text-surface-900 dark:text-surface-100 shrink-0">
+                历史会话
+              </h2>
+              <div className="flex items-center gap-1 shrink-0">
+                {isSelectMode ? (
+                  <>
+                    <Button size="sm" variant="ghost" onClick={onSelectAll} className="flex items-center gap-1 px-2 py-1">
+                      <CheckSquare className="w-3 h-3" />
+                      <span className="text-xs">全选</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={onBatchDelete}
+                      disabled={selectedSessionIds.length === 0 || isBatchDeleting}
+                      className="px-2 py-1 text-white flex items-center justify-center"
+                    >
+                      <span className="flex items-center gap-1 text-[11px] font-semibold leading-none whitespace-nowrap">
+                        {isBatchDeleting ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3 h-3" />
+                        )}
+                        <span>删除 ({selectedSessionIds.length})</span>
+                      </span>
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={onToggleSelectMode} className="px-2 py-1 text-xs">
+                      取消
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    {sessions.length > 0 && (
+                      <Button size="sm" variant="ghost" onClick={onToggleSelectMode} title="批量管理">
+                        <CheckSquare className="w-4 h-4" />
+                      </Button>
+                    )}
+                    <Button size="sm" onClick={onNewSession} className="flex items-center space-x-1">
+                      <Plus className="w-4 h-4" />
+                      <span>新建</span>
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 会话列表 */}
+          <div className="flex-1 overflow-y-auto scroll-optimized p-2 space-y-1">
+            {loading && sessions.length === 0 ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-surface-400" />
+              </div>
+            ) : sessions.length === 0 ? (
+              <div className="text-center py-8 text-surface-500 text-sm">暂无历史会话</div>
+            ) : (
+              sessions.map((session) => (
+                <div
+                  key={session.id}
+                  onClick={() => isSelectMode ? onToggleSessionSelection(session.id) : onSelectSession(session.id)}
+                  className={cn(
+                    'group relative p-3 rounded-lg cursor-pointer transition-colors',
+                    session.id === currentSessionId && !isSelectMode
+                      ? 'bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800'
+                      : 'hover:bg-surface-100 dark:hover:bg-surface-800 border border-transparent',
+                    isSelectMode &&
+                      selectedSessionIds.includes(session.id) &&
+                      'bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-800'
+                  )}
+                >
+                  <div className="flex items-start space-x-2">
+                    {/* 选择框 */}
+                    {isSelectMode && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleSessionSelection(session.id);
+                        }}
+                        className="mt-0.5 p-1"
+                      >
+                        {selectedSessionIds.includes(session.id) ? (
+                          <CheckSquare className="w-4 h-4 text-primary-500" />
+                        ) : (
+                          <Square className="w-4 h-4 text-surface-400" />
+                        )}
+                      </button>
+                    )}
+                    {!isSelectMode && (
+                      <div
+                        className={cn(
+                          'mt-0.5 p-1.5 rounded-md',
+                          session.id === currentSessionId
+                            ? 'bg-primary-100 dark:bg-primary-800 text-primary-600 dark:text-primary-400'
+                            : 'bg-surface-100 dark:bg-surface-700 text-surface-500 dark:text-surface-400'
+                        )}
+                      >
+                        {getModeIcon(session.title)}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span
+                          className={cn(
+                            'text-sm font-medium truncate',
+                            session.id === currentSessionId
+                              ? 'text-primary-700 dark:text-primary-300'
+                              : 'text-surface-700 dark:text-surface-300'
+                          )}
+                        >
+                          {session.title}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2 mt-1">
+                        <Clock className="w-3 h-3 text-surface-400" />
+                        <span className="text-xs text-surface-500 dark:text-surface-400">
+                          {formatTime(session.startedAt)}
+                        </span>
+                        <span className="text-xs text-surface-400">· {session.messageCount} 条消息</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 删除按钮（非选择模式） */}
+                  {!isSelectMode && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSession(session.id);
+                      }}
+                      disabled={deletingSessionId === session.id}
+                      className={cn(
+                        'absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity',
+                        'hover:bg-red-100 dark:hover:bg-red-900/30 text-surface-400 hover:text-red-500'
+                      )}
+                    >
+                      {deletingSessionId === session.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* 侧边栏切换按钮 */}
+        <button
+          onClick={onToggleSidebar}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-30 p-1.5 bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded-r-lg shadow-sm hover:bg-surface-50 dark:hover:bg-surface-700 transition-[left,background-color,border-color] duration-300"
+          style={{ left: isOpen ? '18rem' : '0' }}
+        >
+          {isOpen ? (
+            <PanelLeftClose className="w-4 h-4 text-surface-500" />
+          ) : (
+            <PanelLeftOpen className="w-4 h-4 text-surface-500" />
+          )}
+        </button>
+      </>
+    );
+  }
+);
+
+ChatSidebar.displayName = 'ChatSidebar';

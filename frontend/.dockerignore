@@ -1,0 +1,56 @@
+# 依赖
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.yarn/
+
+# 构建产物
+dist/
+dist-ssr/
+*.local
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.editorconfig
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+
+# 测试
+coverage/
+.nyc_output/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__/
+
+# 其他
+.DS_Store
+*.bak
+.git/
+.gitignore
+.gitattributes
+README.md
+CHANGELOG.md
+LICENSE
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+.eslintrc*
+.prettierrc*
+*.md
+!package.json
+!package-lock.json

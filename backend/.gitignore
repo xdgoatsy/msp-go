@@ -1,0 +1,72 @@
+# Python 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# Python 编译文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 分发 / 打包
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 测试和覆盖率
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+coverage/
+*.cover
+
+# 类型检查
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 日志
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# 临时文件
+*.tmp
+*.temp
+.cache/
+.tmp_pyc
+
+#local
+.moc/*

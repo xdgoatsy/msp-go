@@ -1,0 +1,440 @@
+/**
+ * 智能体配置面板
+ *
+ * 用于配置各智能体使用的模型和参数覆盖
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Bot,
+  Save,
+  RotateCcw,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle,
+  Settings,
+  Loader2,
+} from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/Card';
+import { AgentTypeDisplayNames } from '@/modules/ai-config/types/aiConfig';
+import type {
+  AgentModelConfig,
+  AgentTypeInfo,
+  LLMModel,
+  LLMProvider,
+  UpdateAgentConfigRequest,
+} from '@/modules/ai-config/types/aiConfig';
+
+interface AgentConfigPanelProps {
+  agentTypes: AgentTypeInfo[];
+  agentConfigs: AgentModelConfig[];
+  providers: LLMProvider[];
+  models: LLMModel[];
+  onUpdateConfig: (agentType: string, data: UpdateAgentConfigRequest) => Promise<void>;
+  onDeleteConfig: (agentType: string) => Promise<void>;
+  loading?: boolean;
+}
+
+interface AgentConfigFormData {
+  model_id: string;
+  temperature_override: string;
+  max_tokens_override: string;
+  top_p_override: string;
+  timeout_override: string;
+  max_retries_override: string;
+}
+
+const defaultFormData: AgentConfigFormData = {
+  model_id: '',
+  temperature_override: '',
+  max_tokens_override: '',
+  top_p_override: '',
+  timeout_override: '',
+  max_retries_override: '',
+};
+
+export const AgentConfigPanel: React.FC<AgentConfigPanelProps> = ({
+  agentTypes,
+  agentConfigs,
+  providers,
+  models,
+  onUpdateConfig,
+  onDeleteConfig,
+  loading = false,
+}) => {
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [formData, setFormData] = useState<Record<string, AgentConfigFormData>>({});
+  const [savingAgent, setSavingAgent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // 初始化表单数据
+  useEffect(() => {
+    const initialData: Record<string, AgentConfigFormData> = {};
+    agentTypes.forEach((type) => {
+      const config = agentConfigs.find((c) => c.agent_type === type.type);
+      if (config) {
+        initialData[type.type] = {
+          model_id: config.model_id || '',
+          temperature_override: config.temperature_override?.toString() || '',
+          max_tokens_override: config.max_tokens_override?.toString() || '',
+          top_p_override: config.top_p_override?.toString() || '',
+          timeout_override: config.timeout_override?.toString() || '',
+          max_retries_override: config.max_retries_override?.toString() || '',
+        };
+      } else {
+        initialData[type.type] = { ...defaultFormData };
+      }
+    });
+    setFormData(initialData);
+  }, [agentTypes, agentConfigs]);
+
+  // 获取配置
+  const getConfig = (agentType: string) => {
+    return agentConfigs.find((c) => c.agent_type === agentType);
+  };
+
+  // 获取模型选项（按提供商分组）
+  const modelOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [];
+
+    providers.forEach((provider) => {
+      const providerModels = models.filter((m) => m.provider_id === provider.id && m.is_active);
+      providerModels.forEach((model) => {
+        options.push({
+          value: model.id,
+          label: `${provider.name} / ${model.name}`,
+        });
+      });
+    });
+
+    return options;
+  }, [providers, models]);
+
+  // 更新表单字段
+  const updateField = (agentType: string, field: keyof AgentConfigFormData, value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      [agentType]: {
+        ...prev[agentType],
+        [field]: value,
+      },
+    }));
+  };
+
+  // 保存配置
+  const handleSave = async (agentType: string) => {
+    const data = formData[agentType];
+    if (!data?.model_id) {
+      setError('请选择模型');
+      return;
+    }
+
+    setSavingAgent(agentType);
+    setError(null);
+
+    try {
+      const request: UpdateAgentConfigRequest = {
+        model_id: data.model_id,
+        temperature_override: data.temperature_override
+          ? parseFloat(data.temperature_override)
+          : null,
+        max_tokens_override: data.max_tokens_override
+          ? parseInt(data.max_tokens_override, 10)
+          : null,
+        top_p_override: data.top_p_override ? parseFloat(data.top_p_override) : null,
+        timeout_override: data.timeout_override ? parseInt(data.timeout_override, 10) : null,
+        max_retries_override: data.max_retries_override
+          ? parseInt(data.max_retries_override, 10)
+          : null,
+      };
+
+      await onUpdateConfig(agentType, request);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '保存失败';
+      setError(message);
+    } finally {
+      setSavingAgent(null);
+    }
+  };
+
+  // 重置配置
+  const handleReset = async (agentType: string) => {
+    const config = getConfig(agentType);
+    if (config) {
+      setSavingAgent(agentType);
+      try {
+        await onDeleteConfig(agentType);
+        setFormData((prev) => ({
+          ...prev,
+          [agentType]: { ...defaultFormData },
+        }));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '重置失败';
+        setError(message);
+      } finally {
+        setSavingAgent(null);
+      }
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [agentType]: { ...defaultFormData },
+      }));
+    }
+  };
+
+  // 切换展开
+  const toggleExpand = (agentType: string) => {
+    setExpandedAgent(expandedAgent === agentType ? null : agentType);
+    setError(null);
+  };
+
+  // 获取智能体显示名称
+  const getAgentDisplayName = (type: string) => {
+    return AgentTypeDisplayNames[type as keyof typeof AgentTypeDisplayNames] || type;
+  };
+
+  // 获取模型显示信息（按 modelId -> { modelName, providerName } 的映射）
+  const modelDisplayInfoMap = useMemo(() => {
+    const map = new Map<string, { modelName: string; providerName: string }>();
+    models.forEach((model) => {
+      const provider = providers.find((p) => p.id === model.provider_id);
+      map.set(model.id, {
+        modelName: model.name,
+        providerName: provider?.name || '未知提供商',
+      });
+    });
+    return map;
+  }, [models, providers]);
+
+  const getModelDisplayInfo = (modelId: string | null) => {
+    if (!modelId) return null;
+    return modelDisplayInfoMap.get(modelId) ?? null;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* 错误提示 */}
+      {error && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* 智能体列表 */}
+      {agentTypes.map((agentType) => {
+        const config = getConfig(agentType.type);
+        const isExpanded = expandedAgent === agentType.type;
+        const data = formData[agentType.type] || defaultFormData;
+        const modelInfo = getModelDisplayInfo(config?.model_id || null);
+
+        return (
+          <Card key={agentType.type} className="overflow-hidden">
+            {/* 标题栏 */}
+            <div
+              className="flex items-center justify-between p-4 cursor-pointer hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
+              onClick={() => toggleExpand(agentType.type)}
+            >
+              <div className="flex items-center gap-4">
+                <div className="p-2 bg-primary-100 dark:bg-primary-900/30 rounded-lg">
+                  <Bot className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium text-surface-900 dark:text-surface-100">
+                      {getAgentDisplayName(agentType.type)}
+                    </h3>
+                    {agentType.configured ? (
+                      <Badge variant="success" className="text-xs">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        已配置
+                      </Badge>
+                    ) : (
+                      <Badge variant="default" className="text-xs">
+                        使用默认
+                      </Badge>
+                    )}
+                  </div>
+                  {modelInfo && (
+                    <p className="text-sm text-surface-500 dark:text-surface-400">
+                      {modelInfo.providerName} / {modelInfo.modelName}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {isExpanded ? (
+                  <ChevronUp className="w-5 h-5 text-surface-400" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-surface-400" />
+                )}
+              </div>
+            </div>
+
+            {/* 配置表单（展开时显示） */}
+            {isExpanded && (
+              <div className="border-t border-surface-200 dark:border-surface-700 p-4 bg-surface-50 dark:bg-surface-900">
+                <div className="space-y-4">
+                  {/* 模型选择 */}
+                  <div>
+                    <label className="block text-sm font-medium text-surface-900 dark:text-surface-100 mb-2">
+                      选择模型 <span className="text-red-500">*</span>
+                    </label>
+                    <Select
+                      value={data.model_id}
+                      onChange={(value) => updateField(agentType.type, 'model_id', value)}
+                      className="w-full"
+                      options={[
+                        { value: '', label: '请选择模型...' },
+                        ...modelOptions,
+                      ]}
+                    />
+                  </div>
+
+                  {/* 参数覆盖 */}
+                  <div className="bg-white dark:bg-surface-800 rounded-lg p-4 border border-surface-200 dark:border-surface-700">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Settings className="w-4 h-4 text-surface-500" />
+                      <span className="text-sm font-medium text-surface-700 dark:text-surface-300">
+                        参数覆盖（留空使用模型默认值）
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs text-surface-500 dark:text-surface-400 mb-1">
+                          Temperature
+                        </label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="2"
+                          value={data.temperature_override}
+                          onChange={(e) =>
+                            updateField(agentType.type, 'temperature_override', e.target.value)
+                          }
+                          placeholder="0.7"
+                          className="w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-surface-500 dark:text-surface-400 mb-1">
+                          Max Tokens
+                        </label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="128000"
+                          value={data.max_tokens_override}
+                          onChange={(e) =>
+                            updateField(agentType.type, 'max_tokens_override', e.target.value)
+                          }
+                          placeholder="2048"
+                          className="w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-surface-500 dark:text-surface-400 mb-1">
+                          Top P
+                        </label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="1"
+                          value={data.top_p_override}
+                          onChange={(e) =>
+                            updateField(agentType.type, 'top_p_override', e.target.value)
+                          }
+                          placeholder="0.9"
+                          className="w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-surface-500 dark:text-surface-400 mb-1">
+                          超时时间 (秒)
+                        </label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="600"
+                          value={data.timeout_override}
+                          onChange={(e) =>
+                            updateField(agentType.type, 'timeout_override', e.target.value)
+                          }
+                          placeholder="60"
+                          className="w-full"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-surface-500 dark:text-surface-400 mb-1">
+                          最大重试次数
+                        </label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="10"
+                          value={data.max_retries_override}
+                          onChange={(e) =>
+                            updateField(agentType.type, 'max_retries_override', e.target.value)
+                          }
+                          placeholder="3"
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 操作按钮 */}
+                  <div className="flex justify-end gap-3 pt-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => handleReset(agentType.type)}
+                      disabled={savingAgent === agentType.type}
+                    >
+                      <RotateCcw className="w-4 h-4 mr-2" />
+                      重置为默认
+                    </Button>
+                    <Button
+                      onClick={() => handleSave(agentType.type)}
+                      disabled={savingAgent === agentType.type || !data.model_id}
+                    >
+                      {savingAgent === agentType.type ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4 mr-2" />
+                      )}
+                      保存配置
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+        );
+      })}
+
+      {/* 空状态 */}
+      {agentTypes.length === 0 && (
+        <div className="text-center py-12 text-surface-500 dark:text-surface-400">
+          <Bot className="w-12 h-12 mx-auto mb-4 opacity-50" />
+          <p>暂无智能体类型</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AgentConfigPanel;
