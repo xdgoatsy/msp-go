@@ -1,7 +1,7 @@
 # 后端 Python 到 Go 重构迁移文档
 
-**文档状态**：P3 鉴权与用户域完成，P4 待开始
-**最后更新**：2026-04-18
+**文档状态**：P3 鉴权与用户域完成，P4 核心学习域进行中
+**最后更新**：2026-04-25
 **适用范围**：`backend/` Python FastAPI 后端整体迁移到 Go 后端
 **重构原则**：接口兼容、数据连续、分阶段验收、每阶段完成必须更新本文档
 
@@ -215,7 +215,7 @@ backend-go/
 | P1 Go 技术选型与骨架 | DONE | 确认 Go 框架、ORM/SQL、配置、日志、测试栈 | `backend-go/` 骨架、ADR、健康检查 | 12.2 |
 | P2 数据访问与迁移体系 | DONE | 建立 PostgreSQL、Redis、迁移和事务模式 | Repository 基础、迁移策略、集成测试 | 12.3 |
 | P3 鉴权与用户域 | DONE | 迁移认证、用户、密码、权限基础能力 | `/auth`、用户上下文、管理员初始化 | 12.4 |
-| P4 核心学习域 | TODO | 迁移会话、练习、错题、进度、画像 | `/session`、`/exercise`、`/mistakes`、`/progress`、`/portrait` | 12.5 |
+| P4 核心学习域 | IN_PROGRESS | 迁移会话、练习、错题、进度、画像 | `/session`、`/exercise`、`/mistakes`、`/progress`、`/portrait` | 12.5 |
 | P5 内容与教学管理域 | TODO | 迁移题库、资源、班级、教师统计、知识点 | `/questions`、`/resources`、`/classes`、`/teacher`、`/admin/knowledge` | 12.6 |
 | P6 AI 与 Agent 能力 | TODO | 迁移 LLM 配置、Agent 调用、数学求解、诊断 | `/admin/ai-config`、Agent 抽象、数学工具链 | 12.7 |
 | P7 集成与运维域 | TODO | 迁移西电集成、上传、系统设置、安全日志、监控 | `/xidian`、`/upload`、`/admin/settings`、`/admin/security-logs`、`/metrics` | 12.8 |
@@ -405,7 +405,7 @@ backend-go/
 | P2 | `/session` | TODO | 学生端核心链路 |
 | P2 | `/exercise` | TODO | 练习提交和诊断链路 |
 | P2 | `/mistakes` | TODO | 错题本链路 |
-| P2 | `/progress` | TODO | 学习数据展示 |
+| P2 | `/progress` | DONE | Go P4 首轮已承接 overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters |
 | P2 | `/portrait` | TODO | 学生画像 |
 | P3 | `/questions` | TODO | 教师题库 |
 | P3 | `/resources` | TODO | 资源中心和收藏 |
@@ -560,14 +560,14 @@ pytest
 
 ### 12.5 P4 核心学习域
 
-- 状态：TODO
-- 开始日期：TODO
+- 状态：IN_PROGRESS
+- 开始日期：2026-04-25
 - 完成日期：TODO
-- 负责人：TODO
-- 验证命令：TODO
-- 验证结果：TODO
-- 交付物链接：TODO
-- 遗留风险：TODO
+- 负责人：Codex
+- 验证命令（阶段进行中）：`gofmt -w ...`、`go test ./... -count=1`、`go vet ./...`
+- 验证结果（阶段进行中）：Go 全量单元/契约测试通过；Go vet 通过；覆盖 `/progress` 鉴权、overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters 的应用层和 HTTP 层主要路径
+- 交付物链接：`backend-go/internal/application/progress/`、`backend-go/internal/adapter/http/progress/`、`backend-go/internal/adapter/postgres/progress_repository.go`、`backend-go/cmd/api/main.go`（进行中）
+- 遗留风险：`/session`、`/exercise`、`/mistakes`、`/portrait` 尚未迁移；`/progress` 仍需在可用 PostgreSQL 测试库中补充 Repository 集成测试，并在 P8 做 Python/Go 双跑契约验证
 
 ### 12.6 P5 内容与教学管理域
 
@@ -647,3 +647,8 @@ pytest
 - P2 数据访问与迁移体系开始：拆分 PostgreSQL/Redis 基础设施、事务模式、Repository 基础和 Go 迁移衔接策略。
 - P2 完成：新增 pgx 连接池配置、事务封装、Repository 查询基类、Redis cache/LRU 降级、Go forward migration runner 和 `cmd/migrate`；从 Python Alembic head 生成 `0001_initial_schema.up.sql`；本地 `math_platform` 已清库并由 Go 迁移重建，重复迁移和迁移集成测试通过。
 - P3 完成：新增 Go 用户领域模型、Auth service、bcrypt 密码策略、Python 兼容 HMAC JWT、refresh token Cookie 轮换、登录失败锁定、用户上下文/角色判断、PostgreSQL 用户仓储、`/api/v1/auth/*` 核心路由和启动期管理员初始化。
+
+### 2026-04-25
+
+- P4 核心学习域开始：优先迁移 `/api/v1/progress/*` 学生端进度查询链路，避开 LLM 画像生成和流式会话等后续高耦合能力。
+- P4 `/progress` 首轮完成：新增 Go progress application service、PostgreSQL read repository 和 HTTP handler，承接 overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters；`go test ./... -count=1` 和 `go vet ./...` 通过。

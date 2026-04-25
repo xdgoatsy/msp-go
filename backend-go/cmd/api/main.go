@@ -10,8 +10,10 @@ import (
 	"syscall"
 
 	authhttp "mathstudy/backend-go/internal/adapter/http/auth"
+	progresshttp "mathstudy/backend-go/internal/adapter/http/progress"
 	adapterpostgres "mathstudy/backend-go/internal/adapter/postgres"
 	authapp "mathstudy/backend-go/internal/application/auth"
+	progressapp "mathstudy/backend-go/internal/application/progress"
 	"mathstudy/backend-go/internal/platform/config"
 	"mathstudy/backend-go/internal/platform/health"
 	"mathstudy/backend-go/internal/platform/httpserver"
@@ -76,6 +78,21 @@ func main() {
 		logger.Error("configure auth handler", "error", err)
 		os.Exit(1)
 	}
+	progressRepo, err := adapterpostgres.NewProgressRepository(dbPool)
+	if err != nil {
+		logger.Error("configure progress repository", "error", err)
+		os.Exit(1)
+	}
+	progressService, err := progressapp.NewService(progressRepo)
+	if err != nil {
+		logger.Error("configure progress service", "error", err)
+		os.Exit(1)
+	}
+	progressHandler, err := progresshttp.NewHandler(logger, progressService, authService)
+	if err != nil {
+		logger.Error("configure progress handler", "error", err)
+		os.Exit(1)
+	}
 
 	store := metrics.NewStore(cfg.AppVersion, cfg.Environment)
 	checker := health.NewChecker(cfg.AppVersion, dbPool, health.RedisPingerFunc(func(ctx context.Context) error {
@@ -89,6 +106,7 @@ func main() {
 		store,
 		httpserver.WithRoutes(func(mux *http.ServeMux) {
 			authHandler.Register(mux, cfg.APIV1Prefix+"/auth")
+			progressHandler.Register(mux, cfg.APIV1Prefix+"/progress")
 		}),
 	)
 	if err != nil {
