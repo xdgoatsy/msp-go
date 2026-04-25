@@ -10,9 +10,11 @@ import (
 	"syscall"
 
 	authhttp "mathstudy/backend-go/internal/adapter/http/auth"
+	portraithttp "mathstudy/backend-go/internal/adapter/http/portrait"
 	progresshttp "mathstudy/backend-go/internal/adapter/http/progress"
 	adapterpostgres "mathstudy/backend-go/internal/adapter/postgres"
 	authapp "mathstudy/backend-go/internal/application/auth"
+	portraitapp "mathstudy/backend-go/internal/application/portrait"
 	progressapp "mathstudy/backend-go/internal/application/progress"
 	"mathstudy/backend-go/internal/platform/config"
 	"mathstudy/backend-go/internal/platform/health"
@@ -93,6 +95,21 @@ func main() {
 		logger.Error("configure progress handler", "error", err)
 		os.Exit(1)
 	}
+	portraitRepo, err := adapterpostgres.NewPortraitRepository(dbPool)
+	if err != nil {
+		logger.Error("configure portrait repository", "error", err)
+		os.Exit(1)
+	}
+	portraitService, err := portraitapp.NewService(portraitRepo)
+	if err != nil {
+		logger.Error("configure portrait service", "error", err)
+		os.Exit(1)
+	}
+	portraitHandler, err := portraithttp.NewHandler(logger, portraitService, authService)
+	if err != nil {
+		logger.Error("configure portrait handler", "error", err)
+		os.Exit(1)
+	}
 
 	store := metrics.NewStore(cfg.AppVersion, cfg.Environment)
 	checker := health.NewChecker(cfg.AppVersion, dbPool, health.RedisPingerFunc(func(ctx context.Context) error {
@@ -107,6 +124,7 @@ func main() {
 		httpserver.WithRoutes(func(mux *http.ServeMux) {
 			authHandler.Register(mux, cfg.APIV1Prefix+"/auth")
 			progressHandler.Register(mux, cfg.APIV1Prefix+"/progress")
+			portraitHandler.Register(mux, cfg.APIV1Prefix+"/portrait")
 		}),
 	)
 	if err != nil {

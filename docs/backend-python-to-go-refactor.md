@@ -406,7 +406,7 @@ backend-go/
 | P2 | `/exercise` | TODO | 练习提交和诊断链路 |
 | P2 | `/mistakes` | TODO | 错题本链路 |
 | P2 | `/progress` | DONE | Go P4 首轮已承接 overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters |
-| P2 | `/portrait` | TODO | 学生画像 |
+| P2 | `/portrait` | DONE | Go P4 已承接读取、清除和模板画像生成；LLM 画像质量等价留到 P6 AI 能力收敛 |
 | P3 | `/questions` | TODO | 教师题库 |
 | P3 | `/resources` | TODO | 资源中心和收藏 |
 | P3 | `/classes` | TODO | 班级管理 |
@@ -565,9 +565,9 @@ pytest
 - 完成日期：TODO
 - 负责人：Codex
 - 验证命令（阶段进行中）：`gofmt -w ...`、`go test ./... -count=1`、`go vet ./...`
-- 验证结果（阶段进行中）：Go 全量单元/契约测试通过；Go vet 通过；覆盖 `/progress` 鉴权、overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters 的应用层和 HTTP 层主要路径
-- 交付物链接：`backend-go/internal/application/progress/`、`backend-go/internal/adapter/http/progress/`、`backend-go/internal/adapter/postgres/progress_repository.go`、`backend-go/cmd/api/main.go`（进行中）
-- 遗留风险：`/session`、`/exercise`、`/mistakes`、`/portrait` 尚未迁移；`/progress` 仍需在可用 PostgreSQL 测试库中补充 Repository 集成测试，并在 P8 做 Python/Go 双跑契约验证
+- 验证结果（阶段进行中）：Go 全量单元/契约测试通过；Go vet 通过；覆盖 `/progress` 鉴权、overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters 的应用层和 HTTP 层主要路径；覆盖 `/portrait` 鉴权、读取、清除和模板画像生成的应用层与 HTTP 层主要路径
+- 交付物链接：`backend-go/internal/application/progress/`、`backend-go/internal/adapter/http/progress/`、`backend-go/internal/adapter/postgres/progress_repository.go`、`backend-go/internal/application/portrait/`、`backend-go/internal/adapter/http/portrait/`、`backend-go/internal/adapter/postgres/portrait_repository.go`、`backend-go/cmd/api/main.go`（进行中）
+- 遗留风险：`/session`、`/exercise`、`/mistakes` 尚未迁移；`/portrait/generate` 当前由 Go 模板报告生成承接，尚未恢复 Python 侧 LLM 画像质量，需在 P6 AI 能力中替换或补充双跑验证；`/progress` 和 `/portrait` 仍需在可用 PostgreSQL 测试库中补充 Repository 集成测试，并在 P8 做 Python/Go 双跑契约验证
 
 ### 12.6 P5 内容与教学管理域
 
@@ -652,3 +652,4 @@ pytest
 
 - P4 核心学习域开始：优先迁移 `/api/v1/progress/*` 学生端进度查询链路，避开 LLM 画像生成和流式会话等后续高耦合能力。
 - P4 `/progress` 首轮完成：新增 Go progress application service、PostgreSQL read repository 和 HTTP handler，承接 overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters；`go test ./... -count=1` 和 `go vet ./...` 通过。
+- P4 `/portrait` 首轮完成：新增 Go portrait application service、PostgreSQL repository 和 HTTP handler，承接 GET `/portrait`、POST `/portrait/generate`、DELETE `/portrait`；生成入口先产出基于学习数据的模板画像，LLM 画像质量等价留到 P6；`go test ./... -count=1` 通过。
