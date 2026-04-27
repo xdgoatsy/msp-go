@@ -15,6 +15,7 @@ import (
 	mistakehttp "mathstudy/backend-go/internal/adapter/http/mistake"
 	portraithttp "mathstudy/backend-go/internal/adapter/http/portrait"
 	progresshttp "mathstudy/backend-go/internal/adapter/http/progress"
+	questionhttp "mathstudy/backend-go/internal/adapter/http/question"
 	resourcehttp "mathstudy/backend-go/internal/adapter/http/resource"
 	sessionhttp "mathstudy/backend-go/internal/adapter/http/session"
 	adapterpostgres "mathstudy/backend-go/internal/adapter/postgres"
@@ -24,6 +25,7 @@ import (
 	mistakeapp "mathstudy/backend-go/internal/application/mistake"
 	portraitapp "mathstudy/backend-go/internal/application/portrait"
 	progressapp "mathstudy/backend-go/internal/application/progress"
+	questionapp "mathstudy/backend-go/internal/application/question"
 	resourceapp "mathstudy/backend-go/internal/application/resource"
 	sessionapp "mathstudy/backend-go/internal/application/session"
 	"mathstudy/backend-go/internal/platform/config"
@@ -180,6 +182,21 @@ func main() {
 		logger.Error("configure resource handler", "error", err)
 		os.Exit(1)
 	}
+	questionRepo, err := adapterpostgres.NewQuestionRepository(dbPool)
+	if err != nil {
+		logger.Error("configure question repository", "error", err)
+		os.Exit(1)
+	}
+	questionService, err := questionapp.NewService(questionRepo)
+	if err != nil {
+		logger.Error("configure question service", "error", err)
+		os.Exit(1)
+	}
+	questionHandler, err := questionhttp.NewHandler(logger, questionService, authService)
+	if err != nil {
+		logger.Error("configure question handler", "error", err)
+		os.Exit(1)
+	}
 	classRepo, err := adapterpostgres.NewClassRepository(dbPool)
 	if err != nil {
 		logger.Error("configure class repository", "error", err)
@@ -214,6 +231,7 @@ func main() {
 			exerciseHandler.Register(mux, cfg.APIV1Prefix+"/exercise")
 			sessionHandler.Register(mux, cfg.APIV1Prefix+"/session")
 			resourceHandler.Register(mux, cfg.APIV1Prefix+"/resources")
+			questionHandler.Register(mux, cfg.APIV1Prefix+"/questions")
 			classHandler.Register(mux, cfg.APIV1Prefix+"/classes")
 		}),
 	)

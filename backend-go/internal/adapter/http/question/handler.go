@@ -1,0 +1,583 @@
+package questionhttp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	authapp "mathstudy/backend-go/internal/application/auth"
+	questionapp "mathstudy/backend-go/internal/application/question"
+)
+
+// Service is the question application surface used by HTTP handlers.
+type Service interface {
+	ListQuestions(context.Context, string, questionapp.ListFilter) (questionapp.ListResponse, error)
+	GetQuestion(context.Context, string, string) (questionapp.Question, error)
+	CreateQuestion(context.Context, string, questionapp.QuestionInput) (questionapp.Question, error)
+	UpdateQuestion(context.Context, string, string, questionapp.QuestionUpdate) (questionapp.Question, error)
+	DeleteQuestion(context.Context, string, string) error
+	GetGroups(context.Context, string) (questionapp.GroupsResponse, error)
+	GetStats(context.Context, string) (questionapp.Stats, error)
+	BatchPublish(context.Context, string, []string) (questionapp.BatchOperationResponse, error)
+	BatchDelete(context.Context, string, []string) (questionapp.BatchOperationResponse, error)
+	BatchDuplicate(context.Context, string, []string) (questionapp.BatchOperationResponse, error)
+	BatchImport(context.Context, string, []questionapp.QuestionInput) (questionapp.BatchOperationResponse, error)
+	ParseQuestions(context.Context, []string) (questionapp.AIParseResponse, error)
+}
+
+// Authenticator decodes Go/Python-compatible access tokens.
+type Authenticator interface {
+	DecodeAccessToken(string) (authapp.Principal, bool)
+}
+
+// Handler serves /questions endpoints.
+type Handler struct {
+	service Service
+	auth    Authenticator
+	logger  *slog.Logger
+}
+
+// NewHandler creates a question HTTP handler.
+func NewHandler(logger *slog.Logger, service Service, auth Authenticator) (*Handler, error) {
+	if service == nil {
+		return nil, errors.New("question service is nil")
+	}
+	if auth == nil {
+		return nil, errors.New("question authenticator is nil")
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Handler{service: service, auth: auth, logger: logger}, nil
+}
+
+// Register attaches question routes under prefix, for example /api/v1/questions.
+func (h *Handler) Register(mux *http.ServeMux, prefix string) {
+	mux.HandleFunc("POST "+prefix, h.create)
+	mux.HandleFunc("GET "+prefix, h.list)
+	mux.HandleFunc("GET "+prefix+"/groups", h.groups)
+	mux.HandleFunc("GET "+prefix+"/stats", h.stats)
+	mux.HandleFunc("POST "+prefix+"/batch/publish", h.batchPublish)
+	mux.HandleFunc("POST "+prefix+"/batch/delete", h.batchDelete)
+	mux.HandleFunc("POST "+prefix+"/batch/duplicate", h.batchDuplicate)
+	mux.HandleFunc("POST "+prefix+"/batch/import", h.batchImport)
+	mux.HandleFunc("POST "+prefix+"/ai-parse", h.aiParse)
+	mux.HandleFunc("GET "+prefix+"/{question_id}", h.detail)
+	mux.HandleFunc("PUT "+prefix+"/{question_id}", h.update)
+	mux.HandleFunc("DELETE "+prefix+"/{question_id}", h.delete)
+}
+
+type createRequest struct {
+	Title                string    `json:"title"`
+	Body                 string    `json:"body"`
+	Type                 string    `json:"type"`
+	Difficulty           *float64  `json:"difficulty"`
+	ConceptIDs           []string  `json:"concept_ids"`
+	Tags                 []string  `json:"tags"`
+	Answer               *string   `json:"answer"`
+	AnswerType           string    `json:"answer_type"`
+	Hints                []string  `json:"hints"`
+	SolutionSteps        []string  `json:"solution_steps"`
+	Options              *[]string `json:"options"`
+	EstimatedTimeSeconds *int      `json:"estimated_time_seconds"`
+}
+
+type updateRequest struct {
+	Title                *string   `json:"title"`
+	Body                 *string   `json:"body"`
+	Type                 *string   `json:"type"`
+	Difficulty           *float64  `json:"difficulty"`
+	ConceptIDs           *[]string `json:"concept_ids"`
+	Tags                 *[]string `json:"tags"`
+	Answer               *string   `json:"answer"`
+	AnswerType           *string   `json:"answer_type"`
+	Hints                *[]string `json:"hints"`
+	SolutionSteps        *[]string `json:"solution_steps"`
+	Options              *[]string `json:"options"`
+	EstimatedTimeSeconds *int      `json:"estimated_time_seconds"`
+	Status               *string   `json:"status"`
+}
+
+type batchRequest struct {
+	QuestionIDs []string `json:"question_ids"`
+}
+
+type batchImportRequest struct {
+	Questions []createRequest `json:"questions"`
+}
+
+type aiParseRequest struct {
+	RawTexts []string `json:"raw_texts"`
+}
+
+type errorResponse struct {
+	Detail  string `json:"detail"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	filter, ok := parseListFilter(w, r)
+	if !ok {
+		return
+	}
+	response, err := h.service.ListQuestions(r.Context(), principal.UserID, filter)
+	if err != nil {
+		h.logger.Error("list questions failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取题目列表失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) groups(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	response, err := h.service.GetGroups(r.Context(), principal.UserID)
+	if err != nil {
+		h.logger.Error("get question groups failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取题目分组失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	response, err := h.service.GetStats(r.Context(), principal.UserID)
+	if err != nil {
+		h.logger.Error("get question stats failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取题目统计失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	response, err := h.service.GetQuestion(r.Context(), principal.UserID, r.PathValue("question_id"))
+	if err != nil {
+		if errors.Is(err, questionapp.ErrForbidden) {
+			writeQuestionError(w, http.StatusForbidden, "FORBIDDEN", "无权访问此题目")
+			return
+		}
+		if errors.Is(err, questionapp.ErrNotFound) {
+			writeQuestionError(w, http.StatusNotFound, "NOT_FOUND", "题目不存在或无权访问")
+			return
+		}
+		h.logger.Error("get question failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取题目详情失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	var request createRequest
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	input, ok := request.toInput(w)
+	if !ok {
+		return
+	}
+	response, err := h.service.CreateQuestion(r.Context(), principal.UserID, input)
+	if err != nil {
+		h.logger.Error("create question failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "创建题目失败")
+		return
+	}
+	writeJSON(w, http.StatusCreated, response)
+}
+
+func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	var request updateRequest
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	update, ok := request.toUpdate(w)
+	if !ok {
+		return
+	}
+	response, err := h.service.UpdateQuestion(r.Context(), principal.UserID, r.PathValue("question_id"), update)
+	if err != nil {
+		if errors.Is(err, questionapp.ErrForbidden) {
+			writeQuestionError(w, http.StatusForbidden, "FORBIDDEN", "无权修改此题目")
+			return
+		}
+		if errors.Is(err, questionapp.ErrNotFound) {
+			writeQuestionError(w, http.StatusNotFound, "NOT_FOUND", "题目不存在或无权修改")
+			return
+		}
+		h.logger.Error("update question failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "更新题目失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	err := h.service.DeleteQuestion(r.Context(), principal.UserID, r.PathValue("question_id"))
+	if err != nil {
+		if errors.Is(err, questionapp.ErrForbidden) {
+			writeQuestionError(w, http.StatusForbidden, "FORBIDDEN", "无权删除此题目")
+			return
+		}
+		if errors.Is(err, questionapp.ErrNotFound) {
+			writeQuestionError(w, http.StatusNotFound, "NOT_FOUND", "题目不存在或无权删除")
+			return
+		}
+		h.logger.Error("delete question failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "删除题目失败")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) batchPublish(w http.ResponseWriter, r *http.Request) {
+	h.batchOperation(w, r, h.service.BatchPublish, "批量发布失败")
+}
+
+func (h *Handler) batchDelete(w http.ResponseWriter, r *http.Request) {
+	h.batchOperation(w, r, h.service.BatchDelete, "批量删除失败")
+}
+
+func (h *Handler) batchDuplicate(w http.ResponseWriter, r *http.Request) {
+	h.batchOperation(w, r, h.service.BatchDuplicate, "批量复制失败")
+}
+
+func (h *Handler) batchOperation(w http.ResponseWriter, r *http.Request, fn func(context.Context, string, []string) (questionapp.BatchOperationResponse, error), fallback string) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	var request batchRequest
+	if !decodeRequest(w, r, &request) || !validateBatchIDs(w, request.QuestionIDs) {
+		return
+	}
+	response, err := fn(r.Context(), principal.UserID, request.QuestionIDs)
+	if err != nil {
+		if errors.Is(err, questionapp.ErrBadRequest) {
+			writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "question_ids 长度必须在 1 到 100 之间")
+			return
+		}
+		h.logger.Error("question batch operation failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) batchImport(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	var request batchImportRequest
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	if len(request.Questions) < 1 || len(request.Questions) > 200 {
+		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "questions 长度必须在 1 到 200 之间")
+		return
+	}
+	inputs := make([]questionapp.QuestionInput, 0, len(request.Questions))
+	for _, item := range request.Questions {
+		input, ok := item.toInput(w)
+		if !ok {
+			return
+		}
+		inputs = append(inputs, input)
+	}
+	response, err := h.service.BatchImport(r.Context(), principal.UserID, inputs)
+	if err != nil {
+		if errors.Is(err, questionapp.ErrBadRequest) {
+			writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "questions 长度必须在 1 到 200 之间")
+			return
+		}
+		h.logger.Error("batch import questions failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "批量导入失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) aiParse(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	_ = principal
+	var request aiParseRequest
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	if len(request.RawTexts) < 1 || len(request.RawTexts) > 10 {
+		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "raw_texts 长度必须在 1 到 10 之间")
+		return
+	}
+	for index, text := range request.RawTexts {
+		if len(text) > 3000 {
+			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "第 "+strconv.Itoa(index+1)+" 段文本超过 3000 字符限制")
+			return
+		}
+	}
+	response, err := h.service.ParseQuestions(r.Context(), request.RawTexts)
+	if err != nil {
+		if errors.Is(err, questionapp.ErrBadRequest) {
+			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "AI 题目识别输入不合法")
+			return
+		}
+		h.logger.Error("parse questions failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "AI 题目识别失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) requireTeacher(w http.ResponseWriter, r *http.Request) (authapp.Principal, bool) {
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	fields := strings.Fields(authHeader)
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeQuestionError(w, http.StatusUnauthorized, "UNAUTHORIZED", "未认证，请先登录")
+		return authapp.Principal{}, false
+	}
+	principal, ok := h.auth.DecodeAccessToken(fields[1])
+	if !ok {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeQuestionError(w, http.StatusUnauthorized, "UNAUTHORIZED", "未认证，请先登录")
+		return authapp.Principal{}, false
+	}
+	if !authapp.IsTeacherOrAdmin(principal) {
+		writeQuestionError(w, http.StatusForbidden, "FORBIDDEN", "权限不足，需要教师权限")
+		return authapp.Principal{}, false
+	}
+	return principal, true
+}
+
+func parseListFilter(w http.ResponseWriter, r *http.Request) (questionapp.ListFilter, bool) {
+	page, ok := parseIntQuery(w, r.URL.Query().Get("page"), 1, "page")
+	if !ok {
+		return questionapp.ListFilter{}, false
+	}
+	pageSize, ok := parseIntQuery(w, r.URL.Query().Get("page_size"), 20, "page_size")
+	if !ok {
+		return questionapp.ListFilter{}, false
+	}
+	if page < 1 {
+		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "page 必须大于等于 1")
+		return questionapp.ListFilter{}, false
+	}
+	if pageSize < 1 || pageSize > 100 {
+		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "page_size 必须在 1 到 100 之间")
+		return questionapp.ListFilter{}, false
+	}
+	query := r.URL.Query()
+	return questionapp.ListFilter{
+		Page:       page,
+		PageSize:   pageSize,
+		Search:     query.Get("search"),
+		Difficulty: query.Get("difficulty"),
+		Type:       query.Get("type"),
+		Status:     query.Get("status"),
+		Tags:       parseStringArrayQuery(r, "tags"),
+		Group:      query.Get("group"),
+		SortBy:     query.Get("sort_by"),
+		SortOrder:  query.Get("sort_order"),
+	}, true
+}
+
+func parseIntQuery(w http.ResponseWriter, value string, fallback int, name string) (int, bool) {
+	if value == "" {
+		return fallback, true
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
+		return 0, false
+	}
+	return parsed, true
+}
+
+func parseStringArrayQuery(r *http.Request, name string) []string {
+	values := append([]string{}, r.URL.Query()[name]...)
+	values = append(values, r.URL.Query()[name+"[]"]...)
+	result := []string{}
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				result = append(result, part)
+			}
+		}
+	}
+	return result
+}
+
+func (r createRequest) toInput(w http.ResponseWriter) (questionapp.QuestionInput, bool) {
+	if !validateRequiredString(w, r.Title, 1, 500, "title") ||
+		!validateRequiredString(w, r.Body, 1, 0, "body") ||
+		!validateRequiredField(w, r.Answer, "answer") ||
+		!validateDifficulty(w, r.Difficulty) ||
+		!validateEstimatedSeconds(w, r.EstimatedTimeSeconds) {
+		return questionapp.QuestionInput{}, false
+	}
+	difficulty := 0.5
+	if r.Difficulty != nil {
+		difficulty = *r.Difficulty
+	}
+	estimated := 300
+	if r.EstimatedTimeSeconds != nil {
+		estimated = *r.EstimatedTimeSeconds
+	}
+	return questionapp.QuestionInput{
+		Title:                r.Title,
+		Body:                 r.Body,
+		Type:                 r.Type,
+		Difficulty:           difficulty,
+		ConceptIDs:           r.ConceptIDs,
+		Tags:                 r.Tags,
+		Answer:               *r.Answer,
+		AnswerType:           r.AnswerType,
+		Hints:                r.Hints,
+		SolutionSteps:        r.SolutionSteps,
+		Options:              r.Options,
+		EstimatedTimeSeconds: estimated,
+	}, true
+}
+
+func (r updateRequest) toUpdate(w http.ResponseWriter) (questionapp.QuestionUpdate, bool) {
+	if r.Title != nil && !validateRequiredString(w, *r.Title, 1, 500, "title") {
+		return questionapp.QuestionUpdate{}, false
+	}
+	if r.Body != nil && !validateRequiredString(w, *r.Body, 1, 0, "body") {
+		return questionapp.QuestionUpdate{}, false
+	}
+	if !validateDifficulty(w, r.Difficulty) || !validateEstimatedSeconds(w, r.EstimatedTimeSeconds) {
+		return questionapp.QuestionUpdate{}, false
+	}
+	if r.Status != nil && !validStatus(*r.Status) {
+		writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "无效的状态值: "+*r.Status)
+		return questionapp.QuestionUpdate{}, false
+	}
+	return questionapp.QuestionUpdate{
+		Title:                r.Title,
+		Body:                 r.Body,
+		Type:                 r.Type,
+		Difficulty:           r.Difficulty,
+		ConceptIDs:           r.ConceptIDs,
+		Tags:                 r.Tags,
+		Answer:               r.Answer,
+		AnswerType:           r.AnswerType,
+		Hints:                r.Hints,
+		SolutionSteps:        r.SolutionSteps,
+		Options:              r.Options,
+		EstimatedTimeSeconds: r.EstimatedTimeSeconds,
+		Status:               r.Status,
+	}, true
+}
+
+func validateRequiredString(w http.ResponseWriter, value string, min int, max int, name string) bool {
+	length := len(strings.TrimSpace(value))
+	if length < min {
+		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 不能为空")
+		return false
+	}
+	if max > 0 && length > max {
+		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 长度超出限制")
+		return false
+	}
+	return true
+}
+
+func validateRequiredField(w http.ResponseWriter, value *string, name string) bool {
+	if value != nil {
+		return true
+	}
+	writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 为必填字段")
+	return false
+}
+
+func validateDifficulty(w http.ResponseWriter, value *float64) bool {
+	if value == nil {
+		return true
+	}
+	if *value < 0 || *value > 1 {
+		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "difficulty 必须在 0 到 1 之间")
+		return false
+	}
+	return true
+}
+
+func validateEstimatedSeconds(w http.ResponseWriter, value *int) bool {
+	if value == nil || *value >= 0 {
+		return true
+	}
+	writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "estimated_time_seconds 必须大于等于 0")
+	return false
+}
+
+func validateBatchIDs(w http.ResponseWriter, ids []string) bool {
+	if len(ids) >= 1 && len(ids) <= 100 {
+		return true
+	}
+	writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "question_ids 长度必须在 1 到 100 之间")
+	return false
+}
+
+func validStatus(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "draft", "published", "archived":
+		return true
+	default:
+		return false
+	}
+}
+
+func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
+	if err := decoder.Decode(target); err != nil {
+		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
+		return false
+	}
+	return true
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeQuestionError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, errorResponse{Detail: message, Code: code, Message: message})
+}

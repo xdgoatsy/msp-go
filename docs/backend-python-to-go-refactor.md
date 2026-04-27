@@ -1,6 +1,6 @@
 # 后端 Python 到 Go 重构迁移文档
 
-**文档状态**：P4 核心学习域进行中，P5 内容与教学管理域进行中（资源中心、班级管理已迁移）
+**文档状态**：P4 核心学习域进行中，P5 内容与教学管理域进行中（资源中心、班级管理、题库已迁移）
 **最后更新**：2026-04-27
 **适用范围**：`backend/` Python FastAPI 后端整体迁移到 Go 后端
 **重构原则**：接口兼容、数据连续、分阶段验收、每阶段完成必须更新本文档
@@ -407,7 +407,7 @@ backend-go/
 | P2 | `/mistakes` | DONE | Go P4 已承接列表、统计、详情、标记掌握、删除和复习推荐 |
 | P2 | `/progress` | DONE | Go P4 首轮已承接 overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters |
 | P2 | `/portrait` | DONE | Go P4 已承接读取、清除和模板画像生成；LLM 画像质量等价留到 P6 AI 能力收敛 |
-| P3 | `/questions` | TODO | 教师题库 |
+| P3 | `/questions` | DONE | Go P5 已承接题目 CRUD、列表/分组/统计、批量发布/删除/复制、批量导入；`/ai-parse` 先提供非 LLM 形状兼容占位，质量等价留到 P6 |
 | P3 | `/resources` | DONE | Go P5 已承接资源列表、详情、创建、更新、软删除、统计、收藏列表和收藏切换；上传/对象存储仍归 P7 `/upload` |
 | P3 | `/classes` | DONE | Go P5 已承接教师创建/列表/详情/移除学生/解散班级，以及学生查询、加入、退出、当前班级 |
 | P3 | `/teacher` | TODO | 教师统计 |
@@ -576,9 +576,9 @@ pytest
 - 完成日期：TODO
 - 负责人：Codex
 - 验证命令（阶段进行中）：`gofmt -w ...`、`go test ./... -count=1`、`go vet ./...`、`go test ./internal/adapter/postgres -run TestClassRepositoryIntegration -count=1 -v`
-- 验证结果（阶段进行中）：Go 全量单元/契约测试通过；Go vet 通过；覆盖 `/resources` 鉴权、列表筛选/分页、详情、教师权限校验、创建默认值、统计/收藏字面量路由、404 映射和软删除响应；PostgreSQL adapter 编译通过并实现 `contents`、`content_assets`、`user_favorites` 的资源中心读写语义。覆盖 `/classes` 鉴权、教师创建/列表/详情/移除学生/解散班级、学生 lookup/join/leave/me、班级号规范化、角色限制、404/409/422 映射；PostgreSQL adapter 编译通过并实现 `classes`、`class_enrollments`、`users` 的班级管理读写语义，解散班级时显式先删成员再删班级以保持外键兼容；`TestClassRepositoryIntegration` 已补充真实 PostgreSQL 验证入口，本轮未设置 `MSP_GO_TEST_DATABASE_URL` 时按预期跳过。
-- 交付物链接：`backend-go/internal/application/resource/`、`backend-go/internal/adapter/http/resource/`、`backend-go/internal/adapter/postgres/resource_repository.go`、`backend-go/internal/application/classroom/`、`backend-go/internal/adapter/http/classroom/`、`backend-go/internal/adapter/postgres/class_repository.go`、`backend-go/cmd/api/main.go`（进行中）
-- 遗留风险：`/questions`、`/teacher`、`/admin/knowledge` 仍未由 Go 承接；`/resources` 仍需补充 Repository 集成测试；`/classes` 仓储集成测试入口已补充但本轮未连接真实 PostgreSQL 测试库执行；上述模块仍需在 P8 做 Python/Go 双跑契约验证；资源文件上传和对象存储能力不属于本切片，仍留到 P7 `/upload`。
+- 验证结果（阶段进行中）：Go 全量单元/契约测试通过；Go vet 通过；覆盖 `/resources` 鉴权、列表筛选/分页、详情、教师权限校验、创建默认值、统计/收藏字面量路由、404 映射和软删除响应；PostgreSQL adapter 编译通过并实现 `contents`、`content_assets`、`user_favorites` 的资源中心读写语义。覆盖 `/classes` 鉴权、教师创建/列表/详情/移除学生/解散班级、学生 lookup/join/leave/me、班级号规范化、角色限制、404/409/422 映射；PostgreSQL adapter 编译通过并实现 `classes`、`class_enrollments`、`users` 的班级管理读写语义，解散班级时显式先删成员再删班级以保持外键兼容；`TestClassRepositoryIntegration` 已补充真实 PostgreSQL 验证入口，本轮未设置 `MSP_GO_TEST_DATABASE_URL` 时按预期跳过。覆盖 `/questions` 鉴权、列表筛选/分页/排序、分组、统计、详情、创建、更新、软删除、批量发布/删除/复制、批量导入和 `/ai-parse` 形状兼容占位；PostgreSQL adapter 编译通过并实现 `contents`、`content_attempts`、`knowledge_nodes`、`content_audit`、`outbox_events` 的题库读写语义。
+- 交付物链接：`backend-go/internal/application/resource/`、`backend-go/internal/adapter/http/resource/`、`backend-go/internal/adapter/postgres/resource_repository.go`、`backend-go/internal/application/classroom/`、`backend-go/internal/adapter/http/classroom/`、`backend-go/internal/adapter/postgres/class_repository.go`、`backend-go/internal/application/question/`、`backend-go/internal/adapter/http/question/`、`backend-go/internal/adapter/postgres/question_repository.go`、`backend-go/cmd/api/main.go`（进行中）
+- 遗留风险：`/teacher`、`/admin/knowledge` 仍未由 Go 承接；`/questions/ai-parse` 当前是非 LLM 形状兼容占位，AI 识别质量等价留到 P6；`/resources` 和 `/questions` 仍需补充真实 PostgreSQL Repository 集成测试；`/classes` 仓储集成测试入口已补充但本轮未连接真实 PostgreSQL 测试库执行；上述模块仍需在 P8 做 Python/Go 双跑契约验证；资源文件上传和对象存储能力不属于本切片，仍留到 P7 `/upload`。
 
 ### 12.7 P6 AI 与 Agent 能力
 
@@ -665,3 +665,4 @@ pytest
 ### 2026-04-27
 
 - P5 `/classes` 首轮完成：新增 Go classroom application service、PostgreSQL repository 和 HTTP handler，承接教师创建班级、班级列表、班级详情、移除学生、解散班级，以及学生班级号查询、加入班级、退出班级、当前班级查询；保持 `classes`、`class_enrollments` 存储语义和教师/学生角色限制；`go test ./... -count=1` 和 `go vet ./...` 通过；`TestClassRepositoryIntegration` 已补充真实 PostgreSQL 验证入口，当前未设置 `MSP_GO_TEST_DATABASE_URL` 时按预期跳过。
+- P5 `/questions` 首轮完成：新增 Go question application service、PostgreSQL repository 和 HTTP handler，承接题目 CRUD、列表、分组、统计、批量发布、批量删除、批量复制和批量导入；保持 `contents` 中 `PROBLEM` 类型、题型/答案信息写入 `meta`、使用统计来自 `content_attempts`、标题自动匹配 `knowledge_nodes` 的 Python 存储语义；`/questions/ai-parse` 先提供非 LLM 形状兼容占位，LLM 解析质量留到 P6；`go test ./... -count=1` 和 `go vet ./...` 通过。
