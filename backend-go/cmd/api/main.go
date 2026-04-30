@@ -12,22 +12,26 @@ import (
 	authhttp "mathstudy/backend-go/internal/adapter/http/auth"
 	classroomhttp "mathstudy/backend-go/internal/adapter/http/classroom"
 	exercisehttp "mathstudy/backend-go/internal/adapter/http/exercise"
+	knowledgehttp "mathstudy/backend-go/internal/adapter/http/knowledge"
 	mistakehttp "mathstudy/backend-go/internal/adapter/http/mistake"
 	portraithttp "mathstudy/backend-go/internal/adapter/http/portrait"
 	progresshttp "mathstudy/backend-go/internal/adapter/http/progress"
 	questionhttp "mathstudy/backend-go/internal/adapter/http/question"
 	resourcehttp "mathstudy/backend-go/internal/adapter/http/resource"
 	sessionhttp "mathstudy/backend-go/internal/adapter/http/session"
+	teacherhttp "mathstudy/backend-go/internal/adapter/http/teacher"
 	adapterpostgres "mathstudy/backend-go/internal/adapter/postgres"
 	authapp "mathstudy/backend-go/internal/application/auth"
 	classroomapp "mathstudy/backend-go/internal/application/classroom"
 	exerciseapp "mathstudy/backend-go/internal/application/exercise"
+	knowledgeapp "mathstudy/backend-go/internal/application/knowledge"
 	mistakeapp "mathstudy/backend-go/internal/application/mistake"
 	portraitapp "mathstudy/backend-go/internal/application/portrait"
 	progressapp "mathstudy/backend-go/internal/application/progress"
 	questionapp "mathstudy/backend-go/internal/application/question"
 	resourceapp "mathstudy/backend-go/internal/application/resource"
 	sessionapp "mathstudy/backend-go/internal/application/session"
+	teacherapp "mathstudy/backend-go/internal/application/teacher"
 	"mathstudy/backend-go/internal/platform/config"
 	"mathstudy/backend-go/internal/platform/health"
 	"mathstudy/backend-go/internal/platform/httpserver"
@@ -212,6 +216,36 @@ func main() {
 		logger.Error("configure class handler", "error", err)
 		os.Exit(1)
 	}
+	teacherRepo, err := adapterpostgres.NewTeacherRepository(dbPool)
+	if err != nil {
+		logger.Error("configure teacher repository", "error", err)
+		os.Exit(1)
+	}
+	teacherService, err := teacherapp.NewService(teacherRepo)
+	if err != nil {
+		logger.Error("configure teacher service", "error", err)
+		os.Exit(1)
+	}
+	teacherHandler, err := teacherhttp.NewHandler(logger, teacherService, authService)
+	if err != nil {
+		logger.Error("configure teacher handler", "error", err)
+		os.Exit(1)
+	}
+	knowledgeRepo, err := adapterpostgres.NewKnowledgeRepository(dbPool)
+	if err != nil {
+		logger.Error("configure knowledge repository", "error", err)
+		os.Exit(1)
+	}
+	knowledgeService, err := knowledgeapp.NewService(knowledgeRepo)
+	if err != nil {
+		logger.Error("configure knowledge service", "error", err)
+		os.Exit(1)
+	}
+	knowledgeHandler, err := knowledgehttp.NewHandler(logger, knowledgeService, authService)
+	if err != nil {
+		logger.Error("configure knowledge handler", "error", err)
+		os.Exit(1)
+	}
 
 	store := metrics.NewStore(cfg.AppVersion, cfg.Environment)
 	checker := health.NewChecker(cfg.AppVersion, dbPool, health.RedisPingerFunc(func(ctx context.Context) error {
@@ -233,6 +267,8 @@ func main() {
 			resourceHandler.Register(mux, cfg.APIV1Prefix+"/resources")
 			questionHandler.Register(mux, cfg.APIV1Prefix+"/questions")
 			classHandler.Register(mux, cfg.APIV1Prefix+"/classes")
+			teacherHandler.Register(mux, cfg.APIV1Prefix+"/teacher")
+			knowledgeHandler.Register(mux, cfg.APIV1Prefix+"/admin/knowledge")
 		}),
 	)
 	if err != nil {

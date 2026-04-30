@@ -1,0 +1,1121 @@
+package teacher
+
+import (
+	"context"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+var (
+	// ErrNotFound is returned when a teacher-owned class or student cannot be found.
+	ErrNotFound = errors.New("teacher not found")
+	// ErrBadRequest is returned when a request parameter is outside the supported contract.
+	ErrBadRequest = errors.New("teacher bad request")
+)
+
+var dayLabels = []string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
+
+// Repository is the persistence surface required by teacher analytics use cases.
+type Repository interface {
+	ListTeacherClassIDs(context.Context, string) ([]string, error)
+	ListStudentsInClasses(context.Context, []string) ([]string, error)
+	CountActiveSessionsSince(context.Context, []string, time.Time) (int, error)
+	AverageAttemptScore(context.Context, []string, *time.Time) (float64, bool, error)
+	SumAttemptSeconds(context.Context, []string, *time.Time) (int, error)
+	CountDistinctAttemptStudentsSince(context.Context, []string, time.Time) (int, error)
+	ListProfiles(context.Context, []string) ([]StudentProfile, error)
+	KnowledgeNames(context.Context, []string) (map[string]string, error)
+	WeeklySessionActivity(context.Context, []string, time.Time) (map[string]int, error)
+	TopStudentsByAverageScore(context.Context, []string, int) ([]StudentScore, error)
+	UserDisplayNames(context.Context, []string) (map[string]string, error)
+	ClassOwnedByTeacher(context.Context, string, string) (bool, error)
+	CommonErrors(context.Context, []string, int) ([]CommonErrorAggregate, error)
+	LowScoreStudents(context.Context, []string, float64) (map[string]float64, error)
+	ActiveStudentIDsSince(context.Context, []string, time.Time) (map[string]struct{}, error)
+	StudentEnrollmentForTeacher(context.Context, string, string) (StudentEnrollment, bool, error)
+	GetUser(context.Context, string) (UserInfo, bool, error)
+	GetProfile(context.Context, string) (StudentProfile, bool, error)
+	AverageStudentScore(context.Context, string) (float64, bool, error)
+	RankByAverageScore(context.Context, []string) ([]StudentScore, error)
+	LastSessionStartedAt(context.Context, string) (*time.Time, error)
+	ListSessionDays(context.Context, string) ([]time.Time, error)
+	AttemptConceptCounts(context.Context, string) (map[string]int, error)
+	RecentAttempts(context.Context, string, int) ([]RecentAttempt, error)
+	RecentSessions(context.Context, string, int) ([]RecentSession, error)
+	RecentMistakes(context.Context, string, int) ([]StudentMistake, error)
+}
+
+// StudentProfile mirrors the teacher-facing fields stored in student_profiles.
+type StudentProfile struct {
+	StudentID             string
+	MasteryVector         map[string]float64
+	TotalExercises        int
+	CorrectCount          int
+	TotalStudyTimeMinutes int
+}
+
+// StudentScore stores one student's average score.
+type StudentScore struct {
+	StudentID string
+	AvgScore  float64
+}
+
+// CommonErrorAggregate stores grouped diagnosis errors for a class.
+type CommonErrorAggregate struct {
+	Content   string
+	Count     int
+	Topic     string
+	ErrorType string
+}
+
+// StudentEnrollment stores a teacher-owned student enrollment.
+type StudentEnrollment struct {
+	ClassID   string
+	ClassName string
+	JoinedAt  *time.Time
+}
+
+// UserInfo stores the user fields used by teacher analytics responses.
+type UserInfo struct {
+	ID          string
+	Username    string
+	Email       string
+	DisplayName *string
+}
+
+// RecentAttempt stores one recent content attempt.
+type RecentAttempt struct {
+	ID        string
+	IsCorrect bool
+	Score     float64
+	StartedAt time.Time
+	Title     string
+}
+
+// RecentSession stores one recent learning session.
+type RecentSession struct {
+	ID        string
+	StartedAt time.Time
+	EndedAt   *time.Time
+}
+
+// DashboardStats is returned by /teacher/dashboard/stats.
+type DashboardStats struct {
+	TotalStudents     int     `json:"total_students"`
+	ActiveToday       float64 `json:"active_today"`
+	AvgCompletionRate float64 `json:"avg_completion_rate"`
+	PendingGrading    int     `json:"pending_grading"`
+}
+
+// StudentsStats is returned by /teacher/students/stats.
+type StudentsStats struct {
+	TotalStudents int     `json:"total_students"`
+	AvgScore      float64 `json:"avg_score"`
+	ActiveToday   float64 `json:"active_today"`
+	NeedAttention int     `json:"need_attention"`
+}
+
+// AnalyticsOverview stores the teacher analytics summary cards.
+type AnalyticsOverview struct {
+	TotalStudents     int     `json:"total_students"`
+	AvgCompletionRate float64 `json:"avg_completion_rate"`
+	AvgScore          float64 `json:"avg_score"`
+	AvgStudyHours     float64 `json:"avg_study_hours"`
+}
+
+// KnowledgePointMastery stores aggregate concept mastery.
+type KnowledgePointMastery struct {
+	ConceptID    string  `json:"concept_id"`
+	Name         string  `json:"name"`
+	Mastery      float64 `json:"mastery"`
+	StudentCount int     `json:"student_count"`
+}
+
+// WeeklyActivityItem stores one weekly activity chart point.
+type WeeklyActivityItem struct {
+	Date       string  `json:"date"`
+	DayLabel   string  `json:"day_label"`
+	ActiveRate float64 `json:"active_rate"`
+}
+
+// TopStudentItem stores one top student row.
+type TopStudentItem struct {
+	Rank      int     `json:"rank"`
+	StudentID string  `json:"student_id"`
+	Name      string  `json:"name"`
+	AvgScore  float64 `json:"avg_score"`
+}
+
+// AnalyticsResponse is returned by /teacher/analytics.
+type AnalyticsResponse struct {
+	Overview        AnalyticsOverview       `json:"overview"`
+	KnowledgePoints []KnowledgePointMastery `json:"knowledge_points"`
+	WeeklyActivity  []WeeklyActivityItem    `json:"weekly_activity"`
+	TopStudents     []TopStudentItem        `json:"top_students"`
+}
+
+// ClassAnalyticsStats stores class summary cards.
+type ClassAnalyticsStats struct {
+	AverageMastery   float64 `json:"average_mastery"`
+	AverageScore     float64 `json:"average_score"`
+	WeeklyStudyHours float64 `json:"weekly_study_hours"`
+}
+
+// ClassTopicMastery stores class concept mastery.
+type ClassTopicMastery struct {
+	ConceptID    string  `json:"concept_id"`
+	Topic        string  `json:"topic"`
+	Mastery      float64 `json:"mastery"`
+	StudentCount int     `json:"student_count"`
+}
+
+// ClassCommonError stores a class common error row.
+type ClassCommonError struct {
+	ID        string `json:"id"`
+	Content   string `json:"content"`
+	Count     int    `json:"count"`
+	Topic     string `json:"topic"`
+	ErrorType string `json:"error_type"`
+}
+
+// ClassAlert stores one teacher-facing class alert.
+type ClassAlert struct {
+	ID          string `json:"id"`
+	StudentID   string `json:"student_id"`
+	StudentName string `json:"student_name"`
+	Type        string `json:"type"`
+	Message     string `json:"message"`
+	Severity    string `json:"severity"`
+}
+
+// ClassStudentRank stores a class ranking row.
+type ClassStudentRank struct {
+	StudentID string  `json:"student_id"`
+	Name      string  `json:"name"`
+	AvgScore  float64 `json:"avg_score"`
+}
+
+// ClassAnalyticsResponse is returned by /teacher/classes/{class_id}/analytics.
+type ClassAnalyticsResponse struct {
+	Stats           ClassAnalyticsStats `json:"stats"`
+	TopicMastery    []ClassTopicMastery `json:"topic_mastery"`
+	CommonErrors    []ClassCommonError  `json:"common_errors"`
+	Alerts          []ClassAlert        `json:"alerts"`
+	StudentRankings []ClassStudentRank  `json:"student_rankings"`
+}
+
+// StudentBasicInfo stores the student detail summary.
+type StudentBasicInfo struct {
+	ID                 string  `json:"id"`
+	Name               string  `json:"name"`
+	Username           string  `json:"username"`
+	Email              string  `json:"email"`
+	ClassName          string  `json:"class_name"`
+	JoinedAt           *string `json:"joined_at"`
+	LastActive         *string `json:"last_active"`
+	TotalStudyHours    float64 `json:"total_study_hours"`
+	TotalExercises     int     `json:"total_exercises"`
+	CorrectRate        float64 `json:"correct_rate"`
+	AvgScore           float64 `json:"avg_score"`
+	Rank               int     `json:"rank"`
+	TotalClassStudents int     `json:"total_class_students"`
+	StreakDays         int     `json:"streak_days"`
+}
+
+// StudentTopicMastery stores one student concept mastery row.
+type StudentTopicMastery struct {
+	ConceptID     string  `json:"concept_id"`
+	Topic         string  `json:"topic"`
+	Mastery       float64 `json:"mastery"`
+	ExerciseCount int     `json:"exercise_count"`
+}
+
+// StudentRecentActivity stores one activity feed row.
+type StudentRecentActivity struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	Time    string `json:"time"`
+	Status  string `json:"status"`
+}
+
+// StudentMistake stores one recent mistake row.
+type StudentMistake struct {
+	ID          string  `json:"id"`
+	Content     string  `json:"content"`
+	ErrorType   string  `json:"error_type"`
+	Date        string  `json:"date"`
+	Explanation *string `json:"explanation"`
+}
+
+// StudentDetailResponse is returned by /teacher/students/{student_id}/detail.
+type StudentDetailResponse struct {
+	Student        StudentBasicInfo        `json:"student"`
+	TopicMastery   []StudentTopicMastery   `json:"topic_mastery"`
+	RecentActivity []StudentRecentActivity `json:"recent_activity"`
+	RecentMistakes []StudentMistake        `json:"recent_mistakes"`
+}
+
+// Service implements teacher analytics read use cases.
+type Service struct {
+	repo      Repository
+	now       func() time.Time
+	idFactory func() (string, error)
+}
+
+// NewService creates a teacher service.
+func NewService(repo Repository) (*Service, error) {
+	if repo == nil {
+		return nil, errors.New("teacher repository is nil")
+	}
+	return &Service{
+		repo:      repo,
+		now:       time.Now,
+		idFactory: defaultIDFactory,
+	}, nil
+}
+
+// GetDashboardStats returns teacher dashboard card statistics.
+func (s *Service) GetDashboardStats(ctx context.Context, teacherID string) (DashboardStats, error) {
+	studentIDs, err := s.teacherStudentIDs(ctx, teacherID)
+	if err != nil {
+		return DashboardStats{}, err
+	}
+	total := len(studentIDs)
+	if total == 0 {
+		return DashboardStats{}, nil
+	}
+	active, err := s.repo.CountActiveSessionsSince(ctx, studentIDs, startOfDay(s.now()))
+	if err != nil {
+		return DashboardStats{}, err
+	}
+	return DashboardStats{
+		TotalStudents:     total,
+		ActiveToday:       round1(float64(active) / float64(total) * 100),
+		AvgCompletionRate: 0,
+		PendingGrading:    0,
+	}, nil
+}
+
+// GetStudentsStats returns teacher student-management card statistics.
+func (s *Service) GetStudentsStats(ctx context.Context, teacherID string) (StudentsStats, error) {
+	studentIDs, err := s.teacherStudentIDs(ctx, teacherID)
+	if err != nil {
+		return StudentsStats{}, err
+	}
+	total := len(studentIDs)
+	if total == 0 {
+		return StudentsStats{}, nil
+	}
+	avgScore, ok, err := s.repo.AverageAttemptScore(ctx, studentIDs, nil)
+	if err != nil {
+		return StudentsStats{}, err
+	}
+	if !ok {
+		avgScore = 0
+	}
+	todayActive, err := s.repo.CountActiveSessionsSince(ctx, studentIDs, startOfDay(s.now()))
+	if err != nil {
+		return StudentsStats{}, err
+	}
+	recentActive, err := s.repo.ActiveStudentIDsSince(ctx, studentIDs, s.now().AddDate(0, 0, -7))
+	if err != nil {
+		return StudentsStats{}, err
+	}
+	lowScoreStudents, err := s.repo.LowScoreStudents(ctx, studentIDs, 60)
+	if err != nil {
+		return StudentsStats{}, err
+	}
+	needAttention := map[string]struct{}{}
+	for studentID := range lowScoreStudents {
+		needAttention[studentID] = struct{}{}
+	}
+	for _, studentID := range studentIDs {
+		if _, ok := recentActive[studentID]; !ok {
+			needAttention[studentID] = struct{}{}
+		}
+	}
+	return StudentsStats{
+		TotalStudents: total,
+		AvgScore:      round1(avgScore),
+		ActiveToday:   round1(float64(todayActive) / float64(total) * 100),
+		NeedAttention: len(needAttention),
+	}, nil
+}
+
+// GetAnalytics returns the full teacher analytics page.
+func (s *Service) GetAnalytics(ctx context.Context, teacherID string, timeRange string) (AnalyticsResponse, error) {
+	rangeStart, ok := s.timeRangeStart(timeRange)
+	if !ok {
+		return AnalyticsResponse{}, ErrBadRequest
+	}
+	studentIDs, err := s.teacherStudentIDs(ctx, teacherID)
+	if err != nil {
+		return AnalyticsResponse{}, err
+	}
+	total := len(studentIDs)
+	if total == 0 {
+		return emptyAnalytics(), nil
+	}
+
+	avgScore, scoreOK, err := s.repo.AverageAttemptScore(ctx, studentIDs, &rangeStart)
+	if err != nil {
+		return AnalyticsResponse{}, err
+	}
+	if !scoreOK {
+		avgScore = 0
+	}
+	totalSeconds, err := s.repo.SumAttemptSeconds(ctx, studentIDs, &rangeStart)
+	if err != nil {
+		return AnalyticsResponse{}, err
+	}
+	activeStudents, err := s.repo.CountDistinctAttemptStudentsSince(ctx, studentIDs, rangeStart)
+	if err != nil {
+		return AnalyticsResponse{}, err
+	}
+	profiles, err := s.repo.ListProfiles(ctx, studentIDs)
+	if err != nil {
+		return AnalyticsResponse{}, err
+	}
+	knowledgePoints, err := s.analyticsKnowledgePoints(ctx, profiles)
+	if err != nil {
+		return AnalyticsResponse{}, err
+	}
+	weekly, err := s.weeklyActivity(ctx, studentIDs, total)
+	if err != nil {
+		return AnalyticsResponse{}, err
+	}
+	topStudents, err := s.topStudents(ctx, studentIDs, 5)
+	if err != nil {
+		return AnalyticsResponse{}, err
+	}
+	return AnalyticsResponse{
+		Overview: AnalyticsOverview{
+			TotalStudents:     total,
+			AvgCompletionRate: round1(float64(activeStudents) / float64(total) * 100),
+			AvgScore:          round1(avgScore),
+			AvgStudyHours:     round1(float64(totalSeconds) / float64(maxInt(total, 1)) / 3600),
+		},
+		KnowledgePoints: knowledgePoints,
+		WeeklyActivity:  weekly,
+		TopStudents:     topStudents,
+	}, nil
+}
+
+// GetClassAnalytics returns analytics for a teacher-owned class.
+func (s *Service) GetClassAnalytics(ctx context.Context, teacherID string, classID string) (ClassAnalyticsResponse, error) {
+	owned, err := s.repo.ClassOwnedByTeacher(ctx, teacherID, strings.TrimSpace(classID))
+	if err != nil {
+		return ClassAnalyticsResponse{}, err
+	}
+	if !owned {
+		return ClassAnalyticsResponse{}, ErrNotFound
+	}
+	studentIDs, err := s.repo.ListStudentsInClasses(ctx, []string{classID})
+	if err != nil {
+		return ClassAnalyticsResponse{}, err
+	}
+	total := len(studentIDs)
+	if total == 0 {
+		return emptyClassAnalytics(), nil
+	}
+	profiles, err := s.repo.ListProfiles(ctx, studentIDs)
+	if err != nil {
+		return ClassAnalyticsResponse{}, err
+	}
+	avgScore, scoreOK, err := s.repo.AverageAttemptScore(ctx, studentIDs, nil)
+	if err != nil {
+		return ClassAnalyticsResponse{}, err
+	}
+	if !scoreOK {
+		avgScore = 0
+	}
+	weekStart := s.now().AddDate(0, 0, -7)
+	seconds, err := s.repo.SumAttemptSeconds(ctx, studentIDs, &weekStart)
+	if err != nil {
+		return ClassAnalyticsResponse{}, err
+	}
+	topicMastery, err := s.classTopicMastery(ctx, profiles)
+	if err != nil {
+		return ClassAnalyticsResponse{}, err
+	}
+	commonErrors, err := s.commonErrors(ctx, studentIDs)
+	if err != nil {
+		return ClassAnalyticsResponse{}, err
+	}
+	alerts, err := s.classAlerts(ctx, studentIDs, weekStart)
+	if err != nil {
+		return ClassAnalyticsResponse{}, err
+	}
+	rankings, err := s.classRankings(ctx, studentIDs, 5)
+	if err != nil {
+		return ClassAnalyticsResponse{}, err
+	}
+	return ClassAnalyticsResponse{
+		Stats: ClassAnalyticsStats{
+			AverageMastery:   averageProfileMastery(profiles),
+			AverageScore:     round1(avgScore),
+			WeeklyStudyHours: round1(float64(seconds) / float64(maxInt(total, 1)) / 3600),
+		},
+		TopicMastery:    topicMastery,
+		CommonErrors:    commonErrors,
+		Alerts:          alerts,
+		StudentRankings: rankings,
+	}, nil
+}
+
+// GetStudentDetail returns teacher-facing student detail data.
+func (s *Service) GetStudentDetail(ctx context.Context, teacherID string, studentID string) (StudentDetailResponse, error) {
+	enrollment, ok, err := s.repo.StudentEnrollmentForTeacher(ctx, teacherID, studentID)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	if !ok {
+		return StudentDetailResponse{}, ErrNotFound
+	}
+	userInfo, ok, err := s.repo.GetUser(ctx, studentID)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	if !ok {
+		return StudentDetailResponse{}, ErrNotFound
+	}
+	profile, hasProfile, err := s.repo.GetProfile(ctx, studentID)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	if !hasProfile {
+		profile = StudentProfile{StudentID: studentID, MasteryVector: map[string]float64{}}
+	}
+	avgScore, scoreOK, err := s.repo.AverageStudentScore(ctx, studentID)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	if !scoreOK {
+		avgScore = 0
+	}
+	classStudentIDs, err := s.repo.ListStudentsInClasses(ctx, []string{enrollment.ClassID})
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	rank, err := s.studentRank(ctx, studentID, classStudentIDs)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	lastActive, err := s.repo.LastSessionStartedAt(ctx, studentID)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	streakDays, err := s.streakDays(ctx, studentID)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	topicMastery, err := s.studentTopicMastery(ctx, studentID, profile.MasteryVector)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	recentActivity, err := s.recentActivity(ctx, studentID)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+	recentMistakes, err := s.repo.RecentMistakes(ctx, studentID, 5)
+	if err != nil {
+		return StudentDetailResponse{}, err
+	}
+
+	var joinedAt *string
+	if enrollment.JoinedAt != nil {
+		value := formatDateTime(*enrollment.JoinedAt)
+		joinedAt = &value
+	}
+	var lastActiveText *string
+	if lastActive != nil {
+		value := formatDateTime(*lastActive)
+		lastActiveText = &value
+	}
+	return StudentDetailResponse{
+		Student: StudentBasicInfo{
+			ID:                 userInfo.ID,
+			Name:               displayName(userInfo),
+			Username:           userInfo.Username,
+			Email:              userInfo.Email,
+			ClassName:          enrollment.ClassName,
+			JoinedAt:           joinedAt,
+			LastActive:         lastActiveText,
+			TotalStudyHours:    round1(float64(profile.TotalStudyTimeMinutes) / 60),
+			TotalExercises:     profile.TotalExercises,
+			CorrectRate:        round1(float64(profile.CorrectCount) / float64(maxInt(profile.TotalExercises, 1)) * 100),
+			AvgScore:           round1(avgScore),
+			Rank:               rank,
+			TotalClassStudents: len(classStudentIDs),
+			StreakDays:         streakDays,
+		},
+		TopicMastery:   topicMastery,
+		RecentActivity: recentActivity,
+		RecentMistakes: recentMistakes,
+	}, nil
+}
+
+func (s *Service) teacherStudentIDs(ctx context.Context, teacherID string) ([]string, error) {
+	classIDs, err := s.repo.ListTeacherClassIDs(ctx, teacherID)
+	if err != nil {
+		return nil, err
+	}
+	if len(classIDs) == 0 {
+		return []string{}, nil
+	}
+	studentIDs, err := s.repo.ListStudentsInClasses(ctx, classIDs)
+	if err != nil {
+		return nil, err
+	}
+	return uniqueStrings(studentIDs), nil
+}
+
+func (s *Service) timeRangeStart(timeRange string) (time.Time, bool) {
+	now := s.now()
+	switch strings.ToLower(strings.TrimSpace(timeRange)) {
+	case "", "week":
+		return now.AddDate(0, 0, -7), true
+	case "today":
+		return startOfDay(now), true
+	case "month":
+		return now.AddDate(0, 0, -30), true
+	case "semester":
+		return now.AddDate(0, 0, -180), true
+	default:
+		return time.Time{}, false
+	}
+}
+
+func (s *Service) analyticsKnowledgePoints(ctx context.Context, profiles []StudentProfile) ([]KnowledgePointMastery, error) {
+	agg := aggregateMastery(profiles)
+	names, err := s.repo.KnowledgeNames(ctx, sortedMasteryKeys(agg))
+	if err != nil {
+		return nil, err
+	}
+	rows := sortedMasteryAgg(agg)
+	limit := minInt(10, len(rows))
+	items := make([]KnowledgePointMastery, 0, limit)
+	for _, row := range rows[:limit] {
+		items = append(items, KnowledgePointMastery{
+			ConceptID:    row.conceptID,
+			Name:         nameOrUnknown(names, row.conceptID),
+			Mastery:      round1(row.average() * 100),
+			StudentCount: row.count,
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) classTopicMastery(ctx context.Context, profiles []StudentProfile) ([]ClassTopicMastery, error) {
+	agg := aggregateMastery(profiles)
+	names, err := s.repo.KnowledgeNames(ctx, sortedMasteryKeys(agg))
+	if err != nil {
+		return nil, err
+	}
+	rows := sortedMasteryAgg(agg)
+	limit := minInt(10, len(rows))
+	items := make([]ClassTopicMastery, 0, limit)
+	for _, row := range rows[:limit] {
+		items = append(items, ClassTopicMastery{
+			ConceptID:    row.conceptID,
+			Topic:        nameOrUnknown(names, row.conceptID),
+			Mastery:      round3(row.average()),
+			StudentCount: row.count,
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) weeklyActivity(ctx context.Context, studentIDs []string, total int) ([]WeeklyActivityItem, error) {
+	rows, err := s.repo.WeeklySessionActivity(ctx, studentIDs, s.now().AddDate(0, 0, -7))
+	if err != nil {
+		return nil, err
+	}
+	today := startOfDay(s.now())
+	items := make([]WeeklyActivityItem, 0, 7)
+	for offset := 6; offset >= 0; offset-- {
+		day := today.AddDate(0, 0, -offset)
+		count := rows[dateString(day)]
+		rate := 0.0
+		if total > 0 {
+			rate = round1(float64(count) / float64(total) * 100)
+		}
+		items = append(items, WeeklyActivityItem{
+			Date:       dateString(day),
+			DayLabel:   dayLabels[int(day.Weekday())],
+			ActiveRate: rate,
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) topStudents(ctx context.Context, studentIDs []string, limit int) ([]TopStudentItem, error) {
+	rows, err := s.repo.TopStudentsByAverageScore(ctx, studentIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.StudentID)
+	}
+	names, err := s.repo.UserDisplayNames(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]TopStudentItem, 0, len(rows))
+	for index, row := range rows {
+		items = append(items, TopStudentItem{
+			Rank:      index + 1,
+			StudentID: row.StudentID,
+			Name:      fallbackName(names[row.StudentID]),
+			AvgScore:  round1(row.AvgScore),
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) commonErrors(ctx context.Context, studentIDs []string) ([]ClassCommonError, error) {
+	rows, err := s.repo.CommonErrors(ctx, studentIDs, 10)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ClassCommonError, 0, len(rows))
+	for _, row := range rows {
+		id, err := s.idFactory()
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, ClassCommonError{
+			ID:        id,
+			Content:   row.Content,
+			Count:     row.Count,
+			Topic:     row.Topic,
+			ErrorType: row.ErrorType,
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) classAlerts(ctx context.Context, studentIDs []string, weekStart time.Time) ([]ClassAlert, error) {
+	lowScoreStudents, err := s.repo.LowScoreStudents(ctx, studentIDs, 60)
+	if err != nil {
+		return nil, err
+	}
+	activeStudents, err := s.repo.ActiveStudentIDsSince(ctx, studentIDs, weekStart)
+	if err != nil {
+		return nil, err
+	}
+	alertIDs := make([]string, 0, len(lowScoreStudents)+len(studentIDs))
+	for id := range lowScoreStudents {
+		alertIDs = append(alertIDs, id)
+	}
+	for _, id := range studentIDs {
+		if _, ok := activeStudents[id]; !ok {
+			alertIDs = append(alertIDs, id)
+		}
+	}
+	names, err := s.repo.UserDisplayNames(ctx, uniqueStrings(alertIDs))
+	if err != nil {
+		return nil, err
+	}
+	alerts := []ClassAlert{}
+	lowIDs := sortedStringKeys(lowScoreStudents)
+	for _, id := range lowIDs {
+		alertID, err := s.idFactory()
+		if err != nil {
+			return nil, err
+		}
+		alerts = append(alerts, ClassAlert{
+			ID:          alertID,
+			StudentID:   id,
+			StudentName: fallbackName(names[id]),
+			Type:        "low_score",
+			Message:     "平均成绩 " + formatScore(lowScoreStudents[id]) + " 分，低于及格线",
+			Severity:    "high",
+		})
+	}
+	for _, id := range studentIDs {
+		if _, low := lowScoreStudents[id]; low {
+			continue
+		}
+		if _, active := activeStudents[id]; active {
+			continue
+		}
+		alertID, err := s.idFactory()
+		if err != nil {
+			return nil, err
+		}
+		alerts = append(alerts, ClassAlert{
+			ID:          alertID,
+			StudentID:   id,
+			StudentName: fallbackName(names[id]),
+			Type:        "inactive",
+			Message:     "超过 7 天未学习",
+			Severity:    "medium",
+		})
+	}
+	return alerts, nil
+}
+
+func (s *Service) classRankings(ctx context.Context, studentIDs []string, limit int) ([]ClassStudentRank, error) {
+	rows, err := s.repo.TopStudentsByAverageScore(ctx, studentIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.StudentID)
+	}
+	names, err := s.repo.UserDisplayNames(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ClassStudentRank, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, ClassStudentRank{
+			StudentID: row.StudentID,
+			Name:      fallbackName(names[row.StudentID]),
+			AvgScore:  round1(row.AvgScore),
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) studentRank(ctx context.Context, studentID string, classStudentIDs []string) (int, error) {
+	rows, err := s.repo.RankByAverageScore(ctx, classStudentIDs)
+	if err != nil {
+		return 0, err
+	}
+	for index, row := range rows {
+		if row.StudentID == studentID {
+			return index + 1, nil
+		}
+	}
+	return 0, nil
+}
+
+func (s *Service) streakDays(ctx context.Context, studentID string) (int, error) {
+	days, err := s.repo.ListSessionDays(ctx, studentID)
+	if err != nil {
+		return 0, err
+	}
+	active := make(map[string]struct{}, len(days))
+	for _, day := range days {
+		active[dateString(day)] = struct{}{}
+	}
+	current := startOfDay(s.now())
+	streak := 0
+	for {
+		if _, ok := active[dateString(current)]; !ok {
+			return streak, nil
+		}
+		streak++
+		current = current.AddDate(0, 0, -1)
+	}
+}
+
+func (s *Service) studentTopicMastery(ctx context.Context, studentID string, mastery map[string]float64) ([]StudentTopicMastery, error) {
+	conceptIDs := sortedFloatKeysByValueDesc(mastery)
+	names, err := s.repo.KnowledgeNames(ctx, conceptIDs)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := s.repo.AttemptConceptCounts(ctx, studentID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]StudentTopicMastery, 0, len(conceptIDs))
+	for _, id := range conceptIDs {
+		items = append(items, StudentTopicMastery{
+			ConceptID:     id,
+			Topic:         nameOrUnknown(names, id),
+			Mastery:       round3(mastery[id]),
+			ExerciseCount: counts[id],
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) recentActivity(ctx context.Context, studentID string) ([]StudentRecentActivity, error) {
+	attempts, err := s.repo.RecentAttempts(ctx, studentID, 10)
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := s.repo.RecentSessions(ctx, studentID, 5)
+	if err != nil {
+		return nil, err
+	}
+	type activityWithTime struct {
+		item StudentRecentActivity
+		at   time.Time
+	}
+	items := make([]activityWithTime, 0, len(attempts)+len(sessions))
+	for _, attempt := range attempts {
+		status := "warning"
+		if attempt.IsCorrect {
+			status = "success"
+		}
+		content := "完成\"" + fallbackTitle(attempt.Title) + "\"练习"
+		if attempt.Score != 0 {
+			content += "，得分 " + formatScore(attempt.Score)
+		}
+		items = append(items, activityWithTime{
+			item: StudentRecentActivity{
+				ID:      attempt.ID,
+				Type:    "exercise",
+				Content: content,
+				Time:    formatDateTime(attempt.StartedAt),
+				Status:  status,
+			},
+			at: attempt.StartedAt,
+		})
+	}
+	for _, session := range sessions {
+		content := "与 AI 导师对话"
+		if session.EndedAt != nil {
+			minutes := int(session.EndedAt.Sub(session.StartedAt).Minutes())
+			content += " " + strconv.Itoa(minutes) + " 分钟"
+		}
+		items = append(items, activityWithTime{
+			item: StudentRecentActivity{
+				ID:      session.ID,
+				Type:    "session",
+				Content: content,
+				Time:    formatDateTime(session.StartedAt),
+				Status:  "info",
+			},
+			at: session.StartedAt,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].at.After(items[j].at)
+	})
+	limit := minInt(10, len(items))
+	result := make([]StudentRecentActivity, 0, limit)
+	for _, item := range items[:limit] {
+		result = append(result, item.item)
+	}
+	return result, nil
+}
+
+func emptyAnalytics() AnalyticsResponse {
+	return AnalyticsResponse{
+		Overview:        AnalyticsOverview{},
+		KnowledgePoints: []KnowledgePointMastery{},
+		WeeklyActivity:  []WeeklyActivityItem{},
+		TopStudents:     []TopStudentItem{},
+	}
+}
+
+func emptyClassAnalytics() ClassAnalyticsResponse {
+	return ClassAnalyticsResponse{
+		Stats:           ClassAnalyticsStats{},
+		TopicMastery:    []ClassTopicMastery{},
+		CommonErrors:    []ClassCommonError{},
+		Alerts:          []ClassAlert{},
+		StudentRankings: []ClassStudentRank{},
+	}
+}
+
+type masteryAgg struct {
+	conceptID string
+	total     float64
+	count     int
+}
+
+func (m masteryAgg) average() float64 {
+	if m.count == 0 {
+		return 0
+	}
+	return m.total / float64(m.count)
+}
+
+func aggregateMastery(profiles []StudentProfile) map[string]masteryAgg {
+	agg := map[string]masteryAgg{}
+	for _, profile := range profiles {
+		for conceptID, value := range profile.MasteryVector {
+			current := agg[conceptID]
+			current.conceptID = conceptID
+			current.total += value
+			current.count++
+			agg[conceptID] = current
+		}
+	}
+	return agg
+}
+
+func averageProfileMastery(profiles []StudentProfile) float64 {
+	total := 0.0
+	count := 0
+	for _, profile := range profiles {
+		for _, value := range profile.MasteryVector {
+			total += value
+			count++
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	return round3(total / float64(count))
+}
+
+func sortedMasteryAgg(agg map[string]masteryAgg) []masteryAgg {
+	rows := make([]masteryAgg, 0, len(agg))
+	for _, row := range agg {
+		rows = append(rows, row)
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		left := rows[i].average()
+		right := rows[j].average()
+		if left == right {
+			return rows[i].conceptID < rows[j].conceptID
+		}
+		return left > right
+	})
+	return rows
+}
+
+func sortedMasteryKeys(agg map[string]masteryAgg) []string {
+	keys := make([]string, 0, len(agg))
+	for key := range agg {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedFloatKeysByValueDesc(values map[string]float64) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if values[keys[i]] == values[keys[j]] {
+			return keys[i] < keys[j]
+		}
+		return values[keys[i]] > values[keys[j]]
+	})
+	return keys
+}
+
+func sortedStringKeys(values map[string]float64) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func uniqueStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func displayName(user UserInfo) string {
+	if user.DisplayName != nil && strings.TrimSpace(*user.DisplayName) != "" {
+		return *user.DisplayName
+	}
+	if user.Username != "" {
+		return user.Username
+	}
+	return "未知"
+}
+
+func fallbackName(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "未知"
+	}
+	return value
+}
+
+func fallbackTitle(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "未知题目"
+	}
+	return value
+}
+
+func nameOrUnknown(names map[string]string, id string) string {
+	if value := strings.TrimSpace(names[id]); value != "" {
+		return value
+	}
+	return "未知知识点"
+}
+
+func startOfDay(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
+}
+
+func dateString(value time.Time) string {
+	return value.Format("2006-01-02")
+}
+
+func formatDateTime(value time.Time) string {
+	return value.Format("2006-01-02T15:04:05.999999")
+}
+
+func round1(value float64) float64 {
+	return math.Round(value*10) / 10
+}
+
+func round3(value float64) float64 {
+	return math.Round(value*1000) / 1000
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func formatScore(value float64) string {
+	rounded := math.Round(value*10) / 10
+	if rounded == math.Trunc(rounded) {
+		return strconv.Itoa(int(rounded))
+	}
+	return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(rounded, 'f', 1, 64), "0"), ".")
+}
+
+func defaultIDFactory() (string, error) {
+	var data [16]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		return "", err
+	}
+	data[6] = (data[6] & 0x0f) | 0x40
+	data[8] = (data[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		data[0:4],
+		data[4:6],
+		data[6:8],
+		data[8:10],
+		data[10:16],
+	), nil
+}

@@ -1,0 +1,193 @@
+package teacherhttp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	authapp "mathstudy/backend-go/internal/application/auth"
+	teacherapp "mathstudy/backend-go/internal/application/teacher"
+)
+
+// Service is the teacher application surface used by HTTP handlers.
+type Service interface {
+	GetDashboardStats(context.Context, string) (teacherapp.DashboardStats, error)
+	GetStudentsStats(context.Context, string) (teacherapp.StudentsStats, error)
+	GetAnalytics(context.Context, string, string) (teacherapp.AnalyticsResponse, error)
+	GetClassAnalytics(context.Context, string, string) (teacherapp.ClassAnalyticsResponse, error)
+	GetStudentDetail(context.Context, string, string) (teacherapp.StudentDetailResponse, error)
+}
+
+// Authenticator decodes Go/Python-compatible access tokens.
+type Authenticator interface {
+	DecodeAccessToken(string) (authapp.Principal, bool)
+}
+
+// Handler serves /teacher endpoints.
+type Handler struct {
+	service Service
+	auth    Authenticator
+	logger  *slog.Logger
+}
+
+// NewHandler creates a teacher HTTP handler.
+func NewHandler(logger *slog.Logger, service Service, auth Authenticator) (*Handler, error) {
+	if service == nil {
+		return nil, errors.New("teacher service is nil")
+	}
+	if auth == nil {
+		return nil, errors.New("teacher authenticator is nil")
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Handler{service: service, auth: auth, logger: logger}, nil
+}
+
+// Register attaches teacher routes under prefix, for example /api/v1/teacher.
+func (h *Handler) Register(mux *http.ServeMux, prefix string) {
+	mux.HandleFunc("GET "+prefix+"/dashboard/stats", h.dashboardStats)
+	mux.HandleFunc("GET "+prefix+"/students/stats", h.studentsStats)
+	mux.HandleFunc("GET "+prefix+"/analytics", h.analytics)
+	mux.HandleFunc("GET "+prefix+"/classes/{class_id}/analytics", h.classAnalytics)
+	mux.HandleFunc("GET "+prefix+"/students/{student_id}/detail", h.studentDetail)
+}
+
+type errorResponse struct {
+	Detail  string `json:"detail"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+func (h *Handler) dashboardStats(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	response, err := h.service.GetDashboardStats(r.Context(), principal.UserID)
+	if err != nil {
+		h.logger.Error("get teacher dashboard stats failed", "error", err)
+		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取教师工作台统计失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) studentsStats(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	response, err := h.service.GetStudentsStats(r.Context(), principal.UserID)
+	if err != nil {
+		h.logger.Error("get teacher students stats failed", "error", err)
+		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生管理统计失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) analytics(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	timeRange := r.URL.Query().Get("time_range")
+	if timeRange == "" {
+		timeRange = "week"
+	}
+	if !validTimeRange(timeRange) {
+		writeTeacherError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "time_range 必须是 today、week、month 或 semester")
+		return
+	}
+	response, err := h.service.GetAnalytics(r.Context(), principal.UserID, timeRange)
+	if err != nil {
+		if errors.Is(err, teacherapp.ErrBadRequest) {
+			writeTeacherError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "time_range 必须是 today、week、month 或 semester")
+			return
+		}
+		h.logger.Error("get teacher analytics failed", "error", err)
+		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取教师数据分析失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) classAnalytics(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	response, err := h.service.GetClassAnalytics(r.Context(), principal.UserID, r.PathValue("class_id"))
+	if err != nil {
+		if errors.Is(err, teacherapp.ErrNotFound) {
+			writeTeacherError(w, http.StatusNotFound, "NOT_FOUND", "班级不存在或无权限访问")
+			return
+		}
+		h.logger.Error("get class analytics failed", "error", err)
+		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取班级分析失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) studentDetail(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	response, err := h.service.GetStudentDetail(r.Context(), principal.UserID, r.PathValue("student_id"))
+	if err != nil {
+		if errors.Is(err, teacherapp.ErrNotFound) {
+			writeTeacherError(w, http.StatusNotFound, "NOT_FOUND", "学生不存在或无权限访问")
+			return
+		}
+		h.logger.Error("get student detail failed", "error", err)
+		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生详情失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) requireTeacher(w http.ResponseWriter, r *http.Request) (authapp.Principal, bool) {
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	fields := strings.Fields(authHeader)
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeTeacherError(w, http.StatusUnauthorized, "UNAUTHORIZED", "未认证，请先登录")
+		return authapp.Principal{}, false
+	}
+	principal, ok := h.auth.DecodeAccessToken(fields[1])
+	if !ok {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeTeacherError(w, http.StatusUnauthorized, "UNAUTHORIZED", "未认证，请先登录")
+		return authapp.Principal{}, false
+	}
+	if !authapp.IsTeacherOrAdmin(principal) {
+		writeTeacherError(w, http.StatusForbidden, "FORBIDDEN", "权限不足，需要教师权限")
+		return authapp.Principal{}, false
+	}
+	return principal, true
+}
+
+func validTimeRange(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "today", "week", "month", "semester":
+		return true
+	default:
+		return false
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeTeacherError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, errorResponse{Detail: message, Code: code, Message: message})
+}
