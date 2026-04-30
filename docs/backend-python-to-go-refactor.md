@@ -1,7 +1,7 @@
 # 后端 Python 到 Go 重构迁移文档
 
-**文档状态**：P4 核心学习域进行中，P5 内容与教学管理域进行中（资源中心、班级管理、题库已迁移）
-**最后更新**：2026-04-27
+**文档状态**：P4 核心学习域进行中，P5 内容与教学管理域已完成，P6 AI 与 Agent 能力待全新架构设计
+**最后更新**：2026-05-01
 **适用范围**：`backend/` Python FastAPI 后端整体迁移到 Go 后端
 **重构原则**：接口兼容、数据连续、分阶段验收、每阶段完成必须更新本文档
 
@@ -217,7 +217,7 @@ backend-go/
 | P3 鉴权与用户域 | DONE | 迁移认证、用户、密码、权限基础能力 | `/auth`、用户上下文、管理员初始化 | 12.4 |
 | P4 核心学习域 | IN_PROGRESS | 迁移会话、练习、错题、进度、画像 | `/session`、`/exercise`、`/mistakes`、`/progress`、`/portrait` | 12.5 |
 | P5 内容与教学管理域 | DONE | 迁移题库、资源、班级、教师统计、知识点 | `/questions`、`/resources`、`/classes`、`/teacher`、`/admin/knowledge` | 12.6 |
-| P6 AI 与 Agent 能力 | TODO | 迁移 LLM 配置、Agent 调用、数学求解、诊断 | `/admin/ai-config`、Agent 抽象、数学工具链 | 12.7 |
+| P6 AI 与 Agent 能力 | TODO | 设计全新的 AI/Agent 架构后迁移 LLM 配置、Agent 调用、数学求解、诊断 | `/admin/ai-config`、Agent 抽象、数学工具链 | 12.7 |
 | P7 集成与运维域 | TODO | 迁移西电集成、上传、系统设置、安全日志、监控 | `/xidian`、`/upload`、`/admin/settings`、`/admin/security-logs`、`/metrics` | 12.8 |
 | P8 双跑与契约验证 | TODO | Python/Go 并行验证，确认接口和数据等价 | Contract tests、回归报告、性能报告 | 12.9 |
 | P9 流量切换与 Python 下线 | TODO | 切换生产入口，保留回滚窗口，下线 Python 服务 | 部署配置、回滚手册、归档清单 | 12.10 |
@@ -412,7 +412,7 @@ backend-go/
 | P3 | `/classes` | DONE | Go P5 已承接教师创建/列表/详情/移除学生/解散班级，以及学生查询、加入、退出、当前班级 |
 | P3 | `/teacher` | DONE | Go P5 已承接教师工作台统计、学生管理统计、教师数据分析、班级分析和教师视角学生详情 |
 | P3 | `/admin/knowledge` | DONE | Go P5 已承接知识节点/关系 CRUD、分页筛选、章节、简要节点列表和统计 |
-| P4 | `/admin/ai-config` | TODO | AI 配置 |
+| P4 | `/admin/ai-config` | TODO | AI 配置；需纳入全新 AI/Agent 架构设计后再实现 |
 | P4 | `/admin/bkt` | TODO | BKT 参数维护 |
 | P5 | `/xidian` | TODO | 外部系统集成 |
 | P5 | `/upload` | TODO | 文件上传和对象存储 |
@@ -590,6 +590,7 @@ pytest
 - 验证结果：TODO
 - 交付物链接：TODO
 - 遗留风险：TODO
+- 设计前置条件：AI 工作流不沿旧 Python 实现直接迁移；P6 开始前必须先补充全新的 AI/Agent 架构设计、ADR、接口边界和验收方案。
 
 ### 12.8 P7 集成与运维域
 
