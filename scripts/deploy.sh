@@ -112,8 +112,9 @@ sleep 15
 
 # 数据库迁移
 echo -e "${BLUE}[7/8] 数据库迁移...${NC}"
-echo -e "${YELLOW}Go 后端迁移执行器尚未接入；默认部署不再运行 Python Alembic。${NC}"
-echo -e "${YELLOW}如需初始化旧 schema，请按迁移文档手动执行 legacy Alembic 基线。${NC}"
+echo -e "${YELLOW}默认部署不运行 Python Alembic，改由 Go migration runner 应用数据库迁移。${NC}"
+$DOCKER_COMPOSE -f $COMPOSE_FILE run --rm --no-deps backend msp-migrate
+echo -e "${GREEN}✓ Go 数据库迁移完成${NC}"
 
 # 启动应用容器
 echo -e "${BLUE}启动应用容器...${NC}"

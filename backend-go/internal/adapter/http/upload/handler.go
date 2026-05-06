@@ -1,0 +1,153 @@
+package uploadhttp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	authapp "mathstudy/backend-go/internal/application/auth"
+	uploadapp "mathstudy/backend-go/internal/application/upload"
+)
+
+const multipartMemory = 32 << 20
+
+// Service is the upload application surface used by HTTP handlers.
+type Service interface {
+	SaveImage(context.Context, io.Reader, uploadapp.FileMeta) (uploadapp.Response, error)
+	SaveResourceFile(context.Context, io.Reader, uploadapp.FileMeta) (uploadapp.Response, error)
+}
+
+// Authenticator decodes Go/Python-compatible access tokens.
+type Authenticator interface {
+	DecodeAccessToken(string) (authapp.Principal, bool)
+}
+
+// Handler serves /upload endpoints.
+type Handler struct {
+	service Service
+	auth    Authenticator
+	logger  *slog.Logger
+}
+
+// NewHandler creates an upload HTTP handler.
+func NewHandler(logger *slog.Logger, service Service, auth Authenticator) (*Handler, error) {
+	if service == nil {
+		return nil, errors.New("upload service is nil")
+	}
+	if auth == nil {
+		return nil, errors.New("upload authenticator is nil")
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Handler{service: service, auth: auth, logger: logger}, nil
+}
+
+// Register attaches upload routes under prefix, for example /api/v1/upload.
+func (h *Handler) Register(mux *http.ServeMux, prefix string) {
+	mux.HandleFunc("POST "+prefix+"/image", h.image)
+	mux.HandleFunc("POST "+prefix+"/resource", h.resource)
+}
+
+type errorResponse struct {
+	Detail  string `json:"detail"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+func (h *Handler) image(w http.ResponseWriter, r *http.Request) {
+	h.upload(w, r, uploadapp.MaxImageSize, h.service.SaveImage, "上传图片失败")
+}
+
+func (h *Handler) resource(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireTeacher(w, r); !ok {
+		return
+	}
+	h.upload(w, r, uploadapp.MaxResourceSize, h.service.SaveResourceFile, "上传资源文件失败")
+}
+
+func (h *Handler) upload(w http.ResponseWriter, r *http.Request, maxSize int64, save func(context.Context, io.Reader, uploadapp.FileMeta) (uploadapp.Response, error), fallback string) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSize+multipartMemory)
+	if err := r.ParseMultipartForm(multipartMemory); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			writeUploadError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "文件大小超过限制")
+			return
+		}
+		writeUploadError(w, http.StatusBadRequest, "BAD_REQUEST", "请求体不是有效 multipart/form-data")
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeUploadError(w, http.StatusBadRequest, "BAD_REQUEST", "缺少上传文件 file")
+		return
+	}
+	defer file.Close()
+	response, err := save(r.Context(), file, uploadapp.FileMeta{
+		ContentType: header.Header.Get("Content-Type"),
+		Size:        header.Size,
+	})
+	if err != nil {
+		h.writeServiceError(w, err, fallback)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (authapp.Principal, bool) {
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	fields := strings.Fields(authHeader)
+	if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeUploadError(w, http.StatusUnauthorized, "UNAUTHORIZED", "未认证，请先登录")
+		return authapp.Principal{}, false
+	}
+	principal, ok := h.auth.DecodeAccessToken(fields[1])
+	if !ok {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeUploadError(w, http.StatusUnauthorized, "UNAUTHORIZED", "未认证，请先登录")
+		return authapp.Principal{}, false
+	}
+	return principal, true
+}
+
+func (h *Handler) requireTeacher(w http.ResponseWriter, r *http.Request) (authapp.Principal, bool) {
+	principal, ok := h.requirePrincipal(w, r)
+	if !ok {
+		return authapp.Principal{}, false
+	}
+	if !authapp.IsTeacherOrAdmin(principal) {
+		writeUploadError(w, http.StatusForbidden, "FORBIDDEN", "权限不足，需要教师权限")
+		return authapp.Principal{}, false
+	}
+	return principal, true
+}
+
+func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback string) {
+	switch {
+	case errors.Is(err, uploadapp.ErrInvalidContentType):
+		writeUploadError(w, http.StatusUnsupportedMediaType, "INVALID_CONTENT_TYPE", "不支持的文件类型")
+	case errors.Is(err, uploadapp.ErrFileTooLarge):
+		writeUploadError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "文件大小超过限制")
+	default:
+		h.logger.Error("upload failed", "error", err)
+		writeUploadError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeUploadError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, errorResponse{Detail: message, Code: code, Message: message})
+}

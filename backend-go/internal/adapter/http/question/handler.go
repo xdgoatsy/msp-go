@@ -173,6 +173,10 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetQuestion(r.Context(), principal.UserID, r.PathValue("question_id"))
 	if err != nil {
+		if errors.Is(err, questionapp.ErrBadRequest) {
+			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "题目请求不合法")
+			return
+		}
 		if errors.Is(err, questionapp.ErrForbidden) {
 			writeQuestionError(w, http.StatusForbidden, "FORBIDDEN", "无权访问此题目")
 			return
@@ -225,6 +229,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.UpdateQuestion(r.Context(), principal.UserID, r.PathValue("question_id"), update)
 	if err != nil {
+		if errors.Is(err, questionapp.ErrBadRequest) {
+			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "更新题目请求不合法")
+			return
+		}
 		if errors.Is(err, questionapp.ErrForbidden) {
 			writeQuestionError(w, http.StatusForbidden, "FORBIDDEN", "无权修改此题目")
 			return
@@ -247,6 +255,10 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	err := h.service.DeleteQuestion(r.Context(), principal.UserID, r.PathValue("question_id"))
 	if err != nil {
+		if errors.Is(err, questionapp.ErrBadRequest) {
+			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "删除题目请求不合法")
+			return
+		}
 		if errors.Is(err, questionapp.ErrForbidden) {
 			writeQuestionError(w, http.StatusForbidden, "FORBIDDEN", "无权删除此题目")
 			return

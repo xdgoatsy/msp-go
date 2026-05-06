@@ -8,7 +8,8 @@ COPY go.mod go.sum* ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/msp-api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/msp-api ./cmd/api \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/msp-migrate ./cmd/migrate
 
 FROM alpine:3.22
 
@@ -17,6 +18,7 @@ WORKDIR /app
 RUN adduser -D -u 1000 appuser && mkdir -p /app/uploads && chown -R appuser:appuser /app
 
 COPY --from=builder /out/msp-api /usr/local/bin/msp-api
+COPY --from=builder /out/msp-migrate /usr/local/bin/msp-migrate
 
 USER appuser
 

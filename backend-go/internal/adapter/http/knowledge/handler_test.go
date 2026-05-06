@@ -118,6 +118,23 @@ func TestRelationRoutesForwardIDs(t *testing.T) {
 	}
 }
 
+func TestDeleteNodeMapsBadRequest(t *testing.T) {
+	service := &fakeKnowledgeService{err: knowledgeapp.ErrBadRequest}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "admin-1", Role: user.RoleAdmin}}
+	handler := newKnowledgeTestHandler(t, service, auth)
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/knowledge")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/knowledge/nodes/node-1", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest || service.lastNodeID != "node-1" {
+		t.Fatalf("status=%d node=%q body=%s", recorder.Code, service.lastNodeID, recorder.Body.String())
+	}
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")

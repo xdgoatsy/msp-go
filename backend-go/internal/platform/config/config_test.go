@@ -80,6 +80,9 @@ func TestLoadUsesEnvironmentAndBuildsAddresses(t *testing.T) {
 	if cfg.LogArchiveAfterDays != 14 || cfg.LogDeleteAfterDays != 60 || cfg.LogCleanupBatchSize != 250 || cfg.LogMaxCount != 5000 {
 		t.Fatalf("log cleanup config = %d/%d/%d/%d", cfg.LogArchiveAfterDays, cfg.LogDeleteAfterDays, cfg.LogCleanupBatchSize, cfg.LogMaxCount)
 	}
+	if cfg.StorageBackend != "local" {
+		t.Fatalf("StorageBackend = %q", cfg.StorageBackend)
+	}
 }
 
 func TestLoadRejectsInvalidPort(t *testing.T) {
@@ -104,5 +107,36 @@ func TestLoadRejectsInvalidJWTAlgorithm(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want invalid JWT algorithm error")
+	}
+}
+
+func TestLoadReadsS3StorageConfig(t *testing.T) {
+	t.Setenv("STORAGE_BACKEND", "s3")
+	t.Setenv("S3_ENDPOINT_URL", "https://s3.example.com")
+	t.Setenv("S3_ACCESS_KEY", "access")
+	t.Setenv("S3_SECRET_KEY", "secret")
+	t.Setenv("S3_BUCKET_NAME", "bucket")
+	t.Setenv("S3_REGION", "")
+	t.Setenv("S3_PUBLIC_URL_BASE", "https://cdn.example.com")
+	t.Setenv("S3_PRIVATE_BUCKET", "true")
+	t.Setenv("S3_URL_EXPIRE_SECONDS", "900")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.StorageBackend != "s3" || cfg.S3EndpointURL != "https://s3.example.com" || cfg.S3Region != "us-east-1" {
+		t.Fatalf("S3 config = %#v", cfg)
+	}
+	if !cfg.S3PrivateBucket || cfg.S3URLExpire != 15*time.Minute {
+		t.Fatalf("S3 private config = %t/%s", cfg.S3PrivateBucket, cfg.S3URLExpire)
+	}
+}
+
+func TestLoadRejectsInvalidStorageBackend(t *testing.T) {
+	t.Setenv("STORAGE_BACKEND", "ftp")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want invalid storage backend error")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -80,6 +81,41 @@ type Config struct {
 	LogDeleteAfterDays  int
 	LogCleanupBatchSize int
 	LogMaxCount         int
+
+	StorageBackend string
+
+	QiniuAccessKey     string
+	QiniuSecretKey     string
+	QiniuBucketName    string
+	QiniuDomain        string
+	QiniuPrivateBucket bool
+	QiniuURLExpire     time.Duration
+	QiniuUploadURL     string
+	S3EndpointURL      string
+	S3AccessKey        string
+	S3SecretKey        string
+	S3BucketName       string
+	S3Region           string
+	S3PublicURLBase    string
+	S3PrivateBucket    bool
+	S3URLExpire        time.Duration
+
+	FernetSecretKey string
+
+	XidianIDsBase                 string
+	XidianEhallBase               string
+	XidianYjsptBase               string
+	XidianUserAgent               string
+	XidianHTTPConnectTimeout      time.Duration
+	XidianHTTPReadTimeout         time.Duration
+	XidianChallengeTTL            time.Duration
+	XidianSessionTTL              time.Duration
+	XidianSyncRetryCount          int
+	XidianSnapshotFallbackEnabled bool
+	XidianCaptchaWidth            int
+	XidianCaptchaHeight           int
+	XidianPieceWidth              int
+	XidianPieceHeight             int
 }
 
 // Load reads the single repository .env file without overwriting process env.
@@ -141,6 +177,38 @@ func Load() (Config, error) {
 		LogDeleteAfterDays:        envInt("LOG_DELETE_AFTER_DAYS", 90),
 		LogCleanupBatchSize:       envInt("LOG_CLEANUP_BATCH_SIZE", 500),
 		LogMaxCount:               envInt("LOG_MAX_COUNT", 100000),
+		StorageBackend:            strings.ToLower(envString("STORAGE_BACKEND", "local")),
+		QiniuAccessKey:            envString("QINIU_ACCESS_KEY", ""),
+		QiniuSecretKey:            envString("QINIU_SECRET_KEY", ""),
+		QiniuBucketName:           envString("QINIU_BUCKET_NAME", ""),
+		QiniuDomain:               envString("QINIU_DOMAIN", ""),
+		QiniuPrivateBucket:        envBool("QINIU_PRIVATE_BUCKET", false),
+		QiniuURLExpire:            time.Duration(envInt("QINIU_URL_EXPIRE_SECONDS", 3600)) * time.Second,
+		QiniuUploadURL:            envString("QINIU_UPLOAD_URL", "https://upload.qiniup.com"),
+		S3EndpointURL:             envString("S3_ENDPOINT_URL", ""),
+		S3AccessKey:               envString("S3_ACCESS_KEY", ""),
+		S3SecretKey:               envString("S3_SECRET_KEY", ""),
+		S3BucketName:              envString("S3_BUCKET_NAME", ""),
+		S3Region:                  envString("S3_REGION", "us-east-1"),
+		S3PublicURLBase:           envString("S3_PUBLIC_URL_BASE", ""),
+		S3PrivateBucket:           envBool("S3_PRIVATE_BUCKET", false),
+		S3URLExpire:               time.Duration(envInt("S3_URL_EXPIRE_SECONDS", 3600)) * time.Second,
+		FernetSecretKey:           envString("FERNET_SECRET_KEY", ""),
+		XidianIDsBase:             envString("XIDIAN_IDS_BASE", "https://ids.xidian.edu.cn"),
+		XidianEhallBase:           envString("XIDIAN_EHALL_BASE", "https://ehall.xidian.edu.cn"),
+		XidianYjsptBase:           envString("XIDIAN_YJSPT_BASE", "https://yjspt.xidian.edu.cn"),
+		XidianUserAgent: envString("XIDIAN_USER_AGENT",
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"),
+		XidianHTTPConnectTimeout:      envSeconds("XIDIAN_HTTP_CONNECT_TIMEOUT", 10*time.Second),
+		XidianHTTPReadTimeout:         envSeconds("XIDIAN_HTTP_READ_TIMEOUT", 30*time.Second),
+		XidianChallengeTTL:            time.Duration(envInt("XIDIAN_CHALLENGE_TTL", 600)) * time.Second,
+		XidianSessionTTL:              time.Duration(envInt("XIDIAN_SESSION_TTL", 86400)) * time.Second,
+		XidianSyncRetryCount:          envInt("XIDIAN_SYNC_RETRY_COUNT", 2),
+		XidianSnapshotFallbackEnabled: envBool("XIDIAN_SNAPSHOT_FALLBACK_ENABLED", true),
+		XidianCaptchaWidth:            envInt("XIDIAN_CAPTCHA_WIDTH", 280),
+		XidianCaptchaHeight:           envInt("XIDIAN_CAPTCHA_HEIGHT", 155),
+		XidianPieceWidth:              envInt("XIDIAN_PIECE_WIDTH", 44),
+		XidianPieceHeight:             envInt("XIDIAN_PIECE_HEIGHT", 155),
 	}
 
 	if cfg.Port <= 0 || cfg.Port > 65535 {
@@ -199,6 +267,12 @@ func Load() (Config, error) {
 	}
 	if cfg.LogMaxCount <= 0 {
 		return Config{}, errors.New("LOG_MAX_COUNT must be greater than 0")
+	}
+	if err := validateStorageConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateXidianConfig(cfg); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }
@@ -375,4 +449,83 @@ func allowedJWTAlgorithms() map[string]bool {
 		"HS384": true,
 		"HS512": true,
 	}
+}
+
+func validateStorageConfig(cfg Config) error {
+	switch cfg.StorageBackend {
+	case "local":
+		if strings.TrimSpace(cfg.UploadsDir) == "" {
+			return errors.New("UPLOADS_DIR must not be empty when STORAGE_BACKEND=local")
+		}
+	case "qiniu":
+		if err := requireConfigValues("Qiniu", map[string]string{
+			"QINIU_ACCESS_KEY":  cfg.QiniuAccessKey,
+			"QINIU_SECRET_KEY":  cfg.QiniuSecretKey,
+			"QINIU_BUCKET_NAME": cfg.QiniuBucketName,
+			"QINIU_DOMAIN":      cfg.QiniuDomain,
+			"QINIU_UPLOAD_URL":  cfg.QiniuUploadURL,
+		}); err != nil {
+			return err
+		}
+		if cfg.QiniuURLExpire <= 0 {
+			return errors.New("QINIU_URL_EXPIRE_SECONDS must be greater than 0")
+		}
+	case "s3":
+		if err := requireConfigValues("S3", map[string]string{
+			"S3_ENDPOINT_URL": cfg.S3EndpointURL,
+			"S3_ACCESS_KEY":   cfg.S3AccessKey,
+			"S3_SECRET_KEY":   cfg.S3SecretKey,
+			"S3_BUCKET_NAME":  cfg.S3BucketName,
+			"S3_REGION":       cfg.S3Region,
+		}); err != nil {
+			return err
+		}
+		if cfg.S3URLExpire <= 0 {
+			return errors.New("S3_URL_EXPIRE_SECONDS must be greater than 0")
+		}
+	default:
+		return fmt.Errorf("STORAGE_BACKEND must be one of local, qiniu, s3, got %s", cfg.StorageBackend)
+	}
+	return nil
+}
+
+func requireConfigValues(name string, values map[string]string) error {
+	missing := make([]string, 0)
+	for key, value := range values {
+		if strings.TrimSpace(value) == "" {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("%s storage config missing: %s", name, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func validateXidianConfig(cfg Config) error {
+	if cfg.XidianHTTPConnectTimeout <= 0 {
+		return errors.New("XIDIAN_HTTP_CONNECT_TIMEOUT must be greater than 0")
+	}
+	if cfg.XidianHTTPReadTimeout <= 0 {
+		return errors.New("XIDIAN_HTTP_READ_TIMEOUT must be greater than 0")
+	}
+	if cfg.XidianChallengeTTL <= 0 {
+		return errors.New("XIDIAN_CHALLENGE_TTL must be greater than 0")
+	}
+	if cfg.XidianSessionTTL <= 0 {
+		return errors.New("XIDIAN_SESSION_TTL must be greater than 0")
+	}
+	if cfg.XidianSyncRetryCount < 0 {
+		return errors.New("XIDIAN_SYNC_RETRY_COUNT must be zero or greater")
+	}
+	if cfg.XidianCaptchaWidth <= 0 || cfg.XidianCaptchaHeight <= 0 || cfg.XidianPieceWidth <= 0 || cfg.XidianPieceHeight <= 0 {
+		return errors.New("Xidian captcha dimensions must be greater than 0")
+	}
+	return requireConfigValues("Xidian", map[string]string{
+		"XIDIAN_IDS_BASE":   cfg.XidianIDsBase,
+		"XIDIAN_EHALL_BASE": cfg.XidianEhallBase,
+		"XIDIAN_YJSPT_BASE": cfg.XidianYjsptBase,
+		"XIDIAN_USER_AGENT": cfg.XidianUserAgent,
+	})
 }

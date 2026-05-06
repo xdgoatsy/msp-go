@@ -133,6 +133,20 @@ func TestUpdateRejectsInvalidStatus(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
+
+	service := &fakeQuestionService{updateErr: questionapp.ErrBadRequest}
+	handler = newTestHandler(t, service, auth)
+	mux = http.NewServeMux()
+	handler.Register(mux, "/api/v1/questions")
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPut, "/api/v1/questions/question-1", bytes.NewBufferString(`{"title":"导数"}`))
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("service bad request status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
 }
 
 func TestDetailDeleteAndBatchMapErrors(t *testing.T) {
@@ -156,6 +170,24 @@ func TestDetailDeleteAndBatchMapErrors(t *testing.T) {
 	mux.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("delete status = %d", recorder.Code)
+	}
+
+	service.detailErr = questionapp.ErrBadRequest
+	service.deleteErr = questionapp.ErrBadRequest
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/questions/bad", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("detail bad request status = %d", recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodDelete, "/api/v1/questions/bad", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("delete bad request status = %d", recorder.Code)
 	}
 
 	recorder = httptest.NewRecorder()

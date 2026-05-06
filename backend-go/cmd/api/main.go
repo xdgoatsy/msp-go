@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
 
+	adminaiconfighthttp "mathstudy/backend-go/internal/adapter/http/adminaiconfig"
 	admininboxhttp "mathstudy/backend-go/internal/adapter/http/admininbox"
 	adminsettingshttp "mathstudy/backend-go/internal/adapter/http/adminsettings"
 	adminstatshttp "mathstudy/backend-go/internal/adapter/http/adminstats"
@@ -30,7 +31,10 @@ import (
 	securityloghttp "mathstudy/backend-go/internal/adapter/http/securitylog"
 	sessionhttp "mathstudy/backend-go/internal/adapter/http/session"
 	teacherhttp "mathstudy/backend-go/internal/adapter/http/teacher"
+	uploadhttp "mathstudy/backend-go/internal/adapter/http/upload"
+	xidianhttp "mathstudy/backend-go/internal/adapter/http/xidian"
 	adapterpostgres "mathstudy/backend-go/internal/adapter/postgres"
+	storageadapter "mathstudy/backend-go/internal/adapter/storage"
 	admininboxapp "mathstudy/backend-go/internal/application/admininbox"
 	adminsettingsapp "mathstudy/backend-go/internal/application/adminsettings"
 	adminstatsapp "mathstudy/backend-go/internal/application/adminstats"
@@ -48,12 +52,16 @@ import (
 	securitylogapp "mathstudy/backend-go/internal/application/securitylog"
 	sessionapp "mathstudy/backend-go/internal/application/session"
 	teacherapp "mathstudy/backend-go/internal/application/teacher"
+	uploadapp "mathstudy/backend-go/internal/application/upload"
+	xidianapp "mathstudy/backend-go/internal/application/xidian"
+	xidianintegration "mathstudy/backend-go/internal/integration/xidian"
 	"mathstudy/backend-go/internal/platform/config"
 	"mathstudy/backend-go/internal/platform/health"
 	"mathstudy/backend-go/internal/platform/httpserver"
 	"mathstudy/backend-go/internal/platform/metrics"
 	platformpostgres "mathstudy/backend-go/internal/platform/postgres"
 	platformredis "mathstudy/backend-go/internal/platform/redis"
+	"mathstudy/backend-go/internal/platform/secret"
 )
 
 func main() {
@@ -297,6 +305,11 @@ func main() {
 		logger.Error("configure admin inbox handler", "error", err)
 		os.Exit(1)
 	}
+	adminAIConfigHandler, err := adminaiconfighthttp.NewHandler(logger, authService)
+	if err != nil {
+		logger.Error("configure admin AI config placeholder", "error", err)
+		os.Exit(1)
+	}
 	adminStatsRepo, err := adapterpostgres.NewAdminStatsRepository(dbPool)
 	if err != nil {
 		logger.Error("configure admin stats repository", "error", err)
@@ -347,6 +360,71 @@ func main() {
 		logger.Error("configure security log handler", "error", err)
 		os.Exit(1)
 	}
+	uploadStorage, err := storageadapter.NewUploadStorage(cfg, logger)
+	if err != nil {
+		logger.Error("configure upload storage", "error", err)
+		os.Exit(1)
+	}
+	uploadService, err := uploadapp.NewService(uploadStorage)
+	if err != nil {
+		logger.Error("configure upload service", "error", err)
+		os.Exit(1)
+	}
+	uploadHandler, err := uploadhttp.NewHandler(logger, uploadService, authService)
+	if err != nil {
+		logger.Error("configure upload handler", "error", err)
+		os.Exit(1)
+	}
+	xidianRepo, err := adapterpostgres.NewXidianRepository(dbPool)
+	if err != nil {
+		logger.Error("configure xidian repository", "error", err)
+		os.Exit(1)
+	}
+	xidianPortalClient, err := xidianintegration.NewClient(xidianintegration.Config{
+		IDsBase:        cfg.XidianIDsBase,
+		EhallBase:      cfg.XidianEhallBase,
+		YjsptBase:      cfg.XidianYjsptBase,
+		UserAgent:      cfg.XidianUserAgent,
+		ConnectTimeout: cfg.XidianHTTPConnectTimeout,
+		ReadTimeout:    cfg.XidianHTTPReadTimeout,
+		RetryCount:     cfg.XidianSyncRetryCount,
+		CaptchaWidth:   cfg.XidianCaptchaWidth,
+	})
+	if err != nil {
+		logger.Error("configure xidian portal client", "error", err)
+		os.Exit(1)
+	}
+	fernetKey := cfg.FernetSecretKey
+	if fernetKey == "" {
+		logger.Warn("FERNET_SECRET_KEY is not configured; using an ephemeral key for Xidian password encryption")
+		fernetKey, err = secret.GenerateFernetKey()
+		if err != nil {
+			logger.Error("generate ephemeral fernet key", "error", err)
+			os.Exit(1)
+		}
+	}
+	xidianCipher, err := secret.NewFernet(fernetKey)
+	if err != nil {
+		logger.Error("configure xidian fernet cipher", "error", err)
+		os.Exit(1)
+	}
+	xidianService, err := xidianapp.NewService(xidianRepo, xidianPortalClient, xidianCipher, xidianapp.NewMemoryChallengeStore(), xidianapp.Config{
+		ChallengeTTL:            cfg.XidianChallengeTTL,
+		SnapshotFallbackEnabled: cfg.XidianSnapshotFallbackEnabled,
+		CaptchaWidth:            cfg.XidianCaptchaWidth,
+		CaptchaHeight:           cfg.XidianCaptchaHeight,
+		PieceWidth:              cfg.XidianPieceWidth,
+		PieceHeight:             cfg.XidianPieceHeight,
+	})
+	if err != nil {
+		logger.Error("configure xidian service", "error", err)
+		os.Exit(1)
+	}
+	xidianHandler, err := xidianhttp.NewHandler(logger, xidianService, authService)
+	if err != nil {
+		logger.Error("configure xidian handler", "error", err)
+		os.Exit(1)
+	}
 
 	store := metrics.NewStore(cfg.AppVersion, cfg.Environment)
 	checker := health.NewChecker(cfg.AppVersion, dbPool, health.RedisPingerFunc(func(ctx context.Context) error {
@@ -366,11 +444,14 @@ func main() {
 			exerciseHandler.Register(mux, cfg.APIV1Prefix+"/exercise")
 			sessionHandler.Register(mux, cfg.APIV1Prefix+"/session")
 			resourceHandler.Register(mux, cfg.APIV1Prefix+"/resources")
+			uploadHandler.Register(mux, cfg.APIV1Prefix+"/upload")
+			xidianHandler.Register(mux, cfg.APIV1Prefix+"/xidian")
 			questionHandler.Register(mux, cfg.APIV1Prefix+"/questions")
 			classHandler.Register(mux, cfg.APIV1Prefix+"/classes")
 			teacherHandler.Register(mux, cfg.APIV1Prefix+"/teacher")
 			adminUserHandler.Register(mux, cfg.APIV1Prefix+"/admin/users")
 			adminInboxHandler.Register(mux, cfg.APIV1Prefix+"/admin/inbox")
+			adminAIConfigHandler.Register(mux, cfg.APIV1Prefix+"/admin/ai-config")
 			adminStatsHandler.Register(mux, cfg.APIV1Prefix+"/admin/stats")
 			adminSettingsHandler.Register(mux, cfg.APIV1Prefix+"/admin/settings")
 			securityLogHandler.Register(mux, cfg.APIV1Prefix+"/admin/security-logs")

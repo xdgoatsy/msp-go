@@ -1,7 +1,7 @@
 # 后端 Python 到 Go 重构迁移文档
 
-**文档状态**：P4 核心学习域进行中，P5 内容与教学管理域已完成，P7 集成与运维域进行中（管理员设置、统计、安全日志已迁移），P6 AI 与 Agent 能力待全新架构设计
-**最后更新**：2026-05-03
+**文档状态**：P4 核心学习域进行中，P5 内容与教学管理域已完成，P7 集成与运维域进行中（西电集成、上传与对象存储、管理员设置、统计、安全日志已迁移），P6 AI 与 Agent 能力本轮不迁移旧 Python 实现，Go 仅保留显式 TODO/占位接口，P9 Python 下线文档与默认入口核查进行中
+**最后更新**：2026-05-06
 **适用范围**：`backend/` Python FastAPI 后端整体迁移到 Go 后端
 **重构原则**：接口兼容、数据连续、分阶段验收、每阶段完成必须更新本文档
 
@@ -42,9 +42,10 @@
 
 最终状态：
 
-- Go 后端承接所有 `/api/v1` 业务接口、健康检查、监控指标和文件访问入口。
+- Go 后端承接所有非 AI `/api/v1` 业务接口、健康检查、监控指标和文件访问入口。
 - Python 后端不再承载线上业务流量。
-- 数据库迁移、缓存、对象存储、AI 调用、鉴权和审计能力在 Go 后端中具备等价实现。
+- 数据库迁移、缓存、对象存储、鉴权和审计能力在 Go 后端中具备等价实现。
+- AI/Agent、LLM、OCR 和数学求解质量能力不沿旧 Python 实现迁移；相关 API 仅保留明确的 TODO/占位接口，待独立新架构设计后再实现。
 - 旧 Python 服务仅保留为历史参考或迁移对照，最终可归档或删除。
 
 ### 2.2 非目标
@@ -53,6 +54,7 @@
 - 不在未冻结 API 契约前改变前端请求路径和响应结构。
 - 不在缺少数据备份和回滚方案时修改生产数据库结构。
 - 不把临时兼容代码视为最终架构。
+- 不在本轮迁移旧 Python AI/Agent/OCR/LLM 工作流；相关接口只保留可识别的 TODO/占位响应。
 
 ---
 
@@ -217,10 +219,10 @@ backend-go/
 | P3 鉴权与用户域 | DONE | 迁移认证、用户、密码、权限基础能力 | `/auth`、用户上下文、管理员初始化 | 12.4 |
 | P4 核心学习域 | IN_PROGRESS | 迁移会话、练习、错题、进度、画像 | `/session`、`/exercise`、`/mistakes`、`/progress`、`/portrait` | 12.5 |
 | P5 内容与教学管理域 | DONE | 迁移题库、资源、班级、教师统计、知识点 | `/questions`、`/resources`、`/classes`、`/teacher`、`/admin/knowledge` | 12.6 |
-| P6 AI 与 Agent 能力 | TODO | 设计全新的 AI/Agent 架构后迁移 LLM 配置、Agent 调用、数学求解、诊断 | `/admin/ai-config`、Agent 抽象、数学工具链 | 12.7 |
+| P6 AI 与 Agent 能力 | TODO | 本轮不迁移旧 Python AI；保留接口占位，待全新 AI/Agent 架构设计 | `/admin/ai-config` 501 占位、Agent 抽象 ADR（待定） | 12.7 |
 | P7 集成与运维域 | IN_PROGRESS | 迁移西电集成、上传、系统设置、安全日志、监控和管理员辅助能力 | `/xidian`、`/upload`、`/admin/settings`、`/admin/security-logs`、`/admin/inbox`、`/admin/stats`、`/metrics` | 12.8 |
-| P8 双跑与契约验证 | TODO | Python/Go 并行验证，确认接口和数据等价 | Contract tests、回归报告、性能报告 | 12.9 |
-| P9 流量切换与 Python 下线 | TODO | 切换生产入口，保留回滚窗口，下线 Python 服务 | 部署配置、回滚手册、归档清单 | 12.10 |
+| P8 双跑与契约验证 | IN_PROGRESS | Python/Go 并行验证，确认接口和数据等价 | Contract tests、回归报告、性能报告 | 12.9 |
+| P9 流量切换与 Python 下线 | IN_PROGRESS | 切换生产入口，保留回滚窗口，下线 Python 服务 | 部署配置、回滚手册、归档清单 | 12.10 |
 
 ---
 
@@ -329,10 +331,10 @@ backend-go/
 
 目标：
 
-- 迁移 LLM provider、模型、Agent 配置管理。
-- 建立 Go 侧 AI 调用抽象，隐藏 provider 差异。
-- 迁移数学求解、答案等价判断、诊断、教学反馈能力。
-- 明确 LangGraph/SymPy 的替代、重写或临时桥接方案。
+- 本轮非 AI 迁移不承接旧 Python LLM provider、模型、Agent 配置管理实现。
+- 本轮仅保留 Go 侧接口边界和明确 TODO/占位响应，避免静默回落 Python。
+- 后续如恢复 AI/Agent 能力，必须先建立 Go 侧或独立服务的全新 AI 调用抽象，隐藏 provider 差异。
+- 后续如恢复数学求解、答案等价判断、诊断、教学反馈能力，必须明确 LangGraph/SymPy 的替代、重写或临时桥接方案。
 
 原则：
 
@@ -408,14 +410,14 @@ backend-go/
 | P2 | `/progress` | DONE | Go P4 首轮已承接 overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters |
 | P2 | `/portrait` | DONE | Go P4 已承接读取、清除和模板画像生成；LLM 画像质量等价留到 P6 AI 能力收敛 |
 | P3 | `/questions` | DONE | Go P5 已承接题目 CRUD、列表/分组/统计、批量发布/删除/复制、批量导入；`/ai-parse` 先提供非 LLM 形状兼容占位，质量等价留到 P6 |
-| P3 | `/resources` | DONE | Go P5 已承接资源列表、详情、创建、更新、软删除、统计、收藏列表和收藏切换；上传/对象存储仍归 P7 `/upload` |
+| P3 | `/resources` | DONE | Go P5 已承接资源列表、详情、创建、更新、软删除、统计、收藏列表和收藏切换；资源文件上传已由 P7 `/upload` 承接 |
 | P3 | `/classes` | DONE | Go P5 已承接教师创建/列表/详情/移除学生/解散班级，以及学生查询、加入、退出、当前班级 |
 | P3 | `/teacher` | DONE | Go P5 已承接教师工作台统计、学生管理统计、教师数据分析、班级分析和教师视角学生详情 |
 | P3 | `/admin/knowledge` | DONE | Go P5 已承接知识节点/关系 CRUD、分页筛选、章节、简要节点列表和统计 |
-| P4 | `/admin/ai-config` | TODO | AI 配置；需纳入全新 AI/Agent 架构设计后再实现 |
+| P4 | `/admin/ai-config` | TODO | AI 配置；Go 已注册管理员鉴权的 501 `AI_CONFIG_TODO` 占位接口，完整 LLM provider/model/Agent 配置需纳入全新 AI/Agent 架构设计后再实现 |
 | P4 | `/admin/bkt` | DONE | Go P4 已承接参数列表、单项更新、默认重置和缺失知识点参数种子化 |
-| P5 | `/xidian` | TODO | 外部系统集成 |
-| P5 | `/upload` | TODO | 文件上传和对象存储 |
+| P5 | `/xidian` | DONE | Go P7 已承接绑定状态、验证码挑战、绑定完成、解绑、课表/考试/成绩同步和快照读取；外部门户 live 验证留到有西电凭证的集成环境 |
+| P5 | `/upload` | DONE | Go P7 已承接图片上传、教师资源文件上传、本地 `/uploads` 文件落盘、S3 兼容对象存储和七牛云对象存储适配 |
 | P5 | `/admin/security-logs` | DONE | Go P7 已承接列表筛选/分页/日期分组、统计、删除、JSON/CSV 导出、归档、每日报告、清理和容量查询 |
 | P5 | `/admin/inbox` | DONE | Go P7 已承接密码重置申请列表、待处理计数和审批通过/拒绝；审批通过会重置用户密码并清理登录失败计数 |
 | P5 | `/admin/stats` | DONE | Go P7 已承接总览、用户增长、最近活动和系统状态 |
@@ -490,12 +492,12 @@ pytest
 |------|------|------|----------|----------|
 | R1 | API 文档与实际 FastAPI 路由存在差异 | 前端兼容失败 | OPEN | P0 导出实际 OpenAPI 并冻结真实契约 |
 | R2 | SQLAlchemy 模型语义迁移到 Go 后丢失隐含默认值 | 数据不一致 | OPEN | Repository 测试覆盖默认值、枚举、级联行为 |
-| R3 | LangGraph/SymPy 能力在 Go 中无直接等价实现 | AI 功能延期 | OPEN | P6 单独 ADR，允许临时双跑但必须定义退出条件 |
+| R3 | LangGraph/SymPy 能力在 Go 中无直接等价实现 | AI 功能延期 | ACCEPTED | 本轮明确排除旧 Python AI/Agent/OCR/LLM 工作流；P6 单独 ADR，任何临时双跑或桥接必须定义退出条件 |
 | R4 | JWT/Cookie 兼容不完整 | 用户登录失效 | MITIGATED | P3 已实现 Python 兼容 JWT claims、HMAC 算法校验、refresh token HttpOnly Cookie 行为和轮换测试；后续 P8 继续做 Python/Go 双跑契约验证 |
 | R5 | Alembic 历史与 Go 迁移工具并存 | 迁移历史混乱 | MITIGATED | P2 已生成 Go 单步初始 schema；后续生产迁移由 Go runner 负责，Alembic 保留为历史参考 |
-| R6 | 上传文件路径或对象存储 key 改变 | 历史资源不可访问 | OPEN | P7 做历史文件访问回归 |
+| R6 | 上传文件路径或对象存储 key 改变 | 历史资源不可访问 | MITIGATED | P7 `/upload` 已保持 `images/`、`videos/`、`documents/` key 规则和本地 `/uploads/{key}` 访问路径，并补充本地/S3/七牛适配测试；P8 继续做历史文件访问回归 |
 | R7 | 缺少 git 元数据时无法做变更边界检查 | 并行任务冲突风险增加 | OPEN | 修改前后记录文件清单，避免触碰无关文件 |
-| R8 | 默认入口已切到 Go，但业务 `/api/v1/*` 尚未迁移 | 前端业务调用会收到 501 占位响应 | OPEN | 按 P3-P7 逐模块迁移；未迁移接口禁止静默回落 Python |
+| R8 | 默认入口已切到 Go，但 TODO 或未知 `/api/v1/*` 接口会收到占位响应 | AI 配置或非基线接口不可用 | MITIGATED | 非 AI Python v1 路由已按清单迁移；`/admin/ai-config` 已注册管理员鉴权 501 `AI_CONFIG_TODO` 占位；未迁移接口禁止静默回落 Python |
 | R9 | 当前机器未配置可连接 PostgreSQL 测试库且 Docker CLI 不可用 | P2 数据库迁移/Repository 集成验收不能在本机闭环 | CLOSED | 已使用本地 PostgreSQL `math_platform` 执行清库、Go 迁移、重复迁移和迁移集成测试；Docker CLI 仍不可用但不阻塞 P2 |
 
 ---
@@ -584,13 +586,13 @@ pytest
 ### 12.7 P6 AI 与 Agent 能力
 
 - 状态：TODO
-- 开始日期：TODO
+- 开始日期：TODO（2026-05-06 已补 Go 501 占位接口，不启动旧 Python AI 逻辑迁移）
 - 完成日期：TODO
 - 负责人：TODO
-- 验证命令：TODO
-- 验证结果：TODO
-- 交付物链接：TODO
-- 遗留风险：TODO
+- 验证命令（占位接口）：`go test ./internal/adapter/http/adminaiconfig -count=1`、`go test ./... -count=1`、`go vet ./...`
+- 验证结果（占位接口）：Go 已注册 `/api/v1/admin/ai-config` 及其子路径的管理员鉴权占位处理；未认证返回 401、非管理员返回 403、管理员访问任意 AI 配置子路径返回 501 `AI_CONFIG_TODO`；完整 Go 测试套件和 vet 通过。
+- 交付物链接（占位接口）：`backend-go/internal/adapter/http/adminaiconfig/`、`backend-go/cmd/api/main.go`
+- 遗留风险：完整 LLM provider/model CRUD、provider 连接测试、模型拉取、Agent 配置 CRUD、数学求解、OCR、答案等价判断、诊断和教学反馈均未迁移；本轮不允许静默回落 Python，相关质量能力等待 P6 新架构设计。
 - 设计前置条件：AI 工作流不沿旧 Python 实现直接迁移；P6 开始前必须先补充全新的 AI/Agent 架构设计、ADR、接口边界和验收方案。
 
 ### 12.8 P7 集成与运维域
@@ -599,32 +601,32 @@ pytest
 - 开始日期：2026-05-01
 - 完成日期：TODO
 - 负责人：Codex
-- 验证命令（阶段进行中）：`gofmt -w ...`、`go test ./internal/application/admininbox ./internal/adapter/http/admininbox ./internal/adapter/postgres -count=1`、`go test ./internal/application/adminstats ./internal/adapter/http/adminstats ./internal/application/adminsettings ./internal/adapter/http/adminsettings ./internal/application/securitylog ./internal/adapter/http/securitylog ./internal/adapter/postgres ./internal/platform/config -count=1`、`go test ./... -count=1`、`go vet ./...`
-- 验证结果（阶段进行中）：Go 全量单元/契约测试通过；Go vet 通过；覆盖 `/admin/inbox` 管理员鉴权、密码重置申请列表分页/状态筛选、待处理计数、审批通过生成临时密码并更新用户密码哈希、审批拒绝记录原因、已处理/不存在/用户缺失等业务分支；已补充 PostgreSQL 集成测试入口覆盖列表、计数和事务审批路径，未设置 `MSP_GO_TEST_DATABASE_URL` 时按既有模式跳过。2026-05-03 追加覆盖 `/admin/stats` 管理员鉴权、概览统计、用户增长序列、最近活动和 PostgreSQL/Redis 状态聚合；覆盖 `/admin/settings` 注册开关、通用系统信息、系统设置 upsert、可导出表、数据库 JSON 导入导出、敏感字段排除、连接池/表统计监控；覆盖 `/admin/security-logs` 管理员鉴权、事件/级别/时间筛选、分页日期分组、统计、删除、JSON/CSV Base64 导出、归档、每日报告生成、批量清理和容量阈值检查。2026-05-03 本轮 `go test ./... -count=1` 和 `go vet ./...` 通过。
-- 交付物链接：`backend-go/internal/application/admininbox/`、`backend-go/internal/adapter/http/admininbox/`、`backend-go/internal/adapter/postgres/password_reset_admin_repository.go`、`backend-go/internal/application/adminstats/`、`backend-go/internal/adapter/http/adminstats/`、`backend-go/internal/adapter/postgres/admin_stats_repository.go`、`backend-go/internal/application/adminsettings/`、`backend-go/internal/adapter/http/adminsettings/`、`backend-go/internal/adapter/postgres/admin_settings_repository.go`、`backend-go/internal/application/securitylog/`、`backend-go/internal/adapter/http/securitylog/`、`backend-go/internal/adapter/postgres/security_log_repository.go`、`backend-go/cmd/api/main.go`、`backend-go/internal/platform/config/`
-- 遗留风险：P7 仍未承接 `/xidian`、`/upload` 以及更完整的生产运维检查；`/admin/settings` 数据库导入导出和 `/admin/security-logs` 清理归档仍需在可用 PostgreSQL 测试库中补充真实集成测试；上述接口仍需在 P8 做 Python/Go 双跑契约验证。
+- 验证命令（阶段进行中）：`gofmt -w ...`、`go test ./internal/application/admininbox ./internal/adapter/http/admininbox ./internal/adapter/postgres -count=1`、`go test ./internal/application/adminstats ./internal/adapter/http/adminstats ./internal/application/adminsettings ./internal/adapter/http/adminsettings ./internal/application/securitylog ./internal/adapter/http/securitylog ./internal/adapter/postgres ./internal/platform/config -count=1`、`go test ./internal/application/upload ./internal/adapter/http/upload ./internal/adapter/storage ./internal/platform/config -count=1`、`go test ./internal/application/xidian ./internal/adapter/http/xidian ./internal/adapter/postgres ./internal/integration/xidian ./internal/platform/secret ./internal/platform/config -count=1`、`go test ./... -count=1`、`go vet ./...`
+- 验证结果（阶段进行中）：Go 全量单元/契约测试通过；Go vet 通过；覆盖 `/admin/inbox` 管理员鉴权、密码重置申请列表分页/状态筛选、待处理计数、审批通过生成临时密码并更新用户密码哈希、审批拒绝记录原因、已处理/不存在/用户缺失等业务分支；已补充 PostgreSQL 集成测试入口覆盖列表、计数和事务审批路径，未设置 `MSP_GO_TEST_DATABASE_URL` 时按既有模式跳过。2026-05-03 追加覆盖 `/admin/stats` 管理员鉴权、概览统计、用户增长序列、最近活动和 PostgreSQL/Redis 状态聚合；覆盖 `/admin/settings` 注册开关、通用系统信息、系统设置 upsert、可导出表、数据库 JSON 导入导出、敏感字段排除、连接池/表统计监控；覆盖 `/admin/security-logs` 管理员鉴权、事件/级别/时间筛选、分页日期分组、统计、删除、JSON/CSV Base64 导出、归档、每日报告生成、批量清理和容量阈值检查。2026-05-03 本轮 `go test ./... -count=1` 和 `go vet ./...` 通过。2026-05-06 追加覆盖 `/upload/image` 公开图片上传、`/upload/resource` 教师/管理员权限、multipart 解析、415/413/500 错误映射、图片/视频/文档 MIME 白名单、10MB/500MB 大小限制、本地 `/uploads` 落盘、S3 path-style 签名上传/私有桶预签名 URL、七牛上传 token/私有下载 URL；追加覆盖 `/xidian/binding` 鉴权和状态、验证码挑战、绑定完成、解绑、同步、快照和 Python 兼容错误映射，以及 Fernet 兼容密码加密、西电 IDS 登录页/验证码解析、登录表单提交和快照降级路径；本轮 `go test ./internal/application/xidian ./internal/adapter/http/xidian ./internal/adapter/postgres ./internal/integration/xidian ./internal/platform/secret ./internal/platform/config -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过。
+- 交付物链接：`backend-go/internal/application/admininbox/`、`backend-go/internal/adapter/http/admininbox/`、`backend-go/internal/adapter/postgres/password_reset_admin_repository.go`、`backend-go/internal/application/adminstats/`、`backend-go/internal/adapter/http/adminstats/`、`backend-go/internal/adapter/postgres/admin_stats_repository.go`、`backend-go/internal/application/adminsettings/`、`backend-go/internal/adapter/http/adminsettings/`、`backend-go/internal/adapter/postgres/admin_settings_repository.go`、`backend-go/internal/application/securitylog/`、`backend-go/internal/adapter/http/securitylog/`、`backend-go/internal/adapter/postgres/security_log_repository.go`、`backend-go/internal/application/upload/`、`backend-go/internal/adapter/http/upload/`、`backend-go/internal/adapter/storage/`、`backend-go/internal/application/xidian/`、`backend-go/internal/adapter/http/xidian/`、`backend-go/internal/adapter/postgres/xidian_repository.go`、`backend-go/internal/integration/xidian/`、`backend-go/internal/platform/secret/`、`backend-go/cmd/api/main.go`、`backend-go/internal/platform/config/`
+- 遗留风险：P7 仍有更完整的生产运维检查未收敛；`/admin/settings` 数据库导入导出、`/admin/security-logs` 清理归档、对象存储真实云端写入和西电门户 live 同步仍需在可用外部环境中补充集成测试；上述接口仍需在 P8 做 Python/Go 双跑契约验证。
 
 ### 12.9 P8 双跑与契约验证
 
-- 状态：TODO
-- 开始日期：TODO
+- 状态：IN_PROGRESS
+- 开始日期：2026-05-06
 - 完成日期：TODO
-- 负责人：TODO
-- 验证命令：TODO
-- 验证结果：TODO
-- 交付物链接：TODO
-- 遗留风险：TODO
+- 负责人：Codex
+- 验证命令（阶段进行中）：`gofmt -w backend-go/tests/contract/response_shape_surface_test.go`、`gofmt -w backend-go/tests/contract/request_shape_surface_test.go`、`go test ./tests/contract -count=1`、`go test ./... -count=1`、`go vet ./...`、`npm install`、`npm run build`
+- 验证结果（阶段进行中）：新增 route-surface contract test，静态解析 legacy FastAPI `@router.*` 装饰器和 Go `mux.HandleFunc` 注册，逐模块比较非 AI `/api/v1` 路由；`/admin/ai-config` 作为 AI 范围跳过等价实现检查，但要求 Go 存在精确路径和子路径 TODO placeholder。追加 success-status contract test，静态比较 legacy FastAPI decorator 成功状态码和 Go handler 成功状态码，覆盖非 AI 路由的 200/201/204 等成功响应状态。追加 explicit error-status contract test，静态提取 legacy route body 中显式 `HTTPException(status_code=...)` 并校验对应 Go handler/helper 暴露同类错误状态；该检查发现并修复 `/questions/{id}` 详情/更新/删除和 `/admin/knowledge/nodes/{id}` 删除路径的 400 映射缺口。追加 frontend route audit contract test，静态解析 `apiClient`、`axios`、`fetch`、`createSSEConnection` 和默认 browser remote log endpoint，要求前端 API 调用被 Go 路由覆盖或进入显式分类清单；当前显式分类为 legacy Python v1 不存在且 Go 不承接的前端侧遗留/未实现路径：`/auth/bind-email`、`/auth/verify-email`、`/auth/verify-email-by-code`、`/logs`、`/questions/import`、`/questions/export`、`/questions/template`、`/teacher/assignments`、`/teacher/assignments/stats`。追加 auth response-shape contract test，静态提取 legacy `auth.py` route `response_model`、Pydantic `BaseModel` 字段和 Go auth response struct JSON tag，逐路由校验 `/auth` 响应顶层字段集合等价。追加 auth request-shape contract test，静态提取 legacy `auth.py` route 函数签名中的 Pydantic body model，并与 Go auth request struct JSON tag 比较，覆盖登录、注册、修改密码和忘记密码 JSON 请求字段集合。本轮 `go test ./tests/contract -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过；前端首次 `npm run build` 因 Rollup Linux optional native package 缺失失败，执行 `npm install` 补齐 node_modules optional dependency 后，`npm run build` 通过，输出 Vite 大 chunk 警告但无构建失败，未产生 tracked frontend 文件内容变更。
+- 交付物链接（阶段进行中）：`backend-go/tests/contract/route_surface_test.go`、`backend-go/tests/contract/status_surface_test.go`、`backend-go/tests/contract/error_status_surface_test.go`、`backend-go/tests/contract/frontend_route_surface_test.go`、`backend-go/tests/contract/response_shape_surface_test.go`、`backend-go/tests/contract/request_shape_surface_test.go`、`backend-go/internal/adapter/http/question/handler.go`、`backend-go/internal/adapter/http/knowledge/handler.go`
+- 遗留风险：当前 P8 覆盖 legacy Python/Go 路由表面等价、成功状态码静态等价、显式错误状态码静态覆盖、`/auth` 请求 body 字段和响应顶层字段静态等价、AI TODO 占位存在性、前端 API 调用静态覆盖审计和前端 production build smoke；尚未覆盖全量请求字段、全量响应字段、错误码/错误响应字段、依赖注入或框架隐式错误、数据库状态变化、性能、真实 Python/Go 双跑、浏览器运行时 smoke 和外部服务 live 集成。前端显式分类清单中的邮箱验证、作业、旧题库导入导出模板和 browser remote log endpoint 不是 legacy Python v1 可迁移接口，仍需产品侧决定删除、隐藏、补新 Go 功能或保持降级。
 
 ### 12.10 P9 流量切换与 Python 下线
 
-- 状态：TODO
-- 开始日期：TODO
+- 状态：IN_PROGRESS
+- 开始日期：2026-05-06
 - 完成日期：TODO
-- 负责人：TODO
-- 验证命令：TODO
-- 验证结果：TODO
-- 交付物链接：TODO
-- 遗留风险：TODO
+- 负责人：Codex
+- 验证命令（阶段进行中）：`rg -n "backend/|backend-go|uvicorn|FastAPI|Python|python|pyproject|poetry|alembic|go run|cmd/api|cmd/migrate|docker compose|Docker" README.md docs scripts start.bat docker-compose.yml nginx-site.conf frontend/nginx.conf .env.example -S`、`bash -n scripts/deploy.sh scripts/update.sh`、`docker --version`
+- 验证结果（阶段进行中）：默认启动与部署入口已核查：`start.bat`、`docker-compose.yml`、`frontend/nginx.conf`、`nginx-site.conf`、`scripts/deploy.sh` 和 `scripts/update.sh` 均指向 Go backend；`README.md` 已调整为 Go 后端默认运行、legacy Python 仅历史参考、AI/Agent/OCR/LLM 为 TODO/占位接口；Go 后端镜像新增 `msp-migrate`，生产部署和更新脚本在启动应用容器前运行 Go migration runner，不再提示手动执行 legacy Alembic；部署/更新脚本 shell 语法检查通过；当前环境 `docker` 命令不可用，未执行镜像构建和 Compose 实机迁移。
+- 交付物链接（阶段进行中）：`README.md`、`backend-go/Dockerfile`、`scripts/deploy.sh`、`scripts/update.sh`、`start.bat`、`docker-compose.yml`、`frontend/nginx.conf`、`nginx-site.conf`、本文 [Python 下线运行手册](#14-python-下线运行手册p9-草案)
+- 遗留风险：Python 下线运行手册仍是草案，尚未在真实 Docker/Compose 环境演练；legacy `backend/` 目录仍保留历史参考代码，尚未决定归档/删除策略；P8 双跑契约验证未完成前不能删除 Python 对照；当前环境未验证 Docker 镜像构建和真实 Compose `msp-migrate` 执行。
 
 ---
 
@@ -638,7 +640,47 @@ pytest
 
 ---
 
-## 14. 更新记录
+## 14. Python 下线运行手册（P9 草案）
+
+### 14.1 当前下线范围
+
+- 默认本地启动：`start.bat` 启动 `backend-go/cmd/api`，不启动 `backend/app/main.py`。
+- 默认容器部署：`docker-compose.yml` 的 `backend` 服务构建和运行 `backend-go/Dockerfile`。
+- 默认前端代理：`frontend/vite.config.ts`、`frontend/nginx.conf` 和根目录 `nginx-site.conf` 均代理到 Go API 端口 `8000`。
+- 默认部署脚本：`scripts/deploy.sh`、`scripts/update.sh` 启动 Go backend，并通过 `msp-migrate` 执行 Go migration runner。
+- Legacy Python：`backend/` 保留为历史参考和 P8 双跑/差异分析材料，不是默认运行时，不承载线上流量。
+
+### 14.2 发布前检查
+
+1. 备份 PostgreSQL 数据库和对象存储目录/桶。
+2. 确认 `.env` 中 `POSTGRES_*`、`REDIS_*`、`JWT_*`、`FERNET_SECRET_KEY`、`UPLOADS_DIR`、对象存储和西电集成配置完整。
+3. 执行 Go 验证：`go test ./... -count=1`、`go vet ./...`。
+4. 执行脚本语法检查：`bash -n scripts/deploy.sh scripts/update.sh`。
+5. 构建镜像并确认镜像内存在 `msp-api` 和 `msp-migrate`。
+6. 在隔离环境执行 `docker compose run --rm --no-deps backend msp-migrate`，确认迁移幂等。
+7. 启动 `backend`、`frontend` 后检查 `/health`、`/health/detailed`、`/metrics`、登录、上传、核心读写接口和 AI TODO 响应。
+8. 确认无 Python backend 进程、容器或 Nginx upstream 承载业务流量。
+
+### 14.3 回滚策略
+
+- 数据库回滚以备份恢复或补偿型 Go forward migration 为准，不使用 Alembic downgrade 作为默认生产回滚路径。
+- 应用回滚以镜像版本回滚为准：保留上一版 `backend-go`、`frontend` 镜像标签和 `.env` 备份。
+- 如果 Go migration 已应用不可逆数据变更，先评估补偿迁移或恢复备份，再回滚应用镜像。
+- Legacy Python 只能作为对照或临时人工诊断材料；当前默认部署链路不提供自动切回 Python backend 的脚本。
+
+### 14.4 归档/删除条件
+
+满足以下条件后，才可以归档或删除 `backend/`：
+
+1. P8 非 AI API 契约验证完成，高优先级接口差异均有记录或修复。
+2. Go 生产运行通过约定观察窗口，健康检查、指标、日志、上传、数据库迁移和核心用户流程稳定。
+3. AI/Agent/OCR/LLM 相关入口均明确为 Go TODO/占位或已纳入新的非 Python 工作流设计。
+4. 回滚手册完成演练，确认不依赖当前 `backend/` 目录恢复服务。
+5. README、部署脚本、Compose、Nginx、CI 和开发文档均不再要求 Python backend 运行。
+
+---
+
+## 15. 更新记录
 
 ### 2026-04-18
 
@@ -681,3 +723,17 @@ pytest
 - P7 `/admin/stats` 首轮完成：新增 Go admin stats application service、PostgreSQL read repository 和 HTTP handler，承接概览统计、用户增长、最近活动和系统状态；系统状态聚合 PostgreSQL/Redis ping 与延迟。
 - P7 `/admin/settings` 首轮完成：新增 Go admin settings application service、PostgreSQL repository 和 HTTP handler，承接注册开关、通用系统信息、数据库可导出表、JSON Base64 导出、JSON 导入和数据库监控；导出时排除密码、加密密码和会话 Cookie 等敏感字段。
 - P7 `/admin/security-logs` 首轮完成：新增 Go security log application service、PostgreSQL repository 和 HTTP handler，承接日志列表筛选/分页/日期分组、统计、删除、JSON/CSV 导出、归档、每日报告、自动清理和容量查询；本轮 `go test ./... -count=1` 和 `go vet ./...` 通过。
+
+### 2026-05-06
+
+- P7 `/upload` 首轮完成：新增 Go upload application service、HTTP handler 和 storage adapter，承接公开图片上传、教师/管理员资源文件上传、本地 `/uploads` 文件落盘、S3 兼容对象存储和七牛云对象存储适配；保持 Python 的 MIME 白名单、10MB 图片限制、500MB 资源文件限制、`images/`、`videos/`、`documents/` key 规则和响应字段；本轮 `go test ./internal/application/upload ./internal/adapter/http/upload ./internal/adapter/storage ./internal/platform/config -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过。
+- P7 `/xidian` 首轮完成：新增 Go xidian application service、PostgreSQL repository、HTTP handler、Fernet 兼容加密和 IDS/Ehall/Yjspt integration client，承接绑定状态、验证码挑战、绑定完成、解绑、课表/考试/成绩同步和快照读取；保留 Python 的快照降级、`CAPTCHA_REQUIRED`、`NO_SNAPSHOT` 等错误语义；本轮 `go test ./internal/application/xidian ./internal/adapter/http/xidian ./internal/adapter/postgres ./internal/integration/xidian ./internal/platform/secret ./internal/platform/config -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过；西电门户 live 同步仍需在有真实凭证和网络的集成环境验证。
+- P6 范围调整与 `/admin/ai-config` 占位完成：本轮非 AI 迁移明确不移植旧 Python AI/Agent/OCR/LLM 工作流；新增 Go admin AI config placeholder handler 并接入 `cmd/api`，保留 `/api/v1/admin/ai-config/*` 管理员鉴权接口边界，管理员访问返回 501 `AI_CONFIG_TODO`；本轮 `go test ./internal/adapter/http/adminaiconfig -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过。
+- P8 双跑与契约验证开始：新增 `backend-go/tests/contract/route_surface_test.go`，静态比较 legacy FastAPI v1 route surface 与 Go `ServeMux` route surface；非 AI 路由表面等价通过，`/admin/ai-config` 要求 Go 保留 TODO placeholder；本轮 `go test ./tests/contract -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过；P8 仍需请求/响应字段、状态码、数据状态变化、性能和真实双跑验证。
+- P8 前端 API 覆盖审计追加：新增 `backend-go/tests/contract/frontend_route_surface_test.go`，静态提取前端 `apiClient`、`axios`、`fetch`、`createSSEConnection` 和默认 remote log endpoint，要求所有前端 API 调用被 Go 路由覆盖或显式分类；当前分类清单记录邮箱验证、作业管理、旧题库导入导出模板和 browser remote log endpoint 为 legacy Python v1 不存在的前端侧遗留/未实现路径；本轮 `go test ./tests/contract -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过。
+- P8 成功状态码契约追加：新增 `backend-go/tests/contract/status_surface_test.go`，静态比较 legacy FastAPI decorator 成功状态码和 Go handler 成功状态码，覆盖非 AI 路由的 200/201/204 等成功响应状态；本轮 `go test ./tests/contract -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过，后续仍需错误状态/错误码、响应字段、数据状态变化和真实双跑验证。
+- P8 显式错误状态码契约追加：新增 `backend-go/tests/contract/error_status_surface_test.go`，静态比较 legacy route body 中显式 `HTTPException(status_code=...)` 与 Go handler/helper 暴露的错误状态；修复 Go `/questions/{id}` 详情/更新/删除对 `ErrBadRequest` 的 400 映射，以及 `/admin/knowledge/nodes/{id}` 删除对 `ErrBadRequest` 的 400 映射；本轮 `go test ./tests/contract -count=1`、`go test ./internal/adapter/http/question ./internal/adapter/http/knowledge -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过，后续仍需错误码/错误响应字段、响应字段、数据状态变化和真实双跑验证。
+- P8 前端 build smoke 追加：当前 node_modules 缺少 Rollup Linux optional native package，首次 `npm run build` 失败；执行 `npm install` 补齐 optional dependency 后，`npm run build` 通过，Vite 输出大 chunk 警告但无构建错误，且未产生 tracked frontend 文件内容变更。后续仍需真实浏览器 runtime smoke 和 API 流程 smoke。
+- P8 `/auth` 响应字段契约追加：新增 `backend-go/tests/contract/response_shape_surface_test.go`，静态提取 legacy `auth.py` route `response_model`、Pydantic `BaseModel` 字段和 Go auth response struct JSON tag，覆盖登录、注册、刷新、登出、当前用户、注册状态和忘记密码接口的响应顶层字段集合；本轮 `go test ./tests/contract -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过，后续仍需扩展到其他模块、请求字段、错误响应字段、数据状态变化和真实双跑验证。
+- P8 `/auth` 请求字段契约追加：新增 `backend-go/tests/contract/request_shape_surface_test.go`，静态提取 legacy `auth.py` route 函数签名中的 Pydantic body model，并与 Go auth request struct JSON tag 比较，覆盖登录、注册、修改密码和忘记密码 JSON 请求字段集合；本轮 `go test ./tests/contract -count=1`、`go test ./... -count=1` 和 `go vet ./...` 通过，后续仍需扩展到其他模块、错误响应字段、数据状态变化和真实双跑验证。
+- P9 Python 下线开始：核查默认启动、Compose、Nginx、部署和更新脚本均不再承载 Python backend；更新 README，将 Go 后端标为唯一默认运行入口、legacy Python 标为历史参考、AI/Agent/OCR/LLM 标为 TODO/占位接口，数据库迁移说明切换到 Go migration runner；Go Docker 镜像新增 `msp-migrate`，部署和更新脚本改为运行 Go migration runner，不再提示手动执行 legacy Alembic；新增 P9 Python 下线运行手册草案，覆盖当前下线范围、发布前检查、回滚策略和归档/删除条件；`bash -n scripts/deploy.sh scripts/update.sh` 通过。P9 仍需 Docker/Compose 实机验证、运行手册演练和 P8 契约验证结果后才能完成。
