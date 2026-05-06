@@ -297,7 +297,7 @@ func (s *Service) BatchImport(ctx context.Context, ownerID string, questions []Q
 	return s.repo.BatchImport(ctx, ownerID, normalized, s.now())
 }
 
-// ParseQuestions returns a deterministic shape-compatible parse fallback.
+// ParseQuestions returns a deterministic shape-compatible parse fallback; LLM extraction remains a P6 TODO.
 func (s *Service) ParseQuestions(_ context.Context, rawTexts []string) (AIParseResponse, error) {
 	if len(rawTexts) == 0 || len(rawTexts) > 10 {
 		return AIParseResponse{}, ErrBadRequest

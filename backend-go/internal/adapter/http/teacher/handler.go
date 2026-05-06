@@ -145,6 +145,10 @@ func (h *Handler) studentDetail(w http.ResponseWriter, r *http.Request) {
 			writeTeacherError(w, http.StatusNotFound, "NOT_FOUND", "学生不存在或无权限访问")
 			return
 		}
+		if errors.Is(err, teacherapp.ErrStudentNotFound) {
+			writeTeacherError(w, http.StatusNotFound, "NOT_FOUND", "学生不存在")
+			return
+		}
 		h.logger.Error("get student detail failed", "error", err)
 		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生详情失败")
 		return

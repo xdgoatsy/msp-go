@@ -187,11 +187,11 @@ func (s *fakeAuthService) DecodeAccessToken(string) (authapp.Principal, bool) {
 	return s.principal, true
 }
 
-func (s *fakeAuthService) DecodeRefreshToken(string) (string, bool) {
+func (s *fakeAuthService) DecodeRefreshToken(string) (string, string, bool) {
 	if s.refreshSubject == "" {
-		return "", false
+		return "", "Refresh token 无效或已过期", false
 	}
-	return s.refreshSubject, true
+	return s.refreshSubject, "", true
 }
 
 func (s *fakeAuthService) RegistrationSettings(context.Context) (authapp.RegistrationSettings, error) {

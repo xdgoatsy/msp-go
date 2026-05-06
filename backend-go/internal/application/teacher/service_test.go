@@ -157,6 +157,20 @@ func TestGetStudentDetailBuildsSummaryAndActivity(t *testing.T) {
 	}
 }
 
+func TestGetStudentDetailDistinguishesMissingStudentAccount(t *testing.T) {
+	repo := &fakeTeacherRepo{
+		enrollment:      StudentEnrollment{ClassID: "class-1", ClassName: "高一三班"},
+		enrollmentFound: true,
+		userFound:       false,
+	}
+	service := newTeacherTestService(repo, time.Date(2026, time.April, 27, 15, 0, 0, 0, time.UTC))
+
+	_, err := service.GetStudentDetail(context.Background(), "teacher-1", "student-1")
+	if !errors.Is(err, ErrStudentNotFound) {
+		t.Fatalf("GetStudentDetail() error = %v, want ErrStudentNotFound", err)
+	}
+}
+
 func newTeacherTestService(repo *fakeTeacherRepo, now time.Time) *Service {
 	service, err := NewService(repo)
 	if err != nil {

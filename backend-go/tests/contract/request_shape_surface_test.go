@@ -16,11 +16,136 @@ func TestAuthRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
 	pythonFile := filepath.Join(root, "backend/app/api/v1/auth.py")
 	goFile := filepath.Join(root, "backend-go/internal/adapter/http/auth/handler.go")
 
-	pythonModels := extractPythonBaseModelFields(t, pythonFile)
-	pythonRouteModels := extractPythonRouteBodyModels(t, pythonFile, pythonModels)
-	goStructFields := extractGoJSONStructFields(t, goFile)
-	goRouteStructs := authGoRequestStructs()
+	assertRouteRequestFieldsMatch(t, pythonFile, pythonFile, goFile, authGoRequestStructs())
+}
 
+func TestSessionRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/session.py")
+	pythonSchemaFile := filepath.Join(root, "backend/app/api/v1/schemas/session.py")
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/session/handler.go")
+
+	assertRouteRequestFieldsMatch(t, pythonRouteFile, pythonSchemaFile, goFile, sessionGoRequestStructs())
+}
+
+func TestExerciseRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonFile := filepath.Join(root, "backend/app/api/v1/exercise.py")
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/exercise/handler.go")
+
+	assertRouteRequestFieldsMatch(t, pythonFile, pythonFile, goFile, exerciseGoRequestStructs())
+}
+
+func TestResourceRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/resources.py")
+	pythonSchemaFile := filepath.Join(root, "backend/app/api/v1/schemas/resource.py")
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/resource/handler.go")
+
+	assertRouteRequestFieldsMatch(t, pythonRouteFile, pythonSchemaFile, goFile, resourceGoRequestStructs())
+}
+
+func TestClassRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/classes.py")
+	pythonSchemaFile := filepath.Join(root, "backend/app/api/v1/schemas/classes.py")
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/classroom/handler.go")
+
+	assertRouteRequestFieldsMatch(t, pythonRouteFile, pythonSchemaFile, goFile, classGoRequestStructs())
+}
+
+func TestQuestionRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/questions.py")
+	pythonSchemaFile := filepath.Join(root, "backend/app/api/v1/schemas/questions.py")
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/question/handler.go")
+
+	assertRouteRequestFieldsMatch(t, pythonRouteFile, pythonSchemaFile, goFile, questionGoRequestStructs())
+}
+
+func TestAdminKnowledgeRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/admin/knowledge.py")
+	pythonSchemaFile := filepath.Join(root, "backend/app/api/v1/schemas/knowledge.py")
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/knowledge/handler.go")
+
+	assertRouteRequestFieldsMatch(t, pythonRouteFile, pythonSchemaFile, goFile, adminKnowledgeGoRequestStructs())
+}
+
+func TestAdminUserRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/admin/users.py")
+	pythonSchemaFile := filepath.Join(root, "backend/app/api/v1/schemas/admin_users.py")
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/adminuser/handler.go")
+
+	assertRouteRequestFieldsMatch(t, pythonRouteFile, pythonSchemaFile, goFile, adminUserGoRequestStructs())
+}
+
+func TestAdminSettingsRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/admin/settings.py")
+	pythonSchemaFiles := []string{
+		pythonRouteFile,
+		filepath.Join(root, "backend/app/api/v1/schemas/database.py"),
+	}
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/adminsettings/handler.go")
+
+	assertRouteRequestFieldsMatchFromSchemas(t, pythonRouteFile, pythonSchemaFiles, goFile, adminSettingsGoRequestStructs())
+}
+
+func TestAdminSecurityLogRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/admin/security_logs.py")
+	pythonSchemaFile := filepath.Join(root, "backend/app/api/v1/schemas/security_log.py")
+	goFiles := []string{
+		filepath.Join(root, "backend-go/internal/adapter/http/securitylog/handler.go"),
+		filepath.Join(root, "backend-go/internal/application/securitylog/service.go"),
+	}
+
+	assertRouteRequestFieldsMatchFromSchemasAndGoFiles(t, pythonRouteFile, []string{pythonSchemaFile}, goFiles, adminSecurityLogGoRequestStructs())
+}
+
+func TestAdminInboxRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/admin/inbox.py")
+	pythonSchemaFile := filepath.Join(root, "backend/app/api/v1/schemas/password_reset.py")
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/admininbox/handler.go")
+
+	assertRouteRequestFieldsMatch(t, pythonRouteFile, pythonSchemaFile, goFile, adminInboxGoRequestStructs())
+}
+
+func TestAdminBKTRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonFile := filepath.Join(root, "backend/app/api/v1/admin/bkt.py")
+	goFile := filepath.Join(root, "backend-go/internal/adapter/http/bkt/handler.go")
+
+	assertRouteRequestFieldsMatch(t, pythonFile, pythonFile, goFile, adminBKTGoRequestStructs())
+}
+
+func TestXidianRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
+	root := repoRoot(t)
+	pythonRouteFile := filepath.Join(root, "backend/app/api/v1/xidian.py")
+	pythonSchemaFile := filepath.Join(root, "backend/app/api/v1/schemas/xidian.py")
+	goFile := filepath.Join(root, "backend-go/internal/application/xidian/types.go")
+
+	assertRouteRequestFieldsMatch(t, pythonRouteFile, pythonSchemaFile, goFile, xidianGoRequestStructs())
+}
+
+func assertRouteRequestFieldsMatch(t *testing.T, pythonRouteFile string, pythonSchemaFile string, goFile string, goRouteStructs map[string]string) {
+	t.Helper()
+	assertRouteRequestFieldsMatchFromSchemas(t, pythonRouteFile, []string{pythonSchemaFile}, goFile, goRouteStructs)
+}
+
+func assertRouteRequestFieldsMatchFromSchemas(t *testing.T, pythonRouteFile string, pythonSchemaFiles []string, goFile string, goRouteStructs map[string]string) {
+	t.Helper()
+	assertRouteRequestFieldsMatchFromSchemasAndGoFiles(t, pythonRouteFile, pythonSchemaFiles, []string{goFile}, goRouteStructs)
+}
+
+func assertRouteRequestFieldsMatchFromSchemasAndGoFiles(t *testing.T, pythonRouteFile string, pythonSchemaFiles []string, goFiles []string, goRouteStructs map[string]string) {
+	t.Helper()
+	pythonModels := extractPythonBaseModelFieldsFromFiles(t, pythonSchemaFiles)
+	pythonRouteModels := extractPythonRouteBodyModels(t, pythonRouteFile, pythonModels)
+	goStructFields := extractGoJSONStructFieldsFromFiles(t, goFiles)
 	expectedRoutes := map[string]bool{}
 	for key := range pythonRouteModels {
 		expectedRoutes[key] = true
@@ -30,10 +155,10 @@ func TestAuthRequestShapesMatchLegacyPythonBaseline(t *testing.T) {
 		actualRoutes[key] = true
 	}
 	if missing := difference(expectedRoutes, actualRoutes); len(missing) > 0 {
-		t.Fatalf("auth request shape routes missing Go struct mapping: %v", missing)
+		t.Fatalf("request shape routes missing Go struct mapping: %v", missing)
 	}
 	if extra := difference(actualRoutes, expectedRoutes); len(extra) > 0 {
-		t.Fatalf("auth request shape routes without legacy Python body model: %v", extra)
+		t.Fatalf("request shape routes without legacy Python body model: %v", extra)
 	}
 
 	for routeKey, modelName := range pythonRouteModels {
@@ -57,6 +182,98 @@ func authGoRequestStructs() map[string]string {
 		"PUT /change-password":  "changePasswordRequest",
 		"POST /register":        "registerRequest",
 		"POST /forgot-password": "forgotPasswordRequest",
+	}
+}
+
+func sessionGoRequestStructs() map[string]string {
+	return map[string]string{
+		"POST /start":        "startRequest",
+		"POST /{}/chat":      "chatRequest",
+		"PATCH /{}/mode":     "updateModeRequest",
+		"POST /batch-delete": "batchDeleteRequest",
+	}
+}
+
+func exerciseGoRequestStructs() map[string]string {
+	return map[string]string{
+		"POST /submit": "submitRequest",
+	}
+}
+
+func resourceGoRequestStructs() map[string]string {
+	return map[string]string{
+		"POST ":   "createRequest",
+		"PUT /{}": "updateRequest",
+	}
+}
+
+func classGoRequestStructs() map[string]string {
+	return map[string]string{
+		"POST ":      "createRequest",
+		"POST /join": "joinRequest",
+	}
+}
+
+func questionGoRequestStructs() map[string]string {
+	return map[string]string{
+		"POST ":                 "createRequest",
+		"PUT /{}":               "updateRequest",
+		"POST /batch/publish":   "batchRequest",
+		"POST /batch/delete":    "batchRequest",
+		"POST /batch/duplicate": "batchRequest",
+		"POST /ai-parse":        "aiParseRequest",
+		"POST /batch/import":    "batchImportRequest",
+	}
+}
+
+func adminKnowledgeGoRequestStructs() map[string]string {
+	return map[string]string{
+		"POST /nodes":       "nodeCreateRequest",
+		"PUT /nodes/{}":     "nodeUpdateRequest",
+		"POST /relations":   "relationCreateRequest",
+		"PUT /relations/{}": "relationUpdateRequest",
+	}
+}
+
+func adminUserGoRequestStructs() map[string]string {
+	return map[string]string{
+		"PATCH /{}/status": "statusUpdateRequest",
+		"PUT /{}":          "updateRequest",
+		"POST ":            "createRequest",
+	}
+}
+
+func adminSettingsGoRequestStructs() map[string]string {
+	return map[string]string{
+		"PUT /registration":     "registrationRequest",
+		"PUT /general":          "generalRequest",
+		"POST /database/export": "exportRequest",
+	}
+}
+
+func adminSecurityLogGoRequestStructs() map[string]string {
+	return map[string]string{
+		"DELETE ":       "DeleteRequest",
+		"POST /export":  "ExportRequest",
+		"POST /archive": "archiveRequest",
+	}
+}
+
+func adminInboxGoRequestStructs() map[string]string {
+	return map[string]string{
+		"POST /{}/review": "reviewRequestBody",
+	}
+}
+
+func adminBKTGoRequestStructs() map[string]string {
+	return map[string]string{
+		"PUT /params/{}": "updateRequest",
+	}
+}
+
+func xidianGoRequestStructs() map[string]string {
+	return map[string]string{
+		"POST /binding/complete": "CompleteBindingInput",
 	}
 }
 

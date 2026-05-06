@@ -22,7 +22,7 @@ type Service interface {
 	GetUserByID(context.Context, string) (user.User, bool, error)
 	RefreshTokens(context.Context, string) (string, string, bool, error)
 	DecodeAccessToken(string) (authapp.Principal, bool)
-	DecodeRefreshToken(string) (string, bool)
+	DecodeRefreshToken(string) (string, string, bool)
 	RegistrationSettings(context.Context) (authapp.RegistrationSettings, error)
 	SubmitPasswordReset(context.Context, string, string, string) (authapp.PasswordResetResult, error)
 	PasswordResetStatus(context.Context, string, string) (authapp.PasswordResetStatus, error)
@@ -218,11 +218,14 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Refresh token 不存在")
 		return
 	}
-	userID, ok := h.service.DecodeRefreshToken(cookie.Value)
+	userID, message, ok := h.service.DecodeRefreshToken(cookie.Value)
 	if !ok {
 		h.clearRefreshCookie(w)
 		w.Header().Set("WWW-Authenticate", "Bearer")
-		writeAuthError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Refresh token 无效或已过期")
+		if message == "" {
+			message = "Refresh token 无效或已过期"
+		}
+		writeAuthError(w, http.StatusUnauthorized, "UNAUTHORIZED", message)
 		return
 	}
 	accessToken, refreshToken, ok, err := h.service.RefreshTokens(r.Context(), userID)

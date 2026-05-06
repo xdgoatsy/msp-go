@@ -171,6 +171,23 @@ func TestMarkAsMasteredRaisesRelatedConcepts(t *testing.T) {
 	}
 }
 
+func TestMarkAsMasteredRequiresStudentProfile(t *testing.T) {
+	repo := &fakeMistakeRepo{
+		attemptContent: AttemptContent{
+			Attempt: Attempt{ID: "attempt-1"},
+			Content: Content{ID: "content-1", ConceptIDs: []string{"algebra"}},
+		},
+		hasAttemptContent: true,
+		hasProfile:        false,
+	}
+	service := newTestService(repo, time.Date(2026, time.April, 25, 10, 0, 0, 0, time.UTC))
+
+	_, err := service.MarkAsMastered(context.Background(), "student-1", "attempt-1")
+	if !errors.Is(err, ErrProfileNotFound) {
+		t.Fatalf("MarkAsMastered() error = %v, want ErrProfileNotFound", err)
+	}
+}
+
 func TestGetReviewExerciseSelectsHighestPriorityCandidate(t *testing.T) {
 	now := time.Date(2026, time.April, 25, 10, 0, 0, 0, time.UTC)
 	repo := &fakeMistakeRepo{

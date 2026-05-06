@@ -82,7 +82,7 @@ func (s *Service) GetPortrait(ctx context.Context, userID string) (PortraitRespo
 	return toPortraitResponse(profile), nil
 }
 
-// GeneratePortrait builds and stores a profile-based portrait report.
+// GeneratePortrait builds and stores a profile-based portrait report; LLM portrait quality remains a P6 TODO.
 func (s *Service) GeneratePortrait(ctx context.Context, userID string) (GenerateResponse, error) {
 	profile, err := s.ensureProfile(ctx, userID)
 	if err != nil {

@@ -131,6 +131,10 @@ func (h *Handler) markAsMastered(w http.ResponseWriter, r *http.Request) {
 			writeMistakeError(w, http.StatusNotFound, "NOT_FOUND", "错题记录不存在")
 			return
 		}
+		if errors.Is(err, mistakeapp.ErrProfileNotFound) {
+			writeMistakeError(w, http.StatusNotFound, "NOT_FOUND", "学生画像不存在")
+			return
+		}
 		h.logger.Error("mark mistake as mastered failed", "error", err)
 		writeMistakeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "标记已掌握失败")
 		return

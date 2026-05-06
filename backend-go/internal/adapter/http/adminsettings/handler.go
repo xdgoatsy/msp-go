@@ -177,6 +177,10 @@ func (h *Handler) importDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes)
 	if err := r.ParseMultipartForm(maxImportBytes); err != nil {
+		if isRequestTooLarge(err) {
+			writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件大小不能超过 100MB")
+			return
+		}
 		writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+err.Error())
 		return
 	}
@@ -192,6 +196,10 @@ func (h *Handler) importDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	content, err := io.ReadAll(file)
 	if err != nil {
+		if isRequestTooLarge(err) {
+			writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件大小不能超过 100MB")
+			return
+		}
 		writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+err.Error())
 		return
 	}
@@ -201,6 +209,11 @@ func (h *Handler) importDatabase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func isRequestTooLarge(err error) bool {
+	var maxBytesErr *http.MaxBytesError
+	return errors.As(err, &maxBytesErr)
 }
 
 func (h *Handler) databaseMonitor(w http.ResponseWriter, r *http.Request) {

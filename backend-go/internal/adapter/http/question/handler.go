@@ -174,7 +174,7 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.GetQuestion(r.Context(), principal.UserID, r.PathValue("question_id"))
 	if err != nil {
 		if errors.Is(err, questionapp.ErrBadRequest) {
-			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "题目请求不合法")
+			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "该内容不是题目类型")
 			return
 		}
 		if errors.Is(err, questionapp.ErrForbidden) {
@@ -230,7 +230,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.UpdateQuestion(r.Context(), principal.UserID, r.PathValue("question_id"), update)
 	if err != nil {
 		if errors.Is(err, questionapp.ErrBadRequest) {
-			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "更新题目请求不合法")
+			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "该内容不是题目类型")
 			return
 		}
 		if errors.Is(err, questionapp.ErrForbidden) {
@@ -238,11 +238,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if errors.Is(err, questionapp.ErrNotFound) {
-			writeQuestionError(w, http.StatusNotFound, "NOT_FOUND", "题目不存在或无权修改")
+			writeQuestionError(w, http.StatusNotFound, "NOT_FOUND", "题目不存在或无权访问")
 			return
 		}
 		h.logger.Error("update question failed", "error", err)
-		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "更新题目失败")
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "更新失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, response)

@@ -9,8 +9,12 @@ import (
 	"time"
 )
 
-// ErrNotFound is returned when a requested mistake record does not exist for the user.
-var ErrNotFound = errors.New("mistake not found")
+var (
+	// ErrNotFound is returned when a requested mistake record does not exist for the user.
+	ErrNotFound = errors.New("mistake not found")
+	// ErrProfileNotFound is returned when a mistake write needs a missing student profile.
+	ErrProfileNotFound = errors.New("student profile not found")
+)
 
 // Repository is the persistence surface required by mistake book use cases.
 type Repository interface {
@@ -260,7 +264,6 @@ type MarkAsMasteredResponse struct {
 	Success       bool               `json:"success"`
 	MasteredAt    string             `json:"mastered_at,omitempty"`
 	MasteryUpdate map[string]float64 `json:"mastery_update,omitempty"`
-	Message       string             `json:"message,omitempty"`
 }
 
 // ReviewExerciseResponse is the Python-compatible GET /mistakes/review/next response.
@@ -453,7 +456,7 @@ func (s *Service) MarkAsMastered(ctx context.Context, userID string, attemptID s
 		return MarkAsMasteredResponse{}, err
 	}
 	if !ok {
-		return MarkAsMasteredResponse{Success: false, Message: "学生画像不存在"}, nil
+		return MarkAsMasteredResponse{}, ErrProfileNotFound
 	}
 
 	mastery := normalizeMastery(profile.MasteryVector)
@@ -474,7 +477,7 @@ func (s *Service) MarkAsMastered(ctx context.Context, userID string, attemptID s
 		return MarkAsMasteredResponse{}, err
 	}
 	if !updated {
-		return MarkAsMasteredResponse{Success: false, Message: "学生画像不存在"}, nil
+		return MarkAsMasteredResponse{}, ErrProfileNotFound
 	}
 	return MarkAsMasteredResponse{
 		Success:       true,

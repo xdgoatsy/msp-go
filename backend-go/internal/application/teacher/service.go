@@ -13,8 +13,10 @@ import (
 )
 
 var (
-	// ErrNotFound is returned when a teacher-owned class or student cannot be found.
+	// ErrNotFound is returned when a teacher-owned class or enrollment cannot be found.
 	ErrNotFound = errors.New("teacher not found")
+	// ErrStudentNotFound is returned when an enrolled student account cannot be found.
+	ErrStudentNotFound = errors.New("student not found")
 	// ErrBadRequest is returned when a request parameter is outside the supported contract.
 	ErrBadRequest = errors.New("teacher bad request")
 )
@@ -484,7 +486,7 @@ func (s *Service) GetStudentDetail(ctx context.Context, teacherID string, studen
 		return StudentDetailResponse{}, err
 	}
 	if !ok {
-		return StudentDetailResponse{}, ErrNotFound
+		return StudentDetailResponse{}, ErrStudentNotFound
 	}
 	profile, hasProfile, err := s.repo.GetProfile(ctx, studentID)
 	if err != nil {

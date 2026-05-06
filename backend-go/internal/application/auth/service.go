@@ -263,13 +263,19 @@ func (s *Service) DecodeAccessToken(token string) (Principal, bool) {
 	return Principal{UserID: claims.Subject, Role: claims.Role}, true
 }
 
-// DecodeRefreshToken returns a subject for a valid refresh token.
-func (s *Service) DecodeRefreshToken(token string) (string, bool) {
+// DecodeRefreshToken returns a subject for a valid refresh token and a legacy-compatible failure detail.
+func (s *Service) DecodeRefreshToken(token string) (string, string, bool) {
 	claims, err := s.tokens.Decode(token)
-	if err != nil || claims.Type != "refresh" || claims.Subject == "" {
-		return "", false
+	if err != nil {
+		return "", "Refresh token 无效或已过期", false
 	}
-	return claims.Subject, true
+	if claims.Type != "refresh" {
+		return "", "无效的 token 类型", false
+	}
+	if claims.Subject == "" {
+		return "", "Token 中缺少用户信息", false
+	}
+	return claims.Subject, "", true
 }
 
 // RegistrationSettings returns the public registration toggles.
