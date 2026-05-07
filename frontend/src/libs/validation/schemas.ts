@@ -17,20 +17,18 @@ export const emailSchema = z
   .min(1, '请输入邮箱地址')
   .email('请输入有效的邮箱地址');
 
-/** Password validation: at least 6 characters */
-export const passwordSchema = z
-  .string()
-  .min(6, '密码至少需要 6 个字符')
-  .max(50, '密码最多 50 个字符');
-
-/** Strong password validation: includes uppercase, lowercase, number */
+/** Strong password validation: matches backend bcrypt-safe password policy */
 export const strongPasswordSchema = z
   .string()
   .min(8, '密码至少需要 8 个字符')
-  .max(50, '密码最多 50 个字符')
+  .max(72, '密码最多 72 个字符')
   .regex(/[a-z]/, '密码需要包含至少一个小写字母')
   .regex(/[A-Z]/, '密码需要包含至少一个大写字母')
-  .regex(/[0-9]/, '密码需要包含至少一个数字');
+  .regex(/[0-9]/, '密码需要包含至少一个数字')
+  .regex(/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/, '密码需要包含至少一个特殊字符');
+
+/** Password validation used by registration, change-password, and admin reset flows */
+export const passwordSchema = strongPasswordSchema;
 
 /** User role validation */
 export const userRoleSchema = z.enum(['student', 'teacher', 'admin'], {

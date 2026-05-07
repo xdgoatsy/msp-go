@@ -35,9 +35,6 @@ export const AdminLoginPage: React.FC = () => {
         return;
       }
 
-      // 保存 token 到 localStorage
-      localStorage.setItem('auth_token', response.access_token);
-
       // 设置认证状态
       dispatch(setCredentials({
         token: response.access_token,

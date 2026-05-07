@@ -2,6 +2,8 @@ import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { logger } from '../utils/logger';
 import { handle401Error } from './tokenRefresh';
 import { emitAuthExpired } from '../auth/authEvents';
+import { csrfHeader } from '../auth/csrfToken';
+import { authTokenStorage } from '../auth/tokenStorage';
 import { emitXidianReauth } from '../auth/xidianEvents';
 import { emitRateLimited } from './rateLimitEvents';
 
@@ -62,13 +64,16 @@ export const apiClient = axios.create({
 // Request interceptor for Auth token
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('auth_token');
+    const token = authTokenStorage.get();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
       apiLogger.debug('Request with auth token', {
         method: config.method,
         url: config.url,
       });
+    }
+    if (['post', 'put', 'patch', 'delete'].includes((config.method ?? '').toLowerCase())) {
+      Object.assign(config.headers, csrfHeader());
     }
     return config;
   },
@@ -154,7 +159,7 @@ apiClient.interceptors.response.use(
 
         // 刷新失败，清除认证状态并跳转登录页
         apiLogger.warn('Token 刷新失败，跳转登录页');
-        localStorage.removeItem('auth_token');
+        authTokenStorage.clear();
         emitAuthExpired();
 
         // 根据当前路径决定跳转目标

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 
@@ -27,8 +28,8 @@ func ValidatePasswordStrength(password string) []string {
 	if len(password) < 8 {
 		errors = append(errors, "密码长度不能少于8位")
 	}
-	if len(password) > 128 {
-		errors = append(errors, "密码长度不能超过128位")
+	if len(password) > 72 {
+		errors = append(errors, "密码长度不能超过72字节")
 	}
 	if !upperRegexp.MatchString(password) {
 		errors = append(errors, "密码必须包含至少1个大写字母")
@@ -50,6 +51,9 @@ func ValidatePasswordStrength(password string) []string {
 
 // HashPassword returns a bcrypt hash compatible with the Python bcrypt implementation.
 func HashPassword(password string) (string, error) {
+	if len(password) > 72 {
+		return "", errors.New("password exceeds bcrypt 72 byte limit")
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", err

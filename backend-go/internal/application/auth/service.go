@@ -56,6 +56,13 @@ type Principal struct {
 	Role   user.Role
 }
 
+// RefreshPrincipal is the authenticated refresh-token context.
+type RefreshPrincipal struct {
+	UserID    string
+	JTI       string
+	ExpiresAt time.Time
+}
+
 // PasswordResetRequest contains data for a new password reset request.
 type PasswordResetRequest struct {
 	UserID    string
@@ -81,13 +88,24 @@ type PasswordResetStatus struct {
 
 // Service implements auth and user-domain use cases.
 type Service struct {
-	users    UserRepository
-	settings SettingsRepository
-	resets   PasswordResetRepository
-	tokens   TokenService
-	limiter  *LoginLimiter
-	logger   *slog.Logger
-	now      func() time.Time
+	users           UserRepository
+	settings        SettingsRepository
+	resets          PasswordResetRepository
+	tokens          TokenService
+	limiter         *LoginLimiter
+	refreshSessions *RefreshSessionStore
+	logger          *slog.Logger
+	now             func() time.Time
+}
+
+// ServiceOption customizes auth service behavior.
+type ServiceOption func(*Service)
+
+// WithRefreshSessionStore enables server-side refresh token rotation and revocation.
+func WithRefreshSessionStore(store *RefreshSessionStore) ServiceOption {
+	return func(s *Service) {
+		s.refreshSessions = store
+	}
 }
 
 // NewService creates an auth service with explicit dependencies.
@@ -98,6 +116,7 @@ func NewService(
 	tokens TokenService,
 	limiter *LoginLimiter,
 	logger *slog.Logger,
+	options ...ServiceOption,
 ) (*Service, error) {
 	if users == nil {
 		return nil, errors.New("auth user repository is nil")
@@ -111,7 +130,7 @@ func NewService(
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{
+	service := &Service{
 		users:    users,
 		settings: settings,
 		resets:   resets,
@@ -119,7 +138,13 @@ func NewService(
 		limiter:  limiter,
 		logger:   logger,
 		now:      func() time.Time { return time.Now().UTC() },
-	}, nil
+	}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service, nil
 }
 
 // Authenticate verifies credentials and returns access/refresh tokens.
@@ -147,7 +172,7 @@ func (s *Service) Authenticate(ctx context.Context, username, password string) (
 	if s.limiter != nil {
 		s.limiter.Clear(ctx, username)
 	}
-	return s.tokensForUser(account)
+	return s.tokensForUser(ctx, account)
 }
 
 // Register validates settings and password policy, creates a user, and returns login state.
@@ -202,7 +227,7 @@ func (s *Service) Register(ctx context.Context, username, email, password, roleV
 	}
 
 	s.logger.Info("new user registered", "username", username, "role", role)
-	return s.tokensForUser(account)
+	return s.tokensForUser(ctx, account)
 }
 
 // ChangePassword verifies the old password, enforces strength, and persists a new hash.
@@ -239,15 +264,24 @@ func (s *Service) GetUserByID(ctx context.Context, userID string) (user.User, bo
 }
 
 // RefreshTokens verifies the user still exists and is active, then rotates both token types.
-func (s *Service) RefreshTokens(ctx context.Context, userID string) (string, string, bool, error) {
-	account, ok, err := s.users.GetByID(ctx, userID)
+func (s *Service) RefreshTokens(ctx context.Context, principal RefreshPrincipal) (string, string, bool, error) {
+	if principal.UserID == "" || principal.JTI == "" {
+		return "", "", false, nil
+	}
+	if active, err := s.refreshSessions.Consume(ctx, principal.UserID, principal.JTI); err != nil {
+		return "", "", false, fmt.Errorf("consume refresh session: %w", err)
+	} else if !active {
+		return "", "", false, nil
+	}
+
+	account, ok, err := s.users.GetByID(ctx, principal.UserID)
 	if err != nil {
 		return "", "", false, fmt.Errorf("get user by id: %w", err)
 	}
 	if !ok || !account.IsActive {
 		return "", "", false, nil
 	}
-	result, err := s.tokensForUser(account)
+	result, err := s.tokensForUser(ctx, account)
 	if err != nil {
 		return "", "", false, err
 	}
@@ -263,19 +297,28 @@ func (s *Service) DecodeAccessToken(token string) (Principal, bool) {
 	return Principal{UserID: claims.Subject, Role: claims.Role}, true
 }
 
-// DecodeRefreshToken returns a subject for a valid refresh token and a legacy-compatible failure detail.
-func (s *Service) DecodeRefreshToken(token string) (string, string, bool) {
+// DecodeRefreshToken returns context for a valid refresh token and a legacy-compatible failure detail.
+func (s *Service) DecodeRefreshToken(token string) (RefreshPrincipal, string, bool) {
 	claims, err := s.tokens.Decode(token)
 	if err != nil {
-		return "", "Refresh token 无效或已过期", false
+		return RefreshPrincipal{}, "Refresh token 无效或已过期", false
 	}
 	if claims.Type != "refresh" {
-		return "", "无效的 token 类型", false
+		return RefreshPrincipal{}, "无效的 token 类型", false
 	}
 	if claims.Subject == "" {
-		return "", "Token 中缺少用户信息", false
+		return RefreshPrincipal{}, "Token 中缺少用户信息", false
 	}
-	return claims.Subject, "", true
+	return RefreshPrincipal{UserID: claims.Subject, JTI: claims.JTI, ExpiresAt: claims.Expires}, "", true
+}
+
+// RevokeRefreshToken removes one refresh token from the server-side session store.
+func (s *Service) RevokeRefreshToken(ctx context.Context, token string) error {
+	principal, _, ok := s.DecodeRefreshToken(token)
+	if !ok {
+		return nil
+	}
+	return s.refreshSessions.Revoke(ctx, principal.JTI)
 }
 
 // RegistrationSettings returns the public registration toggles.
@@ -372,7 +415,7 @@ func (s *Service) PasswordResetStatus(ctx context.Context, username, email strin
 	return status, nil
 }
 
-func (s *Service) tokensForUser(account user.User) (AuthResult, error) {
+func (s *Service) tokensForUser(ctx context.Context, account user.User) (AuthResult, error) {
 	accessToken, err := s.tokens.CreateAccessToken(account.ID, account.Role)
 	if err != nil {
 		return AuthResult{}, fmt.Errorf("create access token: %w", err)
@@ -380,6 +423,15 @@ func (s *Service) tokensForUser(account user.User) (AuthResult, error) {
 	refreshToken, err := s.tokens.CreateRefreshToken(account.ID)
 	if err != nil {
 		return AuthResult{}, fmt.Errorf("create refresh token: %w", err)
+	}
+	if s.refreshSessions != nil {
+		claims, err := s.tokens.Decode(refreshToken)
+		if err != nil {
+			return AuthResult{}, fmt.Errorf("decode refresh token: %w", err)
+		}
+		if err := s.refreshSessions.Remember(ctx, account.ID, claims.JTI, claims.Expires); err != nil {
+			return AuthResult{}, fmt.Errorf("remember refresh session: %w", err)
+		}
 	}
 	return AuthResult{
 		Success:      true,

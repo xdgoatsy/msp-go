@@ -336,7 +336,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
           label="密码"
           icon={Lock}
           type="password"
-          placeholder="请输入密码（至少6位）"
+          placeholder="请输入强密码"
           autoComplete="new-password"
           disabled={isSubmitting || !isCurrentRoleAllowed}
           error={errors.password?.message}

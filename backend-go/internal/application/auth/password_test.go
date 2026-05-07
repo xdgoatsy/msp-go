@@ -32,3 +32,13 @@ func TestHashAndVerifyPassword(t *testing.T) {
 		t.Fatal("VerifyPassword(wrong) = true, want false")
 	}
 }
+
+func TestPasswordPolicyRejectsBcryptTruncationRange(t *testing.T) {
+	longPassword := strings.Repeat("A", 73) + "a1!"
+	if errors := ValidatePasswordStrength(longPassword); len(errors) == 0 {
+		t.Fatal("ValidatePasswordStrength(long) returned no errors")
+	}
+	if _, err := HashPassword(longPassword); err == nil {
+		t.Fatal("HashPassword(long) error = nil, want error")
+	}
+}

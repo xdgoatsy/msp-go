@@ -88,6 +88,99 @@ func TestServiceChangePasswordUpdatesHashAndClearsFailures(t *testing.T) {
 	}
 }
 
+func TestServiceRefreshTokensRotatesServerSession(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	tokens, err := newTokenServiceWithClock("secret", "HS256", 30*time.Minute, time.Hour, func() time.Time {
+		return now
+	})
+	if err != nil {
+		t.Fatalf("newTokenServiceWithClock() error = %v", err)
+	}
+	store := NewRefreshSessionStore(nil, slog.Default())
+	store.now = func() time.Time { return now }
+	service, err := NewService(repo, repo, repo, tokens, nil, slog.Default(), WithRefreshSessionStore(store))
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	service.now = func() time.Time { return now }
+
+	result, err := service.Authenticate(ctx, "teacher", "Strong1!")
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	principal, message, ok := service.DecodeRefreshToken(result.RefreshToken)
+	if !ok {
+		t.Fatalf("DecodeRefreshToken() failed: %s", message)
+	}
+
+	accessToken, refreshToken, ok, err := service.RefreshTokens(ctx, principal)
+	if err != nil {
+		t.Fatalf("RefreshTokens() error = %v", err)
+	}
+	if !ok || accessToken == "" || refreshToken == "" || refreshToken == result.RefreshToken {
+		t.Fatalf("RefreshTokens() = access:%q refresh:%q ok:%t", accessToken, refreshToken, ok)
+	}
+
+	_, _, ok, err = service.RefreshTokens(ctx, principal)
+	if err != nil {
+		t.Fatalf("RefreshTokens(reuse) error = %v", err)
+	}
+	if ok {
+		t.Fatal("RefreshTokens(reuse) ok = true, want false")
+	}
+
+	newPrincipal, message, ok := service.DecodeRefreshToken(refreshToken)
+	if !ok {
+		t.Fatalf("DecodeRefreshToken(new) failed: %s", message)
+	}
+	_, _, ok, err = service.RefreshTokens(ctx, newPrincipal)
+	if err != nil {
+		t.Fatalf("RefreshTokens(new) error = %v", err)
+	}
+	if !ok {
+		t.Fatal("RefreshTokens(new) ok = false, want true")
+	}
+}
+
+func TestServiceRevokeRefreshTokenInvalidatesSession(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	tokens, err := newTokenServiceWithClock("secret", "HS256", 30*time.Minute, time.Hour, func() time.Time {
+		return now
+	})
+	if err != nil {
+		t.Fatalf("newTokenServiceWithClock() error = %v", err)
+	}
+	store := NewRefreshSessionStore(nil, slog.Default())
+	store.now = func() time.Time { return now }
+	service, err := NewService(repo, repo, repo, tokens, nil, slog.Default(), WithRefreshSessionStore(store))
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.Authenticate(ctx, "teacher", "Strong1!")
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	principal, message, ok := service.DecodeRefreshToken(result.RefreshToken)
+	if !ok {
+		t.Fatalf("DecodeRefreshToken() failed: %s", message)
+	}
+	if err := service.RevokeRefreshToken(ctx, result.RefreshToken); err != nil {
+		t.Fatalf("RevokeRefreshToken() error = %v", err)
+	}
+	_, _, ok, err = service.RefreshTokens(ctx, principal)
+	if err != nil {
+		t.Fatalf("RefreshTokens(revoked) error = %v", err)
+	}
+	if ok {
+		t.Fatal("RefreshTokens(revoked) ok = true, want false")
+	}
+}
+
 func TestServiceInitAdminCreatesOnlyWhenMissing(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepository(t)

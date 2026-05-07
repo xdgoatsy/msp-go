@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useAppSelector, useAppDispatch } from '@/store';
-import { selectIsAuthenticated, selectCurrentUser, selectAuthLoadingState, fetchCurrentUser, logout } from '@/modules/auth/store/authSlice';
+import { selectIsAuthenticated, selectCurrentUser, selectAuthLoadingState, fetchCurrentUser, logout, refreshToken } from '@/modules/auth/store/authSlice';
 import { subscribeAuthExpired } from '@/libs/auth/authEvents';
+import { refreshAccessToken } from '@/libs/http/tokenRefresh';
 import LoadingFallback from '@/components/LoadingFallback';
 
 /**
@@ -15,6 +16,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const user = useAppSelector(selectCurrentUser);
   const loadingState = useAppSelector(selectAuthLoadingState);
   const fetchStarted = useRef(false);
+  const refreshStarted = useRef(false);
+
+  useEffect(() => {
+    if (!isAuthenticated && !refreshStarted.current) {
+      refreshStarted.current = true;
+      void refreshAccessToken().then((token) => {
+        if (token) {
+          dispatch(refreshToken(token));
+        }
+      });
+    }
+  }, [dispatch, isAuthenticated]);
 
   useEffect(() => {
     // 有 token 时始终后台刷新用户信息（无论是否有缓存）

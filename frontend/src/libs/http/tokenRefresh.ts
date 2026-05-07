@@ -6,6 +6,8 @@
 
 import axios from 'axios';
 import { logger } from '../utils/logger';
+import { csrfHeader } from '../auth/csrfToken';
+import { authTokenStorage } from '../auth/tokenStorage';
 
 const refreshLogger = logger.createContextLogger('TokenRefresh');
 
@@ -48,6 +50,7 @@ export async function refreshAccessToken(): Promise<string | null> {
       {},
       {
         withCredentials: true, // 发送 HttpOnly Cookie
+        headers: csrfHeader(),
       }
     );
 
@@ -91,7 +94,7 @@ export async function handle401Error<T>(
 
     if (newToken) {
       // 更新本地存储
-      localStorage.setItem('auth_token', newToken);
+      authTokenStorage.set(newToken);
 
       // 通知所有等待的请求
       onTokenRefreshed(newToken);

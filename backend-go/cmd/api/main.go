@@ -89,6 +89,10 @@ func main() {
 			logger.Warn("close redis client", "error", err)
 		}
 	}()
+	if err := requireSharedRedis(ctx, cfg, redisClient); err != nil {
+		logger.Error("redis is required for production refresh sessions", "error", err)
+		os.Exit(1)
+	}
 
 	userRepo, err := adapterpostgres.NewUserRepository(dbPool)
 	if err != nil {
@@ -106,7 +110,20 @@ func main() {
 		os.Exit(1)
 	}
 	loginLimiter := authapp.NewLoginLimiter(redisClient, cfg.LoginMaxAttempts, cfg.LoginLockout, logger)
-	authService, err := authapp.NewService(userRepo, userRepo, userRepo, tokenService, loginLimiter, logger)
+	refreshSessions := authapp.NewRefreshSessionStore(
+		redisClient,
+		logger,
+		authapp.WithStrictRefreshSessions(cfg.RequiresSharedRefreshSessionStore()),
+	)
+	authService, err := authapp.NewService(
+		userRepo,
+		userRepo,
+		userRepo,
+		tokenService,
+		loginLimiter,
+		logger,
+		authapp.WithRefreshSessionStore(refreshSessions),
+	)
 	if err != nil {
 		logger.Error("configure auth service", "error", err)
 		os.Exit(1)
@@ -507,6 +524,15 @@ func newLogger(cfg config.Config) *slog.Logger {
 		level = slog.LevelDebug
 	}
 	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+}
+
+func requireSharedRedis(ctx context.Context, cfg config.Config, redisClient *goredis.Client) error {
+	if !cfg.RequiresSharedRefreshSessionStore() {
+		return nil
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, cfg.RedisConnectTimeout+cfg.RedisSocketTimeout)
+	defer cancel()
+	return redisClient.Ping(checkCtx).Err()
 }
 
 func adminStatusProvider(dbPool *pgxpool.Pool, redisClient *goredis.Client) adminstatsapp.StatusProviderFunc {

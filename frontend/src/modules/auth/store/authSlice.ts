@@ -2,6 +2,7 @@ import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/tool
 import type { LoadingState } from '@/types';
 import { createFieldSelector } from '@/store/utils/sliceFactory';
 import { authService } from '@/modules/auth/services/authService';
+import { authTokenStorage } from '@/libs/auth/tokenStorage';
 
 /**
  * 认证状态
@@ -46,7 +47,7 @@ function saveUserToCache(user: AuthState['user']): void {
 }
 
 const cachedUser = loadUserFromCache();
-const token = localStorage.getItem('auth_token');
+const token = authTokenStorage.get();
 
 const initialState: AuthState = {
   token,
@@ -72,7 +73,7 @@ export const fetchCurrentUser = createAsyncThunk(
       };
     } catch {
       // 获取用户信息失败，清除 token
-      localStorage.removeItem('auth_token');
+      authTokenStorage.clear();
       return rejectWithValue('获取用户信息失败');
     }
   }
@@ -96,7 +97,7 @@ const authSlice = createSlice({
       state.isAuthenticated = true;
       state.loadingState = 'success';
       state.error = null;
-      localStorage.setItem('auth_token', token);
+      authTokenStorage.set(token);
       saveUserToCache(user);
     },
 
@@ -107,7 +108,7 @@ const authSlice = createSlice({
       state.isAuthenticated = false;
       state.loadingState = 'idle';
       state.error = null;
-      localStorage.removeItem('auth_token');
+      authTokenStorage.clear();
       saveUserToCache(null);
     },
 
@@ -143,7 +144,8 @@ const authSlice = createSlice({
     // 刷新 token
     refreshToken(state, action: PayloadAction<string>) {
       state.token = action.payload;
-      localStorage.setItem('auth_token', action.payload);
+      state.isAuthenticated = true;
+      authTokenStorage.set(action.payload);
     },
   },
   extraReducers: (builder) => {

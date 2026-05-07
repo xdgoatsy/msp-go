@@ -1,4 +1,5 @@
 import { apiClient } from '@/libs/http/apiClient';
+import { authTokenStorage } from '@/libs/auth/tokenStorage';
 
 export interface LoginCredentials {
   username: string;
@@ -102,7 +103,7 @@ export const authService = {
     } catch {
       // 即使后端调用失败，也清除本地 token
     }
-    localStorage.removeItem('auth_token');
+    authTokenStorage.clear();
   },
 
   async getCurrentUser(): Promise<UserInfo> {

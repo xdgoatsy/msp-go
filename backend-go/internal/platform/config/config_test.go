@@ -110,6 +110,55 @@ func TestLoadRejectsInvalidJWTAlgorithm(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsProductionPlaceholderSecrets(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "production")
+	t.Setenv("JWT_SECRET_KEY", "change-me-in-each-environment")
+	t.Setenv("ADMIN_PASSWORD", "Admin123!")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want production JWT secret error")
+	}
+}
+
+func TestLoadRejectsProductionWeakAdminPassword(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "production")
+	t.Setenv("JWT_SECRET_KEY", strings.Repeat("s", 32))
+	t.Setenv("ADMIN_PASSWORD", "weakpassword")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want production admin password error")
+	}
+}
+
+func TestLoadAcceptsProductionStrongAuthConfig(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "production")
+	t.Setenv("JWT_SECRET_KEY", strings.Repeat("s", 32))
+	t.Setenv("ADMIN_PASSWORD", "Admin123!")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Environment != "production" {
+		t.Fatalf("Environment = %q", cfg.Environment)
+	}
+	if !cfg.RequiresSharedRefreshSessionStore() {
+		t.Fatal("RequiresSharedRefreshSessionStore() = false, want true")
+	}
+}
+
+func TestLoadDevelopmentAllowsLocalRefreshSessionFallback(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "development")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.RequiresSharedRefreshSessionStore() {
+		t.Fatal("RequiresSharedRefreshSessionStore() = true, want false")
+	}
+}
+
 func TestLoadReadsS3StorageConfig(t *testing.T) {
 	t.Setenv("STORAGE_BACKEND", "s3")
 	t.Setenv("S3_ENDPOINT_URL", "https://s3.example.com")

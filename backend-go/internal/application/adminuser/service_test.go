@@ -45,7 +45,7 @@ func TestCreateUserHandlesDuplicateAndSuccess(t *testing.T) {
 	repo := &fakeRepository{usersByUsername: map[string]user.User{"taken": existing}}
 	service := newTestService(t, repo)
 
-	response, err := service.CreateUser(context.Background(), Create{Username: "taken", Email: "new@example.com", Password: "secret1", Role: "student"})
+	response, err := service.CreateUser(context.Background(), Create{Username: "taken", Email: "new@example.com", Password: "Strong1!", Role: "student"})
 	if err != nil {
 		t.Fatalf("CreateUser(duplicate) error = %v", err)
 	}
@@ -57,7 +57,7 @@ func TestCreateUserHandlesDuplicateAndSuccess(t *testing.T) {
 	response, err = service.CreateUser(context.Background(), Create{
 		Username:    "teacher",
 		Email:       "teacher@example.com",
-		Password:    "secret1",
+		Password:    "Strong1!",
 		Role:        "teacher",
 		DisplayName: &displayName,
 	})
@@ -67,7 +67,7 @@ func TestCreateUserHandlesDuplicateAndSuccess(t *testing.T) {
 	if !response.Success || response.User == nil || response.User.Role != user.RoleTeacher {
 		t.Fatalf("success response = %#v", response)
 	}
-	if len(repo.created) != 1 || !authapp.VerifyPassword("secret1", repo.created[0].HashedPassword) {
+	if len(repo.created) != 1 || !authapp.VerifyPassword("Strong1!", repo.created[0].HashedPassword) {
 		t.Fatalf("created input = %#v", repo.created)
 	}
 }
@@ -99,9 +99,9 @@ func TestImportUsersRecordsCreatedSkippedAndFailedRows(t *testing.T) {
 
 	response, err := service.ImportUsers(context.Background(), []ImportUser{
 		{Username: "", Email: "", Password: ""},
-		{Username: "taken", Email: "other@example.com", Password: "secret1", Role: "student"},
-		{Username: "badrole", Email: "bad@example.com", Password: "secret1", Role: "guest"},
-		{Username: "new", Email: "new@example.com", Password: "secret1", Role: "teacher", DisplayName: &displayName},
+		{Username: "taken", Email: "other@example.com", Password: "Strong1!", Role: "student"},
+		{Username: "badrole", Email: "bad@example.com", Password: "Strong1!", Role: "guest"},
+		{Username: "new", Email: "new@example.com", Password: "Strong1!", Role: "teacher", DisplayName: &displayName},
 	})
 	if err != nil {
 		t.Fatalf("ImportUsers() error = %v", err)

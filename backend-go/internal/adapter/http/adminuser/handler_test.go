@@ -73,7 +73,7 @@ func TestCreateUpdateStatusAndDeleteForwardToService(t *testing.T) {
 	handler.Register(mux, "/api/v1/admin/users")
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users", bytes.NewBufferString(`{"username":"new","email":"new@example.com","password":"secret1","role":"student"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users", bytes.NewBufferString(`{"username":"new","email":"new@example.com","password":"Strong1!","role":"student"}`))
 	request.Header.Set("Authorization", "Bearer token")
 	mux.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || service.lastCreate.Username != "new" {
@@ -109,7 +109,7 @@ func TestImportUsersParsesMultipartCSV(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateFormFile() error = %v", err)
 	}
-	_, _ = part.Write([]byte("用户名,邮箱,密码,角色,显示名称\nalice,alice@example.com,secret1,student,Alice\n"))
+	_, _ = part.Write([]byte("用户名,邮箱,密码,角色,显示名称\nalice,alice@example.com,Strong1!,student,Alice\n"))
 	if err := writer.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}

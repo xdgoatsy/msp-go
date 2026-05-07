@@ -2,6 +2,9 @@ package authhttp
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -14,15 +17,23 @@ import (
 	"mathstudy/backend-go/internal/platform/config"
 )
 
+const (
+	refreshCookieName = "refresh_token"
+	csrfCookieName    = "csrf_token"
+	csrfHeaderName    = "X-CSRF-Token"
+	csrfTokenBytes    = 32
+)
+
 // Service is the auth application surface used by HTTP handlers.
 type Service interface {
 	Authenticate(context.Context, string, string) (authapp.AuthResult, error)
 	Register(context.Context, string, string, string, string) (authapp.AuthResult, error)
 	ChangePassword(context.Context, string, string, string) (bool, string, error)
 	GetUserByID(context.Context, string) (user.User, bool, error)
-	RefreshTokens(context.Context, string) (string, string, bool, error)
+	RefreshTokens(context.Context, authapp.RefreshPrincipal) (string, string, bool, error)
 	DecodeAccessToken(string) (authapp.Principal, bool)
-	DecodeRefreshToken(string) (string, string, bool)
+	DecodeRefreshToken(string) (authapp.RefreshPrincipal, string, bool)
+	RevokeRefreshToken(context.Context, string) error
 	RegistrationSettings(context.Context) (authapp.RegistrationSettings, error)
 	SubmitPasswordReset(context.Context, string, string, string) (authapp.PasswordResetResult, error)
 	PasswordResetStatus(context.Context, string, string) (authapp.PasswordResetStatus, error)
@@ -35,6 +46,7 @@ type Handler struct {
 	refreshMaxAge int
 	cookieSecure  bool
 	cookiePath    string
+	csrfPath      string
 }
 
 // NewHandler creates an auth HTTP handler with Python-compatible cookie behavior.
@@ -51,6 +63,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service Service) (*Handl
 		refreshMaxAge: int(cfg.JWTRefreshTokenExpire / time.Second),
 		cookieSecure:  cfg.Environment != "development",
 		cookiePath:    cfg.APIV1Prefix + "/auth",
+		csrfPath:      "/",
 	}, nil
 }
 
@@ -151,7 +164,10 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusUnauthorized, "UNAUTHORIZED", result.Error)
 		return
 	}
-	h.setRefreshCookie(w, result.RefreshToken)
+	if !h.setAuthCookies(w, result.RefreshToken) {
+		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "登录成功但未能生成安全凭证，请稍后重试")
+		return
+	}
 	writeJSON(w, http.StatusOK, loginResponse{
 		AccessToken: result.AccessToken,
 		TokenType:   "bearer",
@@ -181,7 +197,10 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "注册成功但未能生成登录凭证，请稍后重试")
 		return
 	}
-	h.setRefreshCookie(w, result.RefreshToken)
+	if !h.setAuthCookies(w, result.RefreshToken) {
+		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "注册成功但未能生成安全凭证，请稍后重试")
+		return
+	}
 	writeJSON(w, http.StatusOK, loginResponse{
 		AccessToken: result.AccessToken,
 		TokenType:   "bearer",
@@ -212,15 +231,18 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("refresh_token")
+	cookie, err := r.Cookie(refreshCookieName)
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		writeAuthError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Refresh token 不存在")
 		return
 	}
-	userID, message, ok := h.service.DecodeRefreshToken(cookie.Value)
+	if !h.requireCSRF(w, r) {
+		return
+	}
+	principal, message, ok := h.service.DecodeRefreshToken(cookie.Value)
 	if !ok {
-		h.clearRefreshCookie(w)
+		h.clearAuthCookies(w)
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		if message == "" {
 			message = "Refresh token 无效或已过期"
@@ -228,24 +250,35 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, http.StatusUnauthorized, "UNAUTHORIZED", message)
 		return
 	}
-	accessToken, refreshToken, ok, err := h.service.RefreshTokens(r.Context(), userID)
+	accessToken, refreshToken, ok, err := h.service.RefreshTokens(r.Context(), principal)
 	if err != nil {
 		h.logger.Error("refresh token failed", "error", err)
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Token 刷新失败，请稍后重试")
 		return
 	}
 	if !ok {
-		h.clearRefreshCookie(w)
+		h.clearAuthCookies(w)
 		w.Header().Set("WWW-Authenticate", "Bearer")
-		writeAuthError(w, http.StatusUnauthorized, "UNAUTHORIZED", "用户不存在或已被禁用")
+		writeAuthError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Refresh token 无效或已过期")
 		return
 	}
-	h.setRefreshCookie(w, refreshToken)
+	if !h.setAuthCookies(w, refreshToken) {
+		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Token 刷新失败，请稍后重试")
+		return
+	}
 	writeJSON(w, http.StatusOK, refreshResponse{AccessToken: accessToken, TokenType: "bearer"})
 }
 
-func (h *Handler) logout(w http.ResponseWriter, _ *http.Request) {
-	h.clearRefreshCookie(w)
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(refreshCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
+		if !h.requireCSRF(w, r) {
+			return
+		}
+		if err := h.service.RevokeRefreshToken(r.Context(), cookie.Value); err != nil {
+			h.logger.Warn("revoke refresh token failed", "error", err)
+		}
+	}
+	h.clearAuthCookies(w)
 	writeJSON(w, http.StatusOK, messageResponse{Message: "登出成功"})
 }
 
@@ -340,9 +373,20 @@ func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (auth
 	return principal, true
 }
 
+func (h *Handler) setAuthCookies(w http.ResponseWriter, refreshToken string) bool {
+	csrfToken, err := newCSRFToken()
+	if err != nil {
+		h.logger.Error("generate csrf token failed", "error", err)
+		return false
+	}
+	h.setRefreshCookie(w, refreshToken)
+	h.setCSRFCookie(w, csrfToken)
+	return true
+}
+
 func (h *Handler) setRefreshCookie(w http.ResponseWriter, value string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
+		Name:     refreshCookieName,
 		Value:    value,
 		Path:     h.cookiePath,
 		MaxAge:   h.refreshMaxAge,
@@ -352,9 +396,21 @@ func (h *Handler) setRefreshCookie(w http.ResponseWriter, value string) {
 	})
 }
 
-func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
+func (h *Handler) setCSRFCookie(w http.ResponseWriter, value string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
+		Name:     csrfCookieName,
+		Value:    value,
+		Path:     h.csrfPath,
+		MaxAge:   h.refreshMaxAge,
+		HttpOnly: false,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (h *Handler) clearAuthCookies(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
 		Value:    "",
 		Path:     h.cookiePath,
 		MaxAge:   -1,
@@ -362,6 +418,37 @@ func (h *Handler) clearRefreshCookie(w http.ResponseWriter) {
 		Secure:   h.cookieSecure,
 		SameSite: http.SameSiteLaxMode,
 	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    "",
+		Path:     h.csrfPath,
+		MaxAge:   -1,
+		HttpOnly: false,
+		Secure:   h.cookieSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (h *Handler) requireCSRF(w http.ResponseWriter, r *http.Request) bool {
+	cookie, err := r.Cookie(csrfCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		writeAuthError(w, http.StatusForbidden, "CSRF_TOKEN_MISSING", "CSRF token 缺失")
+		return false
+	}
+	header := strings.TrimSpace(r.Header.Get(csrfHeaderName))
+	if header == "" || subtle.ConstantTimeCompare([]byte(header), []byte(cookie.Value)) != 1 {
+		writeAuthError(w, http.StatusForbidden, "CSRF_TOKEN_INVALID", "CSRF token 无效")
+		return false
+	}
+	return true
+}
+
+func newCSRFToken() (string, error) {
+	data := make([]byte, csrfTokenBytes)
+	if _, err := rand.Read(data); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(data), nil
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {

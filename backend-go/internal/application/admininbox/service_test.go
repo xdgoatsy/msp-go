@@ -58,6 +58,9 @@ func TestReviewRequestApprovesAndClearsLoginFailures(t *testing.T) {
 	if !authapp.VerifyPassword(*response.TempPassword, *repo.lastReview.PasswordHash) {
 		t.Fatal("temporary password does not match stored hash")
 	}
+	if validationErrors := authapp.ValidatePasswordStrength(*response.TempPassword); len(validationErrors) > 0 {
+		t.Fatalf("temporary password failed strength policy: %v", validationErrors)
+	}
 	if clearer.username != "student" {
 		t.Fatalf("cleared username = %q", clearer.username)
 	}

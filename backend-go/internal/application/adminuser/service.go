@@ -327,6 +327,11 @@ func (s *Service) ImportUsers(ctx context.Context, rows []ImportUser) (ImportRes
 			response.Details = append(response.Details, ImportResult{Row: rowNumber, Username: normalized.Username, Message: "无效的角色: " + normalized.Role})
 			continue
 		}
+		if validationErrors := authapp.ValidatePasswordStrength(normalized.Password); len(validationErrors) > 0 {
+			response.Failed++
+			response.Details = append(response.Details, ImportResult{Row: rowNumber, Username: normalized.Username, Message: "密码不符合安全策略: " + strings.Join(validationErrors, "；")})
+			continue
+		}
 		if existing, ok, err := s.repo.GetByUsername(ctx, normalized.Username); err != nil {
 			return ImportResponse{}, fmt.Errorf("get user by username: %w", err)
 		} else if ok {
@@ -418,8 +423,8 @@ func normalizeCreate(input Create) (Create, user.Role, error) {
 	if input.Email == "" {
 		return Create{}, "", badRequest("email 不能为空")
 	}
-	if len(input.Password) < 6 {
-		return Create{}, "", badRequest("password 长度不能少于 6 位")
+	if validationErrors := authapp.ValidatePasswordStrength(input.Password); len(validationErrors) > 0 {
+		return Create{}, "", badRequest(strings.Join(validationErrors, "；"))
 	}
 	if err := validateOptionalDisplayName(input.DisplayName); err != nil {
 		return Create{}, "", err
@@ -441,8 +446,8 @@ func normalizeUpdate(update Update) (Update, error) {
 	}
 	if update.Password != nil {
 		password := strings.TrimSpace(*update.Password)
-		if len(password) < 6 {
-			return Update{}, badRequest("password 长度不能少于 6 位")
+		if validationErrors := authapp.ValidatePasswordStrength(password); len(validationErrors) > 0 {
+			return Update{}, badRequest(strings.Join(validationErrors, "；"))
 		}
 		update.Password = &password
 	}

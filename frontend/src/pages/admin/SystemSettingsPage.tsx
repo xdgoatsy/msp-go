@@ -21,6 +21,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { authService } from '@/modules/auth/services/authService';
+import { passwordSchema } from '@/libs/validation';
 import {
   systemSettingService,
   type RegistrationSettings,
@@ -385,9 +386,9 @@ const ChangePasswordCard: React.FC = () => {
     setError('');
     setSuccess('');
 
-    // 验证新密码
-    if (newPassword.length < 6) {
-      setError('新密码长度不能少于6位');
+    const passwordResult = passwordSchema.safeParse(newPassword);
+    if (!passwordResult.success) {
+      setError(passwordResult.error.issues[0]?.message ?? '新密码不符合安全策略');
       return;
     }
 
@@ -462,7 +463,7 @@ const ChangePasswordCard: React.FC = () => {
             </label>
             <Input
               type="password"
-              placeholder="请输入新密码（至少6位）"
+              placeholder="请输入强密码"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               required

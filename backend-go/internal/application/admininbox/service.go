@@ -13,8 +13,12 @@ import (
 )
 
 const (
-	tempPasswordLength = 12
-	tempPasswordChars  = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	tempPasswordLength  = 12
+	tempPasswordLower   = "abcdefghijklmnopqrstuvwxyz"
+	tempPasswordUpper   = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	tempPasswordDigits  = "0123456789"
+	tempPasswordSpecial = "!@#$%^&*()-_=+[]{}"
+	tempPasswordChars   = tempPasswordLower + tempPasswordUpper + tempPasswordDigits + tempPasswordSpecial
 )
 
 var (
@@ -253,15 +257,43 @@ func normalizeStatusFilter(value string) (string, error) {
 func generateTempPassword() (string, error) {
 	var builder strings.Builder
 	builder.Grow(tempPasswordLength)
-	max := big.NewInt(int64(len(tempPasswordChars)))
-	for builder.Len() < tempPasswordLength {
-		index, err := rand.Int(rand.Reader, max)
+	for _, pool := range []string{tempPasswordLower, tempPasswordUpper, tempPasswordDigits, tempPasswordSpecial} {
+		char, err := randomByte(pool)
 		if err != nil {
 			return "", err
 		}
-		builder.WriteByte(tempPasswordChars[index.Int64()])
+		builder.WriteByte(char)
 	}
-	return builder.String(), nil
+	for builder.Len() < tempPasswordLength {
+		char, err := randomByte(tempPasswordChars)
+		if err != nil {
+			return "", err
+		}
+		builder.WriteByte(char)
+	}
+	return shufflePassword(builder.String())
+}
+
+func randomByte(pool string) (byte, error) {
+	max := big.NewInt(int64(len(pool)))
+	index, err := rand.Int(rand.Reader, max)
+	if err != nil {
+		return 0, err
+	}
+	return pool[index.Int64()], nil
+}
+
+func shufflePassword(password string) (string, error) {
+	data := []byte(password)
+	for i := len(data) - 1; i > 0; i-- {
+		index, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return "", err
+		}
+		j := int(index.Int64())
+		data[i], data[j] = data[j], data[i]
+	}
+	return string(data), nil
 }
 
 func badRequest(message string) error {

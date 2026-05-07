@@ -16,7 +16,10 @@ import (
 )
 
 const (
-	defaultAPIPrefix = "/api/v1"
+	defaultAPIPrefix         = "/api/v1"
+	defaultJWTSecretKey      = "your-secret-key-change-in-production"
+	defaultAdminPassword     = "admin123"
+	minProductionSecretBytes = 32
 )
 
 // Config contains process-level settings loaded from environment variables.
@@ -164,13 +167,13 @@ func Load() (Config, error) {
 		RedisSocketTimeout:        envSeconds("REDIS_SOCKET_TIMEOUT_SECONDS", 3*time.Second),
 		RedisConnectTimeout:       envSeconds("REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS", 3*time.Second),
 		RedisFallbackCacheMaxSize: envInt("REDIS_FALLBACK_CACHE_MAX_SIZE", 500),
-		JWTSecretKey:              envString("JWT_SECRET_KEY", "your-secret-key-change-in-production"),
+		JWTSecretKey:              envString("JWT_SECRET_KEY", defaultJWTSecretKey),
 		JWTAlgorithm:              strings.ToUpper(envString("JWT_ALGORITHM", "HS256")),
 		JWTAccessTokenExpire:      time.Duration(envInt("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", 30)) * time.Minute,
 		JWTRefreshTokenExpire:     time.Duration(envInt("JWT_REFRESH_TOKEN_EXPIRE_DAYS", 7)) * 24 * time.Hour,
 		AdminUsername:             envString("ADMIN_USERNAME", "admin"),
 		AdminEmail:                envString("ADMIN_EMAIL", "admin@example.com"),
-		AdminPassword:             envString("ADMIN_PASSWORD", "admin123"),
+		AdminPassword:             envString("ADMIN_PASSWORD", defaultAdminPassword),
 		LoginMaxAttempts:          envInt("LOGIN_MAX_ATTEMPTS", 5),
 		LoginLockout:              time.Duration(envInt("LOGIN_LOCKOUT_MINUTES", 15)) * time.Minute,
 		LogArchiveAfterDays:       envInt("LOG_ARCHIVE_AFTER_DAYS", 30),
@@ -250,6 +253,9 @@ func Load() (Config, error) {
 	if strings.TrimSpace(cfg.AdminPassword) == "" {
 		return Config{}, errors.New("ADMIN_PASSWORD must not be empty")
 	}
+	if err := validateProductionAuthConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	if cfg.LoginMaxAttempts <= 0 {
 		return Config{}, errors.New("LOGIN_MAX_ATTEMPTS must be greater than 0")
 	}
@@ -296,6 +302,12 @@ func (c Config) DatabaseURL() string {
 // RedisAddr returns the host:port address for Redis.
 func (c Config) RedisAddr() string {
 	return net.JoinHostPort(c.RedisHost, strconv.Itoa(c.RedisPort))
+}
+
+// RequiresSharedRefreshSessionStore reports whether refresh sessions must use
+// shared Redis state instead of local fallback.
+func (c Config) RequiresSharedRefreshSessionStore() bool {
+	return isStrictEnvironment(c.Environment)
 }
 
 func loadEnvFiles(paths []string) {
@@ -449,6 +461,62 @@ func allowedJWTAlgorithms() map[string]bool {
 		"HS384": true,
 		"HS512": true,
 	}
+}
+
+func validateProductionAuthConfig(cfg Config) error {
+	if !isStrictEnvironment(cfg.Environment) {
+		return nil
+	}
+	secret := strings.TrimSpace(cfg.JWTSecretKey)
+	if len([]byte(secret)) < minProductionSecretBytes || placeholderSecret(secret) {
+		return errors.New("JWT_SECRET_KEY must be a non-placeholder secret with at least 32 bytes outside development")
+	}
+	adminPassword := strings.TrimSpace(cfg.AdminPassword)
+	if adminPassword == defaultAdminPassword || placeholderSecret(adminPassword) {
+		return errors.New("ADMIN_PASSWORD must not use the default or placeholder value outside development")
+	}
+	if !strongConfigPassword(adminPassword) {
+		return errors.New("ADMIN_PASSWORD must be 8-72 bytes and include uppercase, lowercase, digit, and special characters outside development")
+	}
+	return nil
+}
+
+func isStrictEnvironment(environment string) bool {
+	switch strings.ToLower(strings.TrimSpace(environment)) {
+	case "", "development", "dev", "local", "test":
+		return false
+	default:
+		return true
+	}
+}
+
+func placeholderSecret(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "change-me", "change-me-in-each-environment", defaultJWTSecretKey, "secret", "test-secret":
+		return true
+	default:
+		return false
+	}
+}
+
+func strongConfigPassword(password string) bool {
+	if len(password) < 8 || len([]byte(password)) > 72 {
+		return false
+	}
+	hasUpper, hasLower, hasDigit, hasSpecial := false, false, false, false
+	for _, r := range password {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		default:
+			hasSpecial = true
+		}
+	}
+	return hasUpper && hasLower && hasDigit && hasSpecial
 }
 
 func validateStorageConfig(cfg Config) error {

@@ -15,6 +15,13 @@ interface UserFormModalProps {
   user?: UserItem | null;
 }
 
+const passwordPolicyMessage = '密码至少 8 位，需包含大小写字母、数字和特殊字符';
+const passwordPolicyRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]).{8,72}$/;
+
+function isStrongPassword(password: string): boolean {
+  return passwordPolicyRegex.test(password);
+}
+
 export const UserFormModal: React.FC<UserFormModalProps> = ({
   isOpen,
   onClose,
@@ -71,8 +78,8 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
 
     if (isEditMode) {
       // 编辑模式验证
-      if (formData.password && formData.password.length < 6) {
-        setError('密码至少 6 个字符');
+      if (formData.password && !isStrongPassword(formData.password)) {
+        setError(passwordPolicyMessage);
         return;
       }
     } else {
@@ -97,8 +104,8 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
         setError('请输入密码');
         return;
       }
-      if (formData.password.length < 6) {
-        setError('密码至少 6 个字符');
+      if (!isStrongPassword(formData.password)) {
+        setError(passwordPolicyMessage);
         return;
       }
       if (formData.password !== formData.confirmPassword) {
@@ -218,7 +225,7 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
             type="password"
             value={formData.password}
             onChange={(e) => handleChange('password', e.target.value)}
-            placeholder={isEditMode ? '留空则不修改密码' : '请输入密码（至少 6 位）'}
+            placeholder={isEditMode ? '留空则不修改密码' : '请输入强密码'}
             disabled={loading}
           />
           {isEditMode && (

@@ -83,20 +83,24 @@ describe('emailSchema', () => {
 // passwordSchema 测试
 // ============================================
 describe('passwordSchema', () => {
-  it('接受 6 个字符（最小长度）', () => {
-    expect(passwordSchema.safeParse('abc123').success).toBe(true);
+  it('接受符合强度要求的密码', () => {
+    expect(passwordSchema.safeParse('Abcdef1!').success).toBe(true);
   });
 
   it('接受长密码', () => {
-    expect(passwordSchema.safeParse('a'.repeat(50)).success).toBe(true);
+    expect(passwordSchema.safeParse(`A${'a'.repeat(68)}1!`).success).toBe(true);
   });
 
-  it('拒绝少于 6 个字符', () => {
-    expect(passwordSchema.safeParse('abc').success).toBe(false);
+  it('拒绝少于 8 个字符', () => {
+    expect(passwordSchema.safeParse('Abc1!').success).toBe(false);
   });
 
-  it('拒绝超过 50 个字符', () => {
-    expect(passwordSchema.safeParse('a'.repeat(51)).success).toBe(false);
+  it('拒绝超过 72 个字符', () => {
+    expect(passwordSchema.safeParse(`A${'a'.repeat(70)}1!`).success).toBe(false);
+  });
+
+  it('拒绝缺少特殊字符', () => {
+    expect(passwordSchema.safeParse('Abcdef12').success).toBe(false);
   });
 });
 
@@ -104,7 +108,7 @@ describe('passwordSchema', () => {
 // strongPasswordSchema 测试
 // ============================================
 describe('strongPasswordSchema', () => {
-  it('接受包含大小写和数字的密码', () => {
+  it('接受包含大小写、数字和特殊字符的密码', () => {
     expect(strongPasswordSchema.safeParse('Abcdef1!').success).toBe(true);
   });
 
@@ -122,6 +126,10 @@ describe('strongPasswordSchema', () => {
 
   it('拒绝缺少数字', () => {
     expect(strongPasswordSchema.safeParse('Abcdefgh').success).toBe(false);
+  });
+
+  it('拒绝缺少特殊字符', () => {
+    expect(strongPasswordSchema.safeParse('Abcdef12').success).toBe(false);
   });
 });
 
@@ -181,8 +189,8 @@ describe('registerSchema', () => {
     const result = registerSchema.safeParse({
       username: 'newuser',
       email: 'new@example.com',
-      password: 'pass123',
-      confirmPassword: 'pass123',
+      password: 'Pass123!',
+      confirmPassword: 'Pass123!',
       role: 'student',
     });
     expect(result.success).toBe(true);
@@ -192,7 +200,7 @@ describe('registerSchema', () => {
     const result = registerSchema.safeParse({
       username: 'newuser',
       email: 'new@example.com',
-      password: 'pass123',
+      password: 'Pass123!',
       confirmPassword: 'different',
       role: 'student',
     });
@@ -202,8 +210,8 @@ describe('registerSchema', () => {
   it('拒绝缺少 email', () => {
     const result = registerSchema.safeParse({
       username: 'newuser',
-      password: 'pass123',
-      confirmPassword: 'pass123',
+      password: 'Pass123!',
+      confirmPassword: 'Pass123!',
       role: 'student',
     });
     expect(result.success).toBe(false);
@@ -217,8 +225,8 @@ describe('passwordChangeSchema', () => {
   it('接受合法密码修改数据', () => {
     const result = passwordChangeSchema.safeParse({
       currentPassword: 'oldpass',
-      newPassword: 'newpass1',
-      confirmNewPassword: 'newpass1',
+      newPassword: 'Newpass1!',
+      confirmNewPassword: 'Newpass1!',
     });
     expect(result.success).toBe(true);
   });
@@ -235,16 +243,16 @@ describe('passwordChangeSchema', () => {
   it('拒绝两次新密码不一致', () => {
     const result = passwordChangeSchema.safeParse({
       currentPassword: 'oldpass',
-      newPassword: 'newpass1',
-      confirmNewPassword: 'newpass2',
+      newPassword: 'Newpass1!',
+      confirmNewPassword: 'Newpass2!',
     });
     expect(result.success).toBe(false);
   });
 
   it('拒绝缺少当前密码', () => {
     const result = passwordChangeSchema.safeParse({
-      newPassword: 'newpass1',
-      confirmNewPassword: 'newpass1',
+      newPassword: 'Newpass1!',
+      confirmNewPassword: 'Newpass1!',
     });
     expect(result.success).toBe(false);
   });

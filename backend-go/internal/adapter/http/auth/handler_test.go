@@ -48,16 +48,16 @@ func TestLoginSetsRefreshCookieAndReturnsAccessToken(t *testing.T) {
 	if body.AccessToken != "access-token" || body.TokenType != "bearer" || body.User.Role != "student" {
 		t.Fatalf("body = %#v", body)
 	}
-	cookies := recorder.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("cookies = %d, want 1", len(cookies))
+	refreshCookie := cookieByName(t, recorder.Result().Cookies(), refreshCookieName)
+	if refreshCookie.Value != "refresh-token" {
+		t.Fatalf("cookie = %#v", refreshCookie)
 	}
-	cookie := cookies[0]
-	if cookie.Name != "refresh_token" || cookie.Value != "refresh-token" {
-		t.Fatalf("cookie = %#v", cookie)
+	if refreshCookie.Path != "/api/v1/auth" || !refreshCookie.HttpOnly || refreshCookie.Secure {
+		t.Fatalf("cookie flags = %#v", refreshCookie)
 	}
-	if cookie.Path != "/api/v1/auth" || !cookie.HttpOnly || cookie.Secure {
-		t.Fatalf("cookie flags = %#v", cookie)
+	csrfCookie := cookieByName(t, recorder.Result().Cookies(), csrfCookieName)
+	if csrfCookie.Value == "" || csrfCookie.Path != "/" || csrfCookie.HttpOnly || csrfCookie.Secure {
+		t.Fatalf("csrf cookie = %#v", csrfCookie)
 	}
 }
 
@@ -95,14 +95,107 @@ func TestRefreshClearsInvalidCookie(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
-	request.AddCookie(&http.Cookie{Name: "refresh_token", Value: "bad"})
+	addCSRFCookies(request, "csrf-token")
+	request.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "bad"})
 	mux.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d", recorder.Code)
 	}
 	cookies := recorder.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "refresh_token" || cookies[0].MaxAge != -1 {
+	if cookieByName(t, cookies, refreshCookieName).MaxAge != -1 || cookieByName(t, cookies, csrfCookieName).MaxAge != -1 {
+		t.Fatalf("cookies = %#v", cookies)
+	}
+}
+
+func TestRefreshRequiresCSRFToken(t *testing.T) {
+	handler := newTestHandler(t, &fakeAuthService{
+		refreshPrincipal: authapp.RefreshPrincipal{UserID: "user-1", JTI: "jti"},
+	})
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/auth")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	request.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "refresh-token"})
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if body["code"] != "CSRF_TOKEN_MISSING" {
+		t.Fatalf("body = %#v", body)
+	}
+}
+
+func TestRefreshRotatesRefreshAndCSRFCookies(t *testing.T) {
+	handler := newTestHandler(t, &fakeAuthService{
+		refreshPrincipal:    authapp.RefreshPrincipal{UserID: "user-1", JTI: "jti"},
+		refreshAccessToken:  "new-access-token",
+		refreshRefreshToken: "new-refresh-token",
+	})
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/auth")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/refresh", nil)
+	request.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "old-refresh-token"})
+	addCSRFCookies(request, "csrf-token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body refreshResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if body.AccessToken != "new-access-token" || body.TokenType != "bearer" {
+		t.Fatalf("body = %#v", body)
+	}
+	cookies := recorder.Result().Cookies()
+	if cookieByName(t, cookies, refreshCookieName).Value != "new-refresh-token" {
+		t.Fatalf("cookies = %#v", cookies)
+	}
+	if csrfCookie := cookieByName(t, cookies, csrfCookieName); csrfCookie.Value == "" || csrfCookie.Value == "csrf-token" {
+		t.Fatalf("csrf cookie was not rotated: %#v", csrfCookie)
+	}
+}
+
+func TestLogoutRequiresCSRFAndClearsCookies(t *testing.T) {
+	service := &fakeAuthService{}
+	handler := newTestHandler(t, service)
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/auth")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	request.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "refresh-token"})
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("missing csrf status = %d", recorder.Code)
+	}
+	if service.revokedToken != "" {
+		t.Fatalf("revoked token without csrf = %q", service.revokedToken)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	request.AddCookie(&http.Cookie{Name: refreshCookieName, Value: "refresh-token"})
+	addCSRFCookies(request, "csrf-token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if service.revokedToken != "refresh-token" {
+		t.Fatalf("revoked token = %q", service.revokedToken)
+	}
+	cookies := recorder.Result().Cookies()
+	if cookieByName(t, cookies, refreshCookieName).MaxAge != -1 || cookieByName(t, cookies, csrfCookieName).MaxAge != -1 {
 		t.Fatalf("cookies = %#v", cookies)
 	}
 }
@@ -151,10 +244,11 @@ type fakeAuthService struct {
 	loginResult          authapp.AuthResult
 	registerResult       authapp.AuthResult
 	principal            authapp.Principal
-	refreshSubject       string
+	refreshPrincipal     authapp.RefreshPrincipal
 	refreshAccessToken   string
 	refreshRefreshToken  string
 	registrationSettings authapp.RegistrationSettings
+	revokedToken         string
 }
 
 func (s *fakeAuthService) Authenticate(context.Context, string, string) (authapp.AuthResult, error) {
@@ -173,7 +267,7 @@ func (s *fakeAuthService) GetUserByID(context.Context, string) (user.User, bool,
 	return user.User{ID: "user-1", Username: "alice", Email: "alice@example.com", Role: user.RoleStudent}, true, nil
 }
 
-func (s *fakeAuthService) RefreshTokens(context.Context, string) (string, string, bool, error) {
+func (s *fakeAuthService) RefreshTokens(context.Context, authapp.RefreshPrincipal) (string, string, bool, error) {
 	if s.refreshAccessToken == "" {
 		return "", "", false, nil
 	}
@@ -187,11 +281,16 @@ func (s *fakeAuthService) DecodeAccessToken(string) (authapp.Principal, bool) {
 	return s.principal, true
 }
 
-func (s *fakeAuthService) DecodeRefreshToken(string) (string, string, bool) {
-	if s.refreshSubject == "" {
-		return "", "Refresh token 无效或已过期", false
+func (s *fakeAuthService) DecodeRefreshToken(string) (authapp.RefreshPrincipal, string, bool) {
+	if s.refreshPrincipal.UserID == "" {
+		return authapp.RefreshPrincipal{}, "Refresh token 无效或已过期", false
 	}
-	return s.refreshSubject, "", true
+	return s.refreshPrincipal, "", true
+}
+
+func (s *fakeAuthService) RevokeRefreshToken(_ context.Context, token string) error {
+	s.revokedToken = token
+	return nil
 }
 
 func (s *fakeAuthService) RegistrationSettings(context.Context) (authapp.RegistrationSettings, error) {
@@ -207,4 +306,20 @@ func (s *fakeAuthService) SubmitPasswordReset(context.Context, string, string, s
 
 func (s *fakeAuthService) PasswordResetStatus(context.Context, string, string) (authapp.PasswordResetStatus, error) {
 	return authapp.PasswordResetStatus{HasPending: false}, nil
+}
+
+func addCSRFCookies(request *http.Request, token string) {
+	request.AddCookie(&http.Cookie{Name: csrfCookieName, Value: token})
+	request.Header.Set(csrfHeaderName, token)
+}
+
+func cookieByName(t *testing.T, cookies []*http.Cookie, name string) *http.Cookie {
+	t.Helper()
+	for _, cookie := range cookies {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	t.Fatalf("cookie %q not found in %#v", name, cookies)
+	return nil
 }

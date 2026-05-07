@@ -5,6 +5,7 @@
  */
 
 import { logger } from '../utils/logger';
+import { authTokenStorage } from '../auth/tokenStorage';
 
 const sseLogger = logger.createContextLogger('SSE');
 
@@ -70,7 +71,7 @@ export function createSSEConnection(
   // 启动连接
   (async () => {
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = authTokenStorage.get();
 
       const response = await fetch(url, {
         method: 'POST',
@@ -238,7 +239,7 @@ function processEvent(
  */
 export async function cancelTask(taskId: string): Promise<boolean> {
   try {
-    const token = localStorage.getItem('auth_token');
+    const token = authTokenStorage.get();
 
     const response = await fetch(`/api/v1/session/task/${taskId}/cancel`, {
       method: 'POST',
