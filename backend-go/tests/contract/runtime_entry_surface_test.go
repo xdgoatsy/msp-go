@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -116,5 +117,15 @@ func TestDefaultRuntimeEntriesStayOnGoBackend(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLegacyPythonBackendDirectoryIsAbsent(t *testing.T) {
+	root := repoRoot(t)
+	legacyPath := filepath.Join(root, "backend")
+	if _, err := os.Stat(legacyPath); err == nil {
+		t.Fatalf("legacy Python backend directory must stay removed: %s", legacyPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat legacy Python backend directory: %v", err)
 	}
 }
