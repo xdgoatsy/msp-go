@@ -61,6 +61,82 @@ func (r TeacherRepository) ListStudentsInClasses(ctx context.Context, classIDs [
 	return scanStringColumn(rows)
 }
 
+// ListTeacherStudents returns a paginated student list across teacher-owned classes.
+func (r TeacherRepository) ListTeacherStudents(ctx context.Context, teacherID string, filter teacherapp.StudentListFilter) ([]teacherapp.StudentListItem, int, error) {
+	classID := strings.TrimSpace(filter.ClassID)
+	search := strings.TrimSpace(filter.Search)
+	var total int
+	if err := r.DB().QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM public.class_enrollments ce
+		JOIN public.classes c ON c.id = ce.class_id
+		JOIN public.users u ON u.id = ce.student_id
+		WHERE
+			c.teacher_id = $1 AND
+			($2 = '' OR c.id = $2) AND
+			($3 = '' OR (
+				lower(u.username) LIKE '%' || lower($3) || '%' OR
+				lower(u.email) LIKE '%' || lower($3) || '%' OR
+				lower(coalesce(u.display_name, '')) LIKE '%' || lower($3) || '%'
+			))`,
+		teacherID,
+		classID,
+		search,
+	).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []teacherapp.StudentListItem{}, 0, nil
+	}
+
+	rows, err := r.DB().Query(ctx, `
+		SELECT
+			u.id,
+			u.username,
+			u.email,
+			u.display_name,
+			c.id AS class_id,
+			c.name AS class_name
+		FROM public.class_enrollments ce
+		JOIN public.classes c ON c.id = ce.class_id
+		JOIN public.users u ON u.id = ce.student_id
+		WHERE
+			c.teacher_id = $1 AND
+			($2 = '' OR c.id = $2) AND
+			($3 = '' OR (
+				lower(u.username) LIKE '%' || lower($3) || '%' OR
+				lower(u.email) LIKE '%' || lower($3) || '%' OR
+				lower(coalesce(u.display_name, '')) LIKE '%' || lower($3) || '%'
+			))
+		ORDER BY c.name, coalesce(u.display_name, u.username), u.id
+		LIMIT $4 OFFSET $5`,
+		teacherID,
+		classID,
+		search,
+		filter.PageSize,
+		(filter.Page-1)*filter.PageSize,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := []teacherapp.StudentListItem{}
+	for rows.Next() {
+		var item teacherapp.StudentListItem
+		var displayName pgtype.Text
+		if err := rows.Scan(&item.ID, &item.Username, &item.Email, &displayName, &item.ClassID, &item.ClassName); err != nil {
+			return nil, 0, err
+		}
+		if displayName.Valid {
+			value := displayName.String
+			item.DisplayName = &value
+		}
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
 // CountActiveSessionsSince counts distinct students with learning sessions after since.
 func (r TeacherRepository) CountActiveSessionsSince(ctx context.Context, studentIDs []string, since time.Time) (int, error) {
 	if len(studentIDs) == 0 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -70,6 +71,49 @@ func (r MistakeRepository) ListMistakes(ctx context.Context, userID string, filt
 		mistakes = append(mistakes, row)
 	}
 	return mistakes, rows.Err()
+}
+
+// ListMistakePage returns one filtered mistake page with SQL-level sorting and aggregates.
+func (r MistakeRepository) ListMistakePage(ctx context.Context, userID string, query mistakeapp.ListQuery) ([]mistakeapp.MistakeListRow, int, error) {
+	args := []any{
+		userID,
+		query.ErrorType,
+		query.ConceptID,
+		query.DifficultyMin,
+		query.DifficultyMax,
+		query.DateFrom,
+		query.DateTo,
+	}
+	whereMastery := mistakeMasteryPredicate(query.MasteryStatus)
+	var total int
+	if err := r.DB().QueryRow(ctx, `
+		SELECT count(*)::int`+mistakeListFromWhere+`
+			AND `+whereMastery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return []mistakeapp.MistakeListRow{}, 0, nil
+	}
+	pageArgs := append(args, query.PageSize, (query.Page-1)*query.PageSize)
+	rows, err := r.DB().Query(ctx, `
+		SELECT `+mistakeSelectColumns+`, coalesce(ec.error_count, 1)::int AS error_count, mastery.avg_mastery::double precision AS avg_mastery`+mistakeListFromWhere+`
+			AND `+whereMastery+`
+		ORDER BY `+mistakeListOrderBy(query.SortBy, query.SortOrder)+`
+		LIMIT $8 OFFSET $9`, pageArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := []mistakeapp.MistakeListRow{}
+	for rows.Next() {
+		item, err := scanMistakeListRow(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
 }
 
 // GetMistakeByAttempt returns one attempt with diagnosis and content for detail views.
@@ -259,6 +303,39 @@ func (r MistakeRepository) DeleteAttempt(ctx context.Context, userID string, att
 	return tag.RowsAffected() > 0, nil
 }
 
+const mistakeListFromWhere = `
+		FROM public.content_attempts ca
+		JOIN public.diagnosis_reports dr ON ca.id = dr.attempt_id
+		JOIN public.contents c ON ca.content_id = c.id
+		LEFT JOIN public.student_profiles sp ON sp.student_id = ca.student_id
+		LEFT JOIN (
+			SELECT content_id, count(id)::int AS error_count
+			FROM public.content_attempts
+			WHERE student_id = $1 AND is_correct = false
+			GROUP BY content_id
+		) ec ON ec.content_id = ca.content_id
+		LEFT JOIN LATERAL (
+			SELECT CASE
+				WHEN coalesce(json_array_length(c.concept_ids), 0) = 0 THEN 0.5
+				ELSE coalesce(avg(coalesce((sp.mastery_vector ->> concept.value)::double precision, 0.5)), 0.5)
+			END AS avg_mastery
+			FROM json_array_elements_text(c.concept_ids) AS concept(value)
+		) mastery ON true
+		WHERE
+			ca.student_id = $1 AND
+			ca.is_correct = false AND
+			ca.submitted_at IS NOT NULL AND
+			($2 = '' OR dr.error_type::text = $2) AND
+			($3 = '' OR EXISTS (
+				SELECT 1
+				FROM json_array_elements_text(c.concept_ids) AS concept(value)
+				WHERE concept.value = $3
+			)) AND
+			c.difficulty >= $4 AND
+			c.difficulty <= $5 AND
+			($6::timestamp IS NULL OR ca.submitted_at >= $6) AND
+			($7::timestamp IS NULL OR ca.submitted_at <= $7)`
+
 const mistakeSelectColumns = `
 	ca.id,
 	ca.content_id,
@@ -283,6 +360,36 @@ const mistakeSelectColumns = `
 	dr.related_concept_ids,
 	dr.error_step_index`
 
+func mistakeMasteryPredicate(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "weak":
+		return "mastery.avg_mastery < 0.4"
+	case "improving":
+		return "mastery.avg_mastery >= 0.4 AND mastery.avg_mastery < 0.7"
+	case "mastered":
+		return "mastery.avg_mastery >= 0.7"
+	default:
+		return "TRUE"
+	}
+}
+
+func mistakeListOrderBy(sortBy string, sortOrder string) string {
+	direction := "DESC"
+	nulls := "NULLS LAST"
+	if strings.EqualFold(strings.TrimSpace(sortOrder), "asc") {
+		direction = "ASC"
+		nulls = "NULLS FIRST"
+	}
+	switch strings.ToLower(strings.TrimSpace(sortBy)) {
+	case "error_count":
+		return "error_count " + direction + ", ca.id " + direction
+	case "mastery":
+		return "avg_mastery " + direction + ", ca.id " + direction
+	default:
+		return "ca.submitted_at " + direction + " " + nulls + ", ca.id " + direction
+	}
+}
+
 func scanOptionalMistakeRow(row pgx.Row) (mistakeapp.MistakeRow, bool, error) {
 	mistake, err := scanMistake(row)
 	if err != nil {
@@ -300,6 +407,91 @@ type rowScanner interface {
 
 func scanMistakeRow(rows pgx.Rows) (mistakeapp.MistakeRow, error) {
 	return scanMistake(rows)
+}
+
+func scanMistakeListRow(rows pgx.Rows) (mistakeapp.MistakeListRow, error) {
+	var attempt mistakeapp.Attempt
+	var content mistakeapp.Content
+	var diagnosis mistakeapp.Diagnosis
+	var studentStepsRaw []byte
+	var conceptIDsRaw []byte
+	var metaRaw []byte
+	var submittedAt pgtype.Timestamp
+	var errorType pgtype.Text
+	var errorSubtype pgtype.Text
+	var relatedConceptIDsRaw []byte
+	var errorStepIndex pgtype.Int4
+	var errorCount int
+	var avgMastery float64
+
+	if err := rows.Scan(
+		&attempt.ID,
+		&attempt.ContentID,
+		&attempt.StudentAnswer,
+		&studentStepsRaw,
+		&attempt.IsCorrect,
+		&attempt.Score,
+		&submittedAt,
+		&attempt.TimeSpentSeconds,
+		&content.ID,
+		&content.Type,
+		&content.Title,
+		&content.Body,
+		&content.Difficulty,
+		&conceptIDsRaw,
+		&metaRaw,
+		&errorType,
+		&errorSubtype,
+		&diagnosis.Severity,
+		&diagnosis.Explanation,
+		&diagnosis.Suggestion,
+		&relatedConceptIDsRaw,
+		&errorStepIndex,
+		&errorCount,
+		&avgMastery,
+	); err != nil {
+		return mistakeapp.MistakeListRow{}, err
+	}
+	if submittedAt.Valid {
+		value := submittedAt.Time
+		attempt.SubmittedAt = &value
+	}
+	studentSteps, err := decodeStringSlice(studentStepsRaw)
+	if err != nil {
+		return mistakeapp.MistakeListRow{}, fmt.Errorf("decode student steps: %w", err)
+	}
+	conceptIDs, err := decodeStringSlice(conceptIDsRaw)
+	if err != nil {
+		return mistakeapp.MistakeListRow{}, fmt.Errorf("decode concept ids: %w", err)
+	}
+	meta, err := decodeObjectMap(metaRaw)
+	if err != nil {
+		return mistakeapp.MistakeListRow{}, fmt.Errorf("decode content meta: %w", err)
+	}
+	relatedConceptIDs, err := decodeStringSlice(relatedConceptIDsRaw)
+	if err != nil {
+		return mistakeapp.MistakeListRow{}, fmt.Errorf("decode related concept ids: %w", err)
+	}
+	if errorType.Valid {
+		value := errorType.String
+		diagnosis.ErrorType = &value
+	}
+	if errorSubtype.Valid {
+		diagnosis.ErrorSubtype = errorSubtype.String
+	}
+	if errorStepIndex.Valid {
+		value := int(errorStepIndex.Int32)
+		diagnosis.ErrorStepIndex = &value
+	}
+	attempt.StudentSteps = studentSteps
+	content.ConceptIDs = conceptIDs
+	content.Meta = meta
+	diagnosis.RelatedConceptIDs = relatedConceptIDs
+	return mistakeapp.MistakeListRow{
+		Row:        mistakeapp.MistakeRow{Attempt: attempt, Content: content, Diagnosis: diagnosis},
+		AvgMastery: avgMastery,
+		ErrorCount: errorCount,
+	}, nil
 }
 
 func scanMistake(scanner rowScanner) (mistakeapp.MistakeRow, error) {

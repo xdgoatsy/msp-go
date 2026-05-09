@@ -278,6 +278,7 @@ func newMistakeRow(attemptID string, contentID string, concepts []string, errorT
 type fakeMistakeRepo struct {
 	rows              []MistakeRow
 	lastFilter        ListFilter
+	lastListQuery     ListQuery
 	detailRow         MistakeRow
 	hasDetail         bool
 	attemptContent    AttemptContent
@@ -294,6 +295,38 @@ type fakeMistakeRepo struct {
 func (r *fakeMistakeRepo) ListMistakes(_ context.Context, _ string, filter ListFilter) ([]MistakeRow, error) {
 	r.lastFilter = filter
 	return r.rows, nil
+}
+
+func (r *fakeMistakeRepo) ListMistakePage(_ context.Context, _ string, query ListQuery) ([]MistakeListRow, int, error) {
+	r.lastListQuery = query
+	mastery := normalizeMastery(r.profile.MasteryVector)
+	items := make([]listItemData, 0, len(r.rows))
+	for _, row := range r.rows {
+		avgMastery := averageMastery(row.Content.ConceptIDs, mastery)
+		if !matchesMasteryStatus(avgMastery, query.MasteryStatus) {
+			continue
+		}
+		errorCount := r.errorCounts[row.Content.ID]
+		if errorCount == 0 {
+			errorCount = 1
+		}
+		items = append(items, listItemData{row: row, avgMastery: avgMastery, errorCount: errorCount})
+	}
+	sortListItems(items, query.SortBy, query.SortOrder)
+	total := len(items)
+	start := (query.Page - 1) * query.PageSize
+	end := start + query.PageSize
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+	rows := make([]MistakeListRow, 0, end-start)
+	for _, item := range items[start:end] {
+		rows = append(rows, MistakeListRow{Row: item.row, AvgMastery: item.avgMastery, ErrorCount: item.errorCount})
+	}
+	return rows, total, nil
 }
 
 func (r *fakeMistakeRepo) GetMistakeByAttempt(context.Context, string, string) (MistakeRow, bool, error) {

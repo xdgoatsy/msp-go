@@ -25,7 +25,7 @@ var (
 
 // Storage persists uploaded bytes and returns an externally usable URL.
 type Storage interface {
-	UploadData(context.Context, []byte, string, string) (StoredObject, error)
+	UploadStream(context.Context, io.Reader, string, string, int64) (StoredObject, error)
 }
 
 // StoredObject stores the result returned by a storage adapter.
@@ -88,9 +88,8 @@ func (s *Service) save(ctx context.Context, reader io.Reader, meta FileMeta, all
 	if meta.Size > maxSize {
 		return Response{}, ErrFileTooLarge
 	}
-	data, err := readLimited(reader, maxSize)
-	if err != nil {
-		return Response{}, err
+	if reader == nil {
+		return Response{}, errors.New("upload reader is nil")
 	}
 	fileID, err := s.newID()
 	if err != nil {
@@ -98,32 +97,56 @@ func (s *Service) save(ctx context.Context, reader io.Reader, meta FileMeta, all
 	}
 	filename := fileID + extension
 	key := prefix + "/" + filename
-	stored, err := s.storage.UploadData(ctx, data, key, contentType)
+	limited := &maxBytesReader{reader: reader, remaining: maxSize}
+	counted := &countingReader{reader: limited}
+	stored, err := s.storage.UploadStream(ctx, counted, key, contentType, meta.Size)
 	if err != nil {
 		return Response{}, err
+	}
+	size := stored.Size
+	if size == 0 && counted.n > 0 {
+		size = counted.n
 	}
 	return Response{
 		FileID:      fileID,
 		URL:         stored.URL,
 		Filename:    filename,
 		ContentType: contentType,
-		Size:        stored.Size,
+		Size:        size,
 	}, nil
 }
 
-func readLimited(reader io.Reader, maxSize int64) ([]byte, error) {
-	if reader == nil {
-		return nil, errors.New("upload reader is nil")
+type maxBytesReader struct {
+	reader    io.Reader
+	remaining int64
+}
+
+func (r *maxBytesReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		var probe [1]byte
+		n, err := r.reader.Read(probe[:])
+		if n > 0 {
+			return 0, ErrFileTooLarge
+		}
+		return 0, err
 	}
-	limited := &io.LimitedReader{R: reader, N: maxSize + 1}
-	data, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, err
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
 	}
-	if int64(len(data)) > maxSize {
-		return nil, ErrFileTooLarge
-	}
-	return data, nil
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	return n, err
+}
+
+type countingReader struct {
+	reader io.Reader
+	n      int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.n += int64(n)
+	return n, err
 }
 
 func allowedImageTypes() map[string]string {

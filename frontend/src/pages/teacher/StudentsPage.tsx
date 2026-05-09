@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MainLayout } from '../../components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
@@ -10,23 +10,23 @@ import {
   TrendingUp,
   TrendingDown,
   Eye,
-
 } from 'lucide-react';
 import { classService } from '@/modules/classroom/services/classService';
 import { teacherService } from '@/modules/teacher/services/teacherService';
-import type { ClassInfo, ClassStudent } from '@/modules/classroom/types/classroom';
-import type { StudentsStats } from '@/modules/teacher/types/teacher';
+import type { ClassInfo } from '@/modules/classroom/types/classroom';
+import type { StudentsStats, TeacherStudentListItem } from '@/modules/teacher/types/teacher';
 
-type StudentRow = ClassStudent & {
-  classId: string;
-  className: string;
-};
+type StudentRow = TeacherStudentListItem;
+
+const pageSize = 20;
 
 export const StudentsPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClassId, setSelectedClassId] = useState('all');
   const [classes, setClasses] = useState<ClassInfo[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pagination, setPagination] = useState({ total: 0, totalPages: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [stats, setStats] = useState<StudentsStats | null>(null);
@@ -61,55 +61,27 @@ export const StudentsPage: React.FC = () => {
 
   useEffect(() => {
     const loadStudents = async () => {
-      if (classes.length === 0) {
-        setStudents([]);
-        setIsLoading(false);
-        return;
-      }
-
       setIsLoading(true);
       setErrorMessage('');
       try {
-        if (selectedClassId === 'all') {
-          const details = await Promise.all(
-            classes.map((cls) => classService.getTeacherClassDetail(cls.id))
-          );
-          const merged = details.flatMap((detail) =>
-            detail.students.map((student) => ({
-              ...student,
-              classId: detail.class_info.id,
-              className: detail.class_info.name,
-            }))
-          );
-          setStudents(merged);
-        } else {
-          const detail = await classService.getTeacherClassDetail(selectedClassId);
-          setStudents(
-            detail.students.map((student) => ({
-              ...student,
-              classId: detail.class_info.id,
-              className: detail.class_info.name,
-            }))
-          );
-        }
+        const response = await teacherService.getStudents({
+          page: currentPage,
+          page_size: pageSize,
+          class_id: selectedClassId === 'all' ? undefined : selectedClassId,
+          search: searchTerm.trim() || undefined,
+        });
+        setStudents(response.items);
+        setPagination({ total: response.total, totalPages: response.total_pages });
       } catch {
+        setStudents([]);
+        setPagination({ total: 0, totalPages: 0 });
         setErrorMessage('学生列表加载失败，请稍后重试');
       } finally {
         setIsLoading(false);
       }
     };
     loadStudents();
-  }, [classes, selectedClassId]);
-
-  // 使用 useMemo 缓存过滤结果，避免每次渲染重新计算
-  const filteredStudents = useMemo(() => {
-    return students.filter(student => {
-      const displayName = student.display_name || student.username || '';
-      const matchesSearch = displayName.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesClass = selectedClassId === 'all' || student.classId === selectedClassId;
-      return matchesSearch && matchesClass;
-    });
-  }, [searchTerm, selectedClassId, students]);
+  }, [currentPage, searchTerm, selectedClassId]);
 
   return (
     <MainLayout>
@@ -203,14 +175,20 @@ export const StudentsPage: React.FC = () => {
                 <Input
                   placeholder="搜索学生姓名..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="pl-9"
                 />
               </div>
               <div className="flex gap-2">
                 <select
                   value={selectedClassId}
-                  onChange={(e) => setSelectedClassId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedClassId(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="px-3 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
                 >
                   <option value="all">全部班级</option>
@@ -226,7 +204,7 @@ export const StudentsPage: React.FC = () => {
         {/* 学生列表 */}
         <Card>
           <CardHeader>
-            <CardTitle>学生列表 ({filteredStudents.length})</CardTitle>
+            <CardTitle>学生列表 ({pagination.total})</CardTitle>
           </CardHeader>
           <CardContent>
             {errorMessage && (
@@ -249,14 +227,14 @@ export const StudentsPage: React.FC = () => {
                         正在加载学生数据...
                       </td>
                     </tr>
-                  ) : filteredStudents.length === 0 ? (
+                  ) : students.length === 0 ? (
                     <tr>
                       <td className="py-6 px-4 text-surface-500 dark:text-surface-400" colSpan={4}>
                         暂无学生
                       </td>
                     </tr>
                   ) : (
-                    filteredStudents.map((student) => (
+                    students.map((student) => (
                       <tr key={student.id} className="hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors">
                         <td className="py-4 px-4">
                           <div className="flex items-center gap-3">
@@ -268,7 +246,7 @@ export const StudentsPage: React.FC = () => {
                             </span>
                           </div>
                         </td>
-                        <td className="py-4 px-4 text-surface-600 dark:text-surface-400">{student.className}</td>
+                        <td className="py-4 px-4 text-surface-600 dark:text-surface-400">{student.class_name}</td>
                         <td className="py-4 px-4 text-surface-600 dark:text-surface-400">{student.email}</td>
                         <td className="py-4 px-4">
                           <div className="flex justify-end gap-1">
@@ -286,10 +264,29 @@ export const StudentsPage: React.FC = () => {
               </table>
             </div>
 
-            {!isLoading && filteredStudents.length === 0 && (
-              <div className="text-center py-12">
-                <Users className="w-12 h-12 text-surface-300 dark:text-surface-600 mx-auto mb-4" />
-                <p className="text-surface-500 dark:text-surface-400">没有找到匹配的学生</p>
+            {!isLoading && pagination.totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-surface-100 dark:border-surface-800 px-4 py-3 text-sm">
+                <span className="text-surface-500 dark:text-surface-400">
+                  第 {currentPage} / {pagination.totalPages} 页
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  >
+                    上一页
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage >= pagination.totalPages}
+                    onClick={() => setCurrentPage((page) => Math.min(pagination.totalPages, page + 1))}
+                  >
+                    下一页
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>

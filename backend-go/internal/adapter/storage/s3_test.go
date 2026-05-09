@@ -41,9 +41,9 @@ func TestS3StorageSignsAndUploadsPathStyleObject(t *testing.T) {
 	}
 	storage.now = func() time.Time { return time.Date(2026, time.May, 6, 10, 0, 0, 0, time.UTC) }
 
-	object, err := storage.UploadData(context.Background(), []byte("data"), "documents/file name.pdf", "application/pdf")
+	object, err := storage.UploadStream(context.Background(), strings.NewReader("data"), "documents/file name.pdf", "application/pdf", 4)
 	if err != nil {
-		t.Fatalf("UploadData() error = %v", err)
+		t.Fatalf("UploadStream() error = %v", err)
 	}
 	if method != http.MethodPut || path != "/bucket/documents/file%20name.pdf" || body != "data" {
 		t.Fatalf("request = method %q path %q body %q", method, path, body)

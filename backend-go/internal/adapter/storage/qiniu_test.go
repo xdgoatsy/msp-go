@@ -43,9 +43,9 @@ func TestQiniuStorageUploadsMultipartData(t *testing.T) {
 	}
 	storage.now = func() time.Time { return time.Date(2026, time.May, 6, 10, 0, 0, 0, time.UTC) }
 
-	object, err := storage.UploadData(context.Background(), []byte("data"), "images/file.png", "image/png")
+	object, err := storage.UploadStream(context.Background(), strings.NewReader("data"), "images/file.png", "image/png", 4)
 	if err != nil {
-		t.Fatalf("UploadData() error = %v", err)
+		t.Fatalf("UploadStream() error = %v", err)
 	}
 	if fields.Get("key") != "images/file.png" || fields.Get("token") == "" || fileData != "data" {
 		t.Fatalf("fields = %#v fileData = %q", fields, fileData)

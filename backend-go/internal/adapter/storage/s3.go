@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -78,14 +77,14 @@ func NewS3Storage(cfg S3Config, client *http.Client) (*S3Storage, error) {
 	}, nil
 }
 
-// UploadData uploads a single object and returns its public or presigned URL.
-func (s *S3Storage) UploadData(ctx context.Context, data []byte, key string, contentType string) (uploadapp.StoredObject, error) {
+// UploadStream uploads a single object and returns its public or presigned URL.
+func (s *S3Storage) UploadStream(ctx context.Context, reader io.Reader, key string, contentType string, size int64) (uploadapp.StoredObject, error) {
 	cleanKey, err := cleanObjectKey(key)
 	if err != nil {
 		return uploadapp.StoredObject{}, err
 	}
 	objectURL, canonicalURI := s.objectURL(cleanKey)
-	payloadHash := sha256Hex(data)
+	payloadHash := "UNSIGNED-PAYLOAD"
 	now := s.now().UTC()
 	headers := map[string]string{
 		"content-type":         contentType,
@@ -94,7 +93,7 @@ func (s *S3Storage) UploadData(ctx context.Context, data []byte, key string, con
 		"x-amz-content-sha256": payloadHash,
 		"x-amz-date":           now.Format("20060102T150405Z"),
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, objectURL, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, objectURL, reader)
 	if err != nil {
 		return uploadapp.StoredObject{}, err
 	}
@@ -103,7 +102,9 @@ func (s *S3Storage) UploadData(ctx context.Context, data []byte, key string, con
 	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
 	req.Header.Set("X-Amz-Date", headers["x-amz-date"])
 	req.Header.Set("Authorization", s.authorization(http.MethodPut, canonicalURI, "", headers, payloadHash, now))
-	req.ContentLength = int64(len(data))
+	if size > 0 {
+		req.ContentLength = size
+	}
 
 	response, err := s.client.Do(req)
 	if err != nil {
@@ -120,7 +121,7 @@ func (s *S3Storage) UploadData(ctx context.Context, data []byte, key string, con
 	return uploadapp.StoredObject{
 		Key:         cleanKey,
 		URL:         s.downloadURL(cleanKey),
-		Size:        int64(len(data)),
+		Size:        size,
 		ContentType: contentType,
 	}, nil
 }

@@ -30,6 +30,33 @@ export interface StudentsStats {
   need_attention: number;
 }
 
+/** 教师学生列表查询参数 */
+export interface TeacherStudentListParams {
+  page?: number;
+  page_size?: number;
+  class_id?: string;
+  search?: string;
+}
+
+/** 教师学生列表项 */
+export interface TeacherStudentListItem {
+  id: string;
+  username: string;
+  email: string;
+  display_name?: string | null;
+  class_id: string;
+  class_name: string;
+}
+
+/** 教师学生列表分页响应 */
+export interface TeacherStudentListResponse {
+  items: TeacherStudentListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 // =============================================================================
 // 数据分析类型 (TeacherDashboardPage)
 // =============================================================================

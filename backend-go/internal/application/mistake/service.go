@@ -19,6 +19,7 @@ var (
 // Repository is the persistence surface required by mistake book use cases.
 type Repository interface {
 	ListMistakes(context.Context, string, ListFilter) ([]MistakeRow, error)
+	ListMistakePage(context.Context, string, ListQuery) ([]MistakeListRow, int, error)
 	GetMistakeByAttempt(context.Context, string, string) (MistakeRow, bool, error)
 	GetAttemptContent(context.Context, string, string) (AttemptContent, bool, error)
 	ListAttemptHistory(context.Context, string, string, string) ([]MistakeHistory, error)
@@ -59,6 +60,13 @@ type MistakeRow struct {
 	Attempt   Attempt
 	Content   Content
 	Diagnosis Diagnosis
+}
+
+// MistakeListRow stores one SQL-paginated mistake row with list aggregates.
+type MistakeListRow struct {
+	Row        MistakeRow
+	AvgMastery float64
+	ErrorCount int
 }
 
 // AttemptContent combines an attempt and content row for write use cases.
@@ -315,14 +323,7 @@ func NewService(repo Repository) (*Service, error) {
 // GetMistakes returns paginated mistakes with filtering and sorting.
 func (s *Service) GetMistakes(ctx context.Context, userID string, query ListQuery) (MistakeListResponse, error) {
 	query = normalizeListQuery(query)
-	rows, err := s.repo.ListMistakes(ctx, userID, ListFilter{
-		ErrorType:     query.ErrorType,
-		ConceptID:     query.ConceptID,
-		DifficultyMin: query.DifficultyMin,
-		DifficultyMax: query.DifficultyMax,
-		DateFrom:      query.DateFrom,
-		DateTo:        query.DateTo,
-	})
+	rows, total, err := s.repo.ListMistakePage(ctx, userID, query)
 	if err != nil {
 		return MistakeListResponse{}, err
 	}
@@ -331,42 +332,14 @@ func (s *Service) GetMistakes(ctx context.Context, userID string, query ListQuer
 		return MistakeListResponse{}, err
 	}
 	mastery := normalizeMastery(profile.MasteryVector)
-	errorCounts, err := s.repo.ErrorCountsByContent(ctx, userID)
-	if err != nil {
-		return MistakeListResponse{}, err
-	}
 
-	items := make([]listItemData, 0, len(rows))
+	responseItems := make([]MistakeItem, 0, len(rows))
 	for _, row := range rows {
-		avgMastery := averageMastery(row.Content.ConceptIDs, mastery)
-		if !matchesMasteryStatus(avgMastery, query.MasteryStatus) {
-			continue
-		}
-		errorCount := errorCounts[row.Content.ID]
-		if errorCount == 0 {
-			errorCount = 1
-		}
-		items = append(items, listItemData{
-			row:        row,
-			avgMastery: avgMastery,
-			errorCount: errorCount,
-		})
-	}
-	sortListItems(items, query.SortBy, query.SortOrder)
-
-	total := len(items)
-	start := (query.Page - 1) * query.PageSize
-	end := start + query.PageSize
-	if start > total {
-		start = total
-	}
-	if end > total {
-		end = total
-	}
-
-	responseItems := make([]MistakeItem, 0, end-start)
-	for _, item := range items[start:end] {
-		responseItems = append(responseItems, toMistakeItem(item))
+		responseItems = append(responseItems, toMistakeItem(listItemData{
+			row:        row.Row,
+			avgMastery: row.AvgMastery,
+			errorCount: row.ErrorCount,
+		}))
 	}
 
 	return MistakeListResponse{

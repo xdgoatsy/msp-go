@@ -1,13 +1,14 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -73,45 +74,39 @@ func NewQiniuStorage(cfg QiniuConfig, client *http.Client) (*QiniuStorage, error
 	}, nil
 }
 
-// UploadData uploads a single object and returns its public or private URL.
-func (s *QiniuStorage) UploadData(ctx context.Context, data []byte, key string, contentType string) (uploadapp.StoredObject, error) {
+// UploadStream uploads a single object and returns its public or private URL.
+func (s *QiniuStorage) UploadStream(ctx context.Context, reader io.Reader, key string, contentType string, size int64) (uploadapp.StoredObject, error) {
 	cleanKey, err := cleanObjectKey(key)
 	if err != nil {
 		return uploadapp.StoredObject{}, err
 	}
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("token", s.uploadToken(cleanKey)); err != nil {
-		return uploadapp.StoredObject{}, err
-	}
-	if err := writer.WriteField("key", cleanKey); err != nil {
-		return uploadapp.StoredObject{}, err
-	}
-	partHeader := textproto.MIMEHeader{}
-	partHeader.Set("Content-Disposition", `form-data; name="file"; filename="`+escapeMultipartFilename(path.Base(cleanKey))+`"`)
-	partHeader.Set("Content-Type", contentType)
-	part, err := writer.CreatePart(partHeader)
+	bodyReader, writer := io.Pipe()
+	multipartWriter := multipart.NewWriter(writer)
+	copyErr := make(chan error, 1)
+	go func() {
+		copyErr <- writeQiniuMultipart(multipartWriter, writer, reader, cleanKey, contentType, s.uploadToken(cleanKey))
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.UploadURL, bodyReader)
 	if err != nil {
+		_ = bodyReader.Close()
+		<-copyErr
 		return uploadapp.StoredObject{}, err
 	}
-	if _, err := part.Write(data); err != nil {
-		return uploadapp.StoredObject{}, err
-	}
-	if err := writer.Close(); err != nil {
-		return uploadapp.StoredObject{}, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.UploadURL, &body)
-	if err != nil {
-		return uploadapp.StoredObject{}, err
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.ContentLength = int64(body.Len())
+	req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
 
 	response, err := s.client.Do(req)
 	if err != nil {
+		_ = bodyReader.Close()
+		if writeErr := <-copyErr; writeErr != nil && !errors.Is(writeErr, io.ErrClosedPipe) {
+			return uploadapp.StoredObject{}, writeErr
+		}
 		return uploadapp.StoredObject{}, err
 	}
 	defer response.Body.Close()
+	if writeErr := <-copyErr; writeErr != nil {
+		return uploadapp.StoredObject{}, writeErr
+	}
 	if response.StatusCode != http.StatusOK {
 		message := readErrorBody(response.Body)
 		if message == "" {
@@ -122,9 +117,37 @@ func (s *QiniuStorage) UploadData(ctx context.Context, data []byte, key string, 
 	return uploadapp.StoredObject{
 		Key:         cleanKey,
 		URL:         s.downloadURL(cleanKey),
-		Size:        int64(len(data)),
+		Size:        size,
 		ContentType: contentType,
 	}, nil
+}
+
+func writeQiniuMultipart(writer *multipart.Writer, pipe *io.PipeWriter, reader io.Reader, key string, contentType string, token string) error {
+	var err error
+	defer func() {
+		if err != nil {
+			_ = pipe.CloseWithError(err)
+			return
+		}
+		_ = pipe.Close()
+	}()
+	if err = writer.WriteField("token", token); err != nil {
+		return err
+	}
+	if err = writer.WriteField("key", key); err != nil {
+		return err
+	}
+	partHeader := textproto.MIMEHeader{}
+	partHeader.Set("Content-Disposition", `form-data; name="file"; filename="`+escapeMultipartFilename(path.Base(key))+`"`)
+	partHeader.Set("Content-Type", contentType)
+	part, err := writer.CreatePart(partHeader)
+	if err != nil {
+		return err
+	}
+	if _, err = io.Copy(part, reader); err != nil {
+		return err
+	}
+	return writer.Close()
 }
 
 func (s *QiniuStorage) uploadToken(key string) string {

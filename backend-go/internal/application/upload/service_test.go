@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -97,7 +98,11 @@ type fakeStorage struct {
 	contentType string
 }
 
-func (s *fakeStorage) UploadData(_ context.Context, data []byte, key string, contentType string) (StoredObject, error) {
+func (s *fakeStorage) UploadStream(_ context.Context, reader io.Reader, key string, contentType string, _ int64) (StoredObject, error) {
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return StoredObject{}, err
+	}
 	s.data = append([]byte(nil), data...)
 	s.key = key
 	s.contentType = contentType

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
@@ -16,6 +17,7 @@ import (
 type Service interface {
 	GetDashboardStats(context.Context, string) (teacherapp.DashboardStats, error)
 	GetStudentsStats(context.Context, string) (teacherapp.StudentsStats, error)
+	ListStudents(context.Context, string, teacherapp.StudentListFilter) (teacherapp.StudentListResponse, error)
 	GetAnalytics(context.Context, string, string) (teacherapp.AnalyticsResponse, error)
 	GetClassAnalytics(context.Context, string, string) (teacherapp.ClassAnalyticsResponse, error)
 	GetStudentDetail(context.Context, string, string) (teacherapp.StudentDetailResponse, error)
@@ -51,6 +53,7 @@ func NewHandler(logger *slog.Logger, service Service, auth Authenticator) (*Hand
 func (h *Handler) Register(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("GET "+prefix+"/dashboard/stats", h.dashboardStats)
 	mux.HandleFunc("GET "+prefix+"/students/stats", h.studentsStats)
+	mux.HandleFunc("GET "+prefix+"/students", h.students)
 	mux.HandleFunc("GET "+prefix+"/analytics", h.analytics)
 	mux.HandleFunc("GET "+prefix+"/classes/{class_id}/analytics", h.classAnalytics)
 	mux.HandleFunc("GET "+prefix+"/students/{student_id}/detail", h.studentDetail)
@@ -85,6 +88,38 @@ func (h *Handler) studentsStats(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.logger.Error("get teacher students stats failed", "error", err)
 		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生管理统计失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) students(w http.ResponseWriter, r *http.Request) {
+	principal, ok := h.requireTeacher(w, r)
+	if !ok {
+		return
+	}
+	query := r.URL.Query()
+	page, ok := parsePositiveIntQuery(w, query.Get("page"), 1, "page")
+	if !ok {
+		return
+	}
+	pageSize, ok := parsePositiveIntQuery(w, query.Get("page_size"), 20, "page_size")
+	if !ok {
+		return
+	}
+	if pageSize > 100 {
+		writeTeacherError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "page_size 必须在 1 到 100 之间")
+		return
+	}
+	response, err := h.service.ListStudents(r.Context(), principal.UserID, teacherapp.StudentListFilter{
+		ClassID:  query.Get("class_id"),
+		Search:   query.Get("search"),
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		h.logger.Error("list teacher students failed", "error", err)
+		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生列表失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -175,6 +210,22 @@ func (h *Handler) requireTeacher(w http.ResponseWriter, r *http.Request) (authap
 		return authapp.Principal{}, false
 	}
 	return principal, true
+}
+
+func parsePositiveIntQuery(w http.ResponseWriter, raw string, fallback int, name string) (int, bool) {
+	if strings.TrimSpace(raw) == "" {
+		return fallback, true
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		writeTeacherError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
+		return 0, false
+	}
+	if value < 1 {
+		writeTeacherError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须大于等于 1")
+		return 0, false
+	}
+	return value, true
 }
 
 func validTimeRange(value string) bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -11,9 +12,9 @@ func TestLocalStorageWritesFileAndReturnsUploadsURL(t *testing.T) {
 	root := t.TempDir()
 	storage := NewLocalStorage(root)
 
-	object, err := storage.UploadData(context.Background(), []byte("data"), "images/file.png", "image/png")
+	object, err := storage.UploadStream(context.Background(), strings.NewReader("data"), "images/file.png", "image/png", 4)
 	if err != nil {
-		t.Fatalf("UploadData() error = %v", err)
+		t.Fatalf("UploadStream() error = %v", err)
 	}
 	if object.Key != "images/file.png" || object.URL != "/uploads/images/file.png" || object.Size != 4 || object.ContentType != "image/png" {
 		t.Fatalf("object = %#v", object)
@@ -29,11 +30,11 @@ func TestLocalStorageWritesFileAndReturnsUploadsURL(t *testing.T) {
 
 func TestLocalStorageRejectsPathTraversal(t *testing.T) {
 	storage := NewLocalStorage(t.TempDir())
-	if _, err := storage.UploadData(context.Background(), []byte("data"), "../outside.txt", "text/plain"); err == nil {
-		t.Fatal("UploadData(path traversal) error = nil, want error")
+	if _, err := storage.UploadStream(context.Background(), strings.NewReader("data"), "../outside.txt", "text/plain", 4); err == nil {
+		t.Fatal("UploadStream(path traversal) error = nil, want error")
 	}
-	if _, err := storage.UploadData(context.Background(), []byte("data"), `images\..\outside.txt`, "text/plain"); err == nil {
-		t.Fatal("UploadData(backslash traversal) error = nil, want error")
+	if _, err := storage.UploadStream(context.Background(), strings.NewReader("data"), `images\..\outside.txt`, "text/plain", 4); err == nil {
+		t.Fatal("UploadStream(backslash traversal) error = nil, want error")
 	}
 }
 

@@ -9,6 +9,8 @@ import { logger } from '@/libs/utils/logger';
 import type {
   DashboardStats,
   StudentsStats,
+  TeacherStudentListParams,
+  TeacherStudentListResponse,
   TeacherAnalyticsData,
   ClassAnalyticsData,
   StudentDetailData,
@@ -40,6 +42,21 @@ export const teacherService = {
       return response.data;
     } catch (error) {
       teacherLogger.error('获取学生管理统计数据失败', error);
+      throw error;
+    }
+  },
+
+  /**
+   * 获取教师学生分页列表
+   */
+  async getStudents(params: TeacherStudentListParams = {}): Promise<TeacherStudentListResponse> {
+    try {
+      const response = await apiClient.get<TeacherStudentListResponse>(`${BASE_PATH}/students`, {
+        params,
+      });
+      return response.data;
+    } catch (error) {
+      teacherLogger.error('获取学生列表失败', error);
       throw error;
     }
   },

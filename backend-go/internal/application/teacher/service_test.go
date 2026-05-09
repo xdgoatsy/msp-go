@@ -28,6 +28,33 @@ func TestGetDashboardStatsComputesActiveRate(t *testing.T) {
 	}
 }
 
+func TestListStudentsNormalizesPaginationAndReturnsTotalPages(t *testing.T) {
+	displayName := "张三"
+	repo := &fakeTeacherRepo{
+		studentListItems: []StudentListItem{{
+			ID:          "student-1",
+			Username:    "zhangsan",
+			Email:       "z@example.com",
+			DisplayName: &displayName,
+			ClassID:     "class-1",
+			ClassName:   "高一三班",
+		}},
+		studentListTotal: 25,
+	}
+	service := newTeacherTestService(repo, time.Date(2026, time.April, 27, 15, 0, 0, 0, time.UTC))
+
+	response, err := service.ListStudents(context.Background(), "teacher-1", StudentListFilter{ClassID: " class-1 ", Search: " 张 ", Page: -1, PageSize: 500})
+	if err != nil {
+		t.Fatalf("ListStudents() error = %v", err)
+	}
+	if response.Total != 25 || response.Page != 1 || response.PageSize != 100 || response.TotalPages != 1 {
+		t.Fatalf("response = %#v", response)
+	}
+	if repo.lastStudentFilter.ClassID != "class-1" || repo.lastStudentFilter.Search != "张" || repo.lastStudentFilter.Page != 1 || repo.lastStudentFilter.PageSize != 100 {
+		t.Fatalf("filter = %#v", repo.lastStudentFilter)
+	}
+}
+
 func TestGetAnalyticsBuildsOverviewMasteryWeeklyAndRanking(t *testing.T) {
 	now := time.Date(2026, time.April, 27, 15, 0, 0, 0, time.UTC)
 	repo := &fakeTeacherRepo{
@@ -214,6 +241,9 @@ type fakeTeacherRepo struct {
 	recentAttempts          []RecentAttempt
 	recentSessions          []RecentSession
 	recentMistakes          []StudentMistake
+	studentListItems        []StudentListItem
+	studentListTotal        int
+	lastStudentFilter       StudentListFilter
 	ids                     []string
 	idIndex                 int
 }
@@ -234,6 +264,11 @@ func (r *fakeTeacherRepo) ListTeacherClassIDs(context.Context, string) ([]string
 
 func (r *fakeTeacherRepo) ListStudentsInClasses(context.Context, []string) ([]string, error) {
 	return r.students, nil
+}
+
+func (r *fakeTeacherRepo) ListTeacherStudents(_ context.Context, _ string, filter StudentListFilter) ([]StudentListItem, int, error) {
+	r.lastStudentFilter = filter
+	return r.studentListItems, r.studentListTotal, nil
 }
 
 func (r *fakeTeacherRepo) CountActiveSessionsSince(_ context.Context, _ []string, since time.Time) (int, error) {

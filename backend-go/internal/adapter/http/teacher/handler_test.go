@@ -54,6 +54,26 @@ func TestTeacherRoutesRequireTeacherRole(t *testing.T) {
 	}
 }
 
+func TestStudentsListParsesPaginationAndFilters(t *testing.T) {
+	service := &fakeTeacherService{studentsListResponse: teacherapp.StudentListResponse{Items: []teacherapp.StudentListItem{{ID: "student-1"}}, Total: 1, Page: 2, PageSize: 10, TotalPages: 1}}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}}
+	handler := newTeacherTestHandler(t, service, auth)
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/teacher")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/teacher/students?page=2&page_size=10&class_id=class-1&search=zhang", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.lastTeacherID != "teacher-1" || service.lastStudentFilter.Page != 2 || service.lastStudentFilter.PageSize != 10 || service.lastStudentFilter.ClassID != "class-1" || service.lastStudentFilter.Search != "zhang" {
+		t.Fatalf("teacher=%q filter=%#v", service.lastTeacherID, service.lastStudentFilter)
+	}
+}
+
 func TestAnalyticsValidatesTimeRange(t *testing.T) {
 	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}}
 	handler := newTeacherTestHandler(t, &fakeTeacherService{}, auth)
@@ -151,20 +171,22 @@ func (a *fakeAuthenticator) DecodeAccessToken(string) (authapp.Principal, bool) 
 }
 
 type fakeTeacherService struct {
-	dashboardResponse teacherapp.DashboardStats
-	studentsResponse  teacherapp.StudentsStats
-	analyticsResponse teacherapp.AnalyticsResponse
-	classResponse     teacherapp.ClassAnalyticsResponse
-	studentResponse   teacherapp.StudentDetailResponse
-	dashboardErr      error
-	studentsErr       error
-	analyticsErr      error
-	classErr          error
-	studentErr        error
-	lastTeacherID     string
-	lastTimeRange     string
-	lastClassID       string
-	lastStudentID     string
+	dashboardResponse    teacherapp.DashboardStats
+	studentsResponse     teacherapp.StudentsStats
+	studentsListResponse teacherapp.StudentListResponse
+	analyticsResponse    teacherapp.AnalyticsResponse
+	classResponse        teacherapp.ClassAnalyticsResponse
+	studentResponse      teacherapp.StudentDetailResponse
+	dashboardErr         error
+	studentsErr          error
+	analyticsErr         error
+	classErr             error
+	studentErr           error
+	lastTeacherID        string
+	lastTimeRange        string
+	lastClassID          string
+	lastStudentID        string
+	lastStudentFilter    teacherapp.StudentListFilter
 }
 
 func (s *fakeTeacherService) GetDashboardStats(_ context.Context, teacherID string) (teacherapp.DashboardStats, error) {
@@ -175,6 +197,12 @@ func (s *fakeTeacherService) GetDashboardStats(_ context.Context, teacherID stri
 func (s *fakeTeacherService) GetStudentsStats(_ context.Context, teacherID string) (teacherapp.StudentsStats, error) {
 	s.lastTeacherID = teacherID
 	return s.studentsResponse, s.studentsErr
+}
+
+func (s *fakeTeacherService) ListStudents(_ context.Context, teacherID string, filter teacherapp.StudentListFilter) (teacherapp.StudentListResponse, error) {
+	s.lastTeacherID = teacherID
+	s.lastStudentFilter = filter
+	return s.studentsListResponse, s.studentsErr
 }
 
 func (s *fakeTeacherService) GetAnalytics(_ context.Context, teacherID string, timeRange string) (teacherapp.AnalyticsResponse, error) {

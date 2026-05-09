@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,8 +21,8 @@ func NewLocalStorage(uploadDir string) *LocalStorage {
 	return &LocalStorage{uploadDir: uploadDir}
 }
 
-// UploadData writes one object and returns its Python-compatible /uploads URL.
-func (s *LocalStorage) UploadData(_ context.Context, data []byte, key string, contentType string) (uploadapp.StoredObject, error) {
+// UploadStream writes one object and returns its Python-compatible /uploads URL.
+func (s *LocalStorage) UploadStream(_ context.Context, reader io.Reader, key string, contentType string, _ int64) (uploadapp.StoredObject, error) {
 	if strings.TrimSpace(s.uploadDir) == "" {
 		return uploadapp.StoredObject{}, errors.New("upload directory is empty")
 	}
@@ -40,14 +41,24 @@ func (s *LocalStorage) UploadData(_ context.Context, data []byte, key string, co
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return uploadapp.StoredObject{}, err
 	}
-	if err := os.WriteFile(target, data, 0o644); err != nil {
-		_ = os.Remove(target)
+	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
 		return uploadapp.StoredObject{}, err
+	}
+	written, copyErr := io.Copy(file, reader)
+	closeErr := file.Close()
+	if copyErr != nil {
+		_ = os.Remove(target)
+		return uploadapp.StoredObject{}, copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(target)
+		return uploadapp.StoredObject{}, closeErr
 	}
 	return uploadapp.StoredObject{
 		Key:         cleanKey,
 		URL:         "/uploads/" + cleanKey,
-		Size:        int64(len(data)),
+		Size:        written,
 		ContentType: contentType,
 	}, nil
 }

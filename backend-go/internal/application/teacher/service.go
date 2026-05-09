@@ -27,6 +27,7 @@ var dayLabels = []string{"周日", "周一", "周二", "周三", "周四", "周�
 type Repository interface {
 	ListTeacherClassIDs(context.Context, string) ([]string, error)
 	ListStudentsInClasses(context.Context, []string) ([]string, error)
+	ListTeacherStudents(context.Context, string, StudentListFilter) ([]StudentListItem, int, error)
 	CountActiveSessionsSince(context.Context, []string, time.Time) (int, error)
 	AverageAttemptScore(context.Context, []string, *time.Time) (float64, bool, error)
 	SumAttemptSeconds(context.Context, []string, *time.Time) (int, error)
@@ -121,6 +122,33 @@ type StudentsStats struct {
 	AvgScore      float64 `json:"avg_score"`
 	ActiveToday   float64 `json:"active_today"`
 	NeedAttention int     `json:"need_attention"`
+}
+
+// StudentListFilter stores teacher student list filters and pagination.
+type StudentListFilter struct {
+	ClassID  string
+	Search   string
+	Page     int
+	PageSize int
+}
+
+// StudentListItem stores one teacher-facing student list row.
+type StudentListItem struct {
+	ID          string  `json:"id"`
+	Username    string  `json:"username"`
+	Email       string  `json:"email"`
+	DisplayName *string `json:"display_name"`
+	ClassID     string  `json:"class_id"`
+	ClassName   string  `json:"class_name"`
+}
+
+// StudentListResponse is returned by /teacher/students.
+type StudentListResponse struct {
+	Items      []StudentListItem `json:"items"`
+	Total      int               `json:"total"`
+	Page       int               `json:"page"`
+	PageSize   int               `json:"page_size"`
+	TotalPages int               `json:"total_pages"`
 }
 
 // AnalyticsOverview stores the teacher analytics summary cards.
@@ -351,6 +379,22 @@ func (s *Service) GetStudentsStats(ctx context.Context, teacherID string) (Stude
 	}, nil
 }
 
+// ListStudents returns a paginated teacher-owned student list.
+func (s *Service) ListStudents(ctx context.Context, teacherID string, filter StudentListFilter) (StudentListResponse, error) {
+	filter = normalizeStudentListFilter(filter)
+	items, total, err := s.repo.ListTeacherStudents(ctx, teacherID, filter)
+	if err != nil {
+		return StudentListResponse{}, err
+	}
+	return StudentListResponse{
+		Items:      items,
+		Total:      total,
+		Page:       filter.Page,
+		PageSize:   filter.PageSize,
+		TotalPages: totalPages(total, filter.PageSize),
+	}, nil
+}
+
 // GetAnalytics returns the full teacher analytics page.
 func (s *Service) GetAnalytics(ctx context.Context, teacherID string, timeRange string) (AnalyticsResponse, error) {
 	rangeStart, ok := s.timeRangeStart(timeRange)
@@ -562,6 +606,21 @@ func (s *Service) GetStudentDetail(ctx context.Context, teacherID string, studen
 		RecentActivity: recentActivity,
 		RecentMistakes: recentMistakes,
 	}, nil
+}
+
+func normalizeStudentListFilter(filter StudentListFilter) StudentListFilter {
+	filter.ClassID = strings.TrimSpace(filter.ClassID)
+	filter.Search = strings.TrimSpace(filter.Search)
+	if filter.Page < 1 {
+		filter.Page = 1
+	}
+	if filter.PageSize < 1 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	return filter
 }
 
 func (s *Service) teacherStudentIDs(ctx context.Context, teacherID string) ([]string, error) {
@@ -1096,6 +1155,13 @@ func maxInt(left int, right int) int {
 		return left
 	}
 	return right
+}
+
+func totalPages(total int, pageSize int) int {
+	if pageSize <= 0 {
+		return 0
+	}
+	return (total + pageSize - 1) / pageSize
 }
 
 func formatScore(value float64) string {
