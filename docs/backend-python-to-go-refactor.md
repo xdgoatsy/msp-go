@@ -119,14 +119,13 @@ Go 重构时这些能力必须逐项映射，不能只迁移业务路由。
 | 管理员安全日志 | `/admin/security-logs` | 查询、统计、清理、归档、导出 |
 | 管理员知识点 | `/admin/knowledge` | 知识节点和关系维护 |
 | 管理员信箱 | `/admin/inbox` | 密码重置审核 |
-| 管理员 BKT | `/admin/bkt` | BKT 参数维护和种子数据 |
 
 ### 3.4 数据模型范围
 
 当前 SQLAlchemy 模型至少覆盖：
 
 - 用户、学生画像、认证与密码重置。
-- BKT 参数和学生知识点掌握状态。
+- DKT 学生知识点掌握状态。
 - 班级、班级成员、西电账号和同步快照。
 - 知识节点、知识关系。
 - 内容、内容资产、访问控制、嵌入、审计、导入任务。
@@ -304,7 +303,7 @@ backend-go/
 
 - 迁移学习会话、练习、错题本、学习进度、学生画像。
 - 先实现同步接口等价，再处理流式聊天、任务取消等异步能力。
-- 统一诊断报告、练习提交、BKT 更新的事务边界。
+- 统一诊断报告、练习提交、DKT 更新的事务边界。
 
 验收标准：
 
@@ -415,7 +414,6 @@ backend-go/
 | P3 | `/teacher` | DONE | Go P5 已承接教师工作台统计、学生管理统计、教师数据分析、班级分析和教师视角学生详情 |
 | P3 | `/admin/knowledge` | DONE | Go P5 已承接知识节点/关系 CRUD、分页筛选、章节、简要节点列表和统计 |
 | P4 | `/admin/ai-config` | TODO | AI 配置；Go 已注册管理员鉴权的 501 `AI_CONFIG_TODO` 占位接口，完整 LLM provider/model/Agent 配置需纳入全新 AI/Agent 架构设计后再实现 |
-| P4 | `/admin/bkt` | DONE | Go P4 已承接参数列表、单项更新、默认重置和缺失知识点参数种子化 |
 | P5 | `/xidian` | DONE | Go P7 已承接绑定状态、验证码挑战、绑定完成、解绑、课表/考试/成绩同步和快照读取；外部门户 live 验证留到有西电凭证的集成环境 |
 | P5 | `/upload` | DONE | Go P7 已承接图片上传、教师资源文件上传、本地 `/uploads` 文件落盘、S3 兼容对象存储和七牛云对象存储适配 |
 | P5 | `/admin/security-logs` | DONE | Go P7 已承接列表筛选/分页/日期分组、统计、删除、JSON/CSV 导出、归档、每日报告、清理和容量查询 |
@@ -568,8 +566,8 @@ pytest
 - 完成日期：TODO
 - 负责人：Codex
 - 验证命令（阶段进行中）：`gofmt -w ...`、`go test ./... -count=1`、`go vet ./...`
-- 验证结果（阶段进行中）：Go 全量单元/契约测试通过；Go vet 通过；覆盖 `/progress` 鉴权、overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters 的应用层和 HTTP 层主要路径；覆盖 `/portrait` 鉴权、读取、清除和模板画像生成的应用层与 HTTP 层主要路径；覆盖 `/mistakes` 鉴权、列表筛选/排序/分页、统计、详情、标记掌握、删除和复习推荐的应用层与 HTTP 层主要路径；覆盖 `/exercise` 鉴权、下一题选择、提交答案、BKT/profile 更新、题目详情和解析权限的应用层与 HTTP 层主要路径；覆盖 `/session` 鉴权、创建、历史、列表、结束、模式、删除、批删、任务取消和 SSE 形状兼容降级的应用层与 HTTP 层主要路径；覆盖 `/admin/bkt` 管理员鉴权、参数分页、概率校验、单项更新、默认重置和缺失知识点参数种子化的应用层与 HTTP 层主要路径。2026-05-01 本轮 `go test ./... -count=1` 和 `go vet ./...` 通过。
-- 交付物链接：`backend-go/internal/application/progress/`、`backend-go/internal/adapter/http/progress/`、`backend-go/internal/adapter/postgres/progress_repository.go`、`backend-go/internal/application/portrait/`、`backend-go/internal/adapter/http/portrait/`、`backend-go/internal/adapter/postgres/portrait_repository.go`、`backend-go/internal/application/mistake/`、`backend-go/internal/adapter/http/mistake/`、`backend-go/internal/adapter/postgres/mistake_repository.go`、`backend-go/internal/application/exercise/`、`backend-go/internal/adapter/http/exercise/`、`backend-go/internal/adapter/postgres/exercise_repository.go`、`backend-go/internal/application/session/`、`backend-go/internal/adapter/http/session/`、`backend-go/internal/adapter/postgres/session_repository.go`、`backend-go/internal/application/bkt/`、`backend-go/internal/adapter/http/bkt/`、`backend-go/internal/adapter/postgres/bkt_repository.go`、`backend-go/cmd/api/main.go`（进行中）
+- 验证结果（阶段进行中）：Go 全量单元/契约测试通过；Go vet 通过；覆盖 `/progress` 鉴权、overview、mastery、statistics、path、knowledge-graph、class-ranking、chapters 的应用层和 HTTP 层主要路径；覆盖 `/portrait` 鉴权、读取、清除和模板画像生成的应用层与 HTTP 层主要路径；覆盖 `/mistakes` 鉴权、列表筛选/排序/分页、统计、详情、标记掌握、删除和复习推荐的应用层与 HTTP 层主要路径；覆盖 `/exercise` 鉴权、下一题选择、提交答案、DKT/profile 更新、题目详情和解析权限的应用层主要路径；覆盖 `/session` 鉴权、创建、历史、列表、结束、模式、删除、批删、任务取消和 SSE 形状兼容降级的应用层与 HTTP 层主要路径。2026-06-01 本轮 `go test ./... -count=1` 通过。
+- 交付物链接：`backend-go/internal/application/progress/`、`backend-go/internal/adapter/http/progress/`、`backend-go/internal/adapter/postgres/progress_repository.go`、`backend-go/internal/application/portrait/`、`backend-go/internal/adapter/http/portrait/`、`backend-go/internal/adapter/postgres/portrait_repository.go`、`backend-go/internal/application/mistake/`、`backend-go/internal/adapter/http/mistake/`、`backend-go/internal/adapter/postgres/mistake_repository.go`、`backend-go/internal/application/exercise/`、`backend-go/internal/adapter/http/exercise/`、`backend-go/internal/adapter/postgres/exercise_repository.go`、`backend-go/internal/application/session/`、`backend-go/internal/adapter/http/session/`、`backend-go/internal/adapter/postgres/session_repository.go`、`backend-go/cmd/api/main.go`、`backend-go/migrations/0002_replace_bkt_with_dkt.up.sql`（进行中）
 - Residual risks: /session/{id}/chat now has an Eino-first Tutor Agent path when EINO_* is configured and keeps an explicit fallback when not configured; resource recommendation fallback, portrait updates, LLM portrait quality, OCR, math equivalence and LLM diagnosis still need follow-up Eino slices. Repository integration tests and runtime user acceptance remain separate validation work.
 
 ### 12.6 P5 内容与教学管理域
@@ -754,3 +752,15 @@ pytest
 - 验证结果：定向 Go 测试通过，覆盖上传服务/本地/S3/七牛 adapter、教师应用与 HTTP 层、错题应用层，并通过 PostgreSQL adapter 包编译和既有跳过式集成入口；contract 测试通过，确认 legacy Python `backend` 目录已不存在；前端生产构建通过，保留既有 Vite large chunk 警告；本轮修改文件 whitespace check 通过。
 - 交付物链接：`backend-go/internal/application/upload/`、`backend-go/internal/adapter/storage/`、`backend-go/internal/application/teacher/`、`backend-go/internal/adapter/http/teacher/`、`backend-go/internal/adapter/postgres/teacher_repository.go`、`backend-go/internal/application/mistake/`、`backend-go/internal/adapter/postgres/mistake_repository.go`、`frontend/src/pages/teacher/StudentsPage.tsx`、`frontend/src/modules/teacher/`。
 - 遗留风险：S3 兼容服务需在真实对象存储环境确认 `UNSIGNED-PAYLOAD` PUT 兼容性；七牛流式 multipart 已由本地 httptest 覆盖但仍需真实云端 smoke；新增 `/teacher/students` 是 Go 前端侧聚合接口，legacy Python route surface 无同名基线，P8 如继续做严格双跑需将该优化列为 Go-only frontend API；错题 SQL 下推已编译并由应用层假仓储覆盖语义，仍需连接真实 PostgreSQL 数据集做 explain/性能基线。
+
+### 2026-06-01
+
+- P4 学习智能升级开始并完成本轮后端落地：移除 `/admin/bkt` 管理参数服务、HTTP handler、PostgreSQL repository 和启动注册；新增 Go forward migration `0002_replace_bkt_with_dkt.up.sql`，将学生知识点状态迁移到 `student_concept_dkt_states`，删除概念级 BKT 参数表，增加序列长度、注意力权重和最近题目字段。
+- DKT 首轮完成：`/exercise/submit` 改为 `dkt-sakt-lite` 掌握度模型，基于最近练习序列、哈希题目/概念嵌入、答题结果嵌入、位置编码和 scaled dot-product attention 执行轻量自注意力式实时更新；`/progress/mastery` 和学习路径读侧改为 DKT 状态，目标掌握阈值调整为 0.85。
+- 动态路径规划完成：`/progress/path?target=...` 支持按目标节点、章节、名称或描述匹配目标范围，保留未达标节点及其先修节点，按拓扑顺序输出；先修未达标时目标节点返回 `locked`、`locked_by` 和先修学习建议。
+- 自适应题目生成首轮完成：`POST /questions/generate-isomorphic` 新增 Solver 校验的本地变式题模板，当前覆盖 `integral_power_exp`（$\int x^n e^{ax} dx$），按能力/难度调整参数并返回闭式解、步骤、标签和验证结果；后续可接 pyKT/LLM/Solver 服务替换生成策略。
+- 错题诊断分类完成：练习提交的基础诊断内置 C/P/L/S-Type 错误分类，写入 `error_type` 和 `error_subtype`，前端练习服务类型同步暴露 `taxonomyCode` 和 `errorSubtype`。
+- 验证命令：`go test ./internal/application/exercise ./internal/adapter/postgres ./internal/application/progress ./internal/adapter/http/progress ./internal/application/question ./internal/adapter/http/question ./tests/contract -count=1`、`npm run build`。
+- 验证结果：上述定向 Go 测试通过，覆盖 DKT 更新、PostgreSQL adapter 编译、动态路径规划、题目生成和路由契约；前端生产构建通过，保留既有 Vite large chunk 警告。
+- 交付物链接：`backend-go/internal/application/exercise/`、`backend-go/internal/adapter/postgres/exercise_repository.go`、`backend-go/internal/application/progress/`、`backend-go/internal/adapter/postgres/progress_repository.go`、`backend-go/internal/application/question/`、`backend-go/internal/adapter/http/question/`、`backend-go/migrations/0002_replace_bkt_with_dkt.up.sql`、`frontend/src/modules/exercise/services/exerciseService.ts`。
+- 遗留风险：当前无学生历史训练数据，DKT 为可替换的本地 SAKT-lite 估算器，不是离线训练后的 Transformer 权重；推荐后续以 pyKT 训练 AKT/SAKT 模型并通过独立推理服务接入，真实 PostgreSQL migration 仍需在集成环境执行 `go run ./cmd/migrate` 验证。

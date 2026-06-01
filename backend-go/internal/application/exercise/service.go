@@ -29,11 +29,11 @@ type Repository interface {
 	ListCandidateExercises(context.Context, CandidateFilter) ([]Exercise, error)
 	GetProfile(context.Context, string) (StudentProfile, bool, error)
 	HasSubmittedAttempt(context.Context, string, string) (bool, error)
-	ListBKTStates(context.Context, string, []string) (map[string]BKTState, error)
-	ListBKTParams(context.Context, []string) (map[string]BKTParams, error)
+	ListDKTStates(context.Context, string, []string) (map[string]DKTState, error)
+	ListRecentInteractions(context.Context, string, int) ([]LearningInteraction, error)
 	InsertAttempt(context.Context, AttemptRecord) error
 	InsertDiagnosis(context.Context, DiagnosisRecord) error
-	UpsertBKTStates(context.Context, []BKTState) error
+	UpsertDKTStates(context.Context, []DKTState) error
 	UpdateProfileTracking(context.Context, string, ProfileTrackingUpdate) error
 }
 
@@ -81,32 +81,32 @@ type CandidateFilter struct {
 	Limit          int
 }
 
-// BKTState stores one student-concept BKT state.
-type BKTState struct {
-	ID             string
-	StudentID      string
-	ConceptID      string
-	MasteryProb    float64
-	Confidence     float64
-	AttemptCount   int
-	CorrectCount   int
-	IncorrectCount int
-	PL0            float64
-	PT             float64
-	PG             float64
-	PS             float64
-	LastOutcome    *bool
-	LastAttemptAt  *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+// DKTState stores one student-concept DKT state.
+type DKTState struct {
+	ID              string
+	StudentID       string
+	ConceptID       string
+	MasteryProb     float64
+	Confidence      float64
+	AttemptCount    int
+	CorrectCount    int
+	IncorrectCount  int
+	SequenceLength  int
+	AttentionWeight float64
+	LastOutcome     *bool
+	LastExerciseID  *string
+	LastAttemptAt   *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
-// BKTParams stores BKT concept parameters.
-type BKTParams struct {
-	PL0 float64
-	PT  float64
-	PG  float64
-	PS  float64
+// LearningInteraction stores one historical input event for DKT sequence updates.
+type LearningInteraction struct {
+	ExerciseID  string
+	ConceptIDs  []string
+	IsCorrect   bool
+	Difficulty  float64
+	SubmittedAt time.Time
 }
 
 // AttemptRecord stores data inserted into content_attempts.
@@ -209,6 +209,8 @@ type SubmitResponse struct {
 // DiagnosisDetail stores lightweight diagnostic feedback.
 type DiagnosisDetail struct {
 	ErrorType        *string  `json:"error_type"`
+	ErrorSubtype     string   `json:"error_subtype,omitempty"`
+	TaxonomyCode     string   `json:"taxonomy_code,omitempty"`
 	ErrorDescription string   `json:"error_description"`
 	ErrorStepIndex   *int     `json:"error_step_index"`
 	Severity         string   `json:"severity"`
@@ -403,6 +405,7 @@ func (s *Service) SubmitAnswer(ctx context.Context, userID string, request Submi
 				ID:             reportID,
 				AttemptID:      attempt.ID,
 				ErrorType:      errorType,
+				ErrorSubtype:   diagnosis.ErrorSubtype,
 				Severity:       diagnosis.Severity,
 				RelatedConcept: diagnosis.RelatedConcepts,
 				Explanation:    diagnosis.ErrorDescription,
@@ -440,7 +443,7 @@ func (s *Service) SubmitAnswer(ctx context.Context, userID string, request Submi
 			Diagnosis:          diagnosis,
 			Feedback:           feedback,
 			MasteryUpdate:      masteryUpdate,
-			MasteryModel:       "bkt",
+			MasteryModel:       dktModelName,
 			NextRecommendation: nextRecommendation(check.IsCorrect, masteryUpdate),
 		}
 		return nil
@@ -547,14 +550,22 @@ func (s *Service) updateTracking(ctx context.Context, repo Repository, userID st
 		})
 	}
 
-	states, err := repo.ListBKTStates(ctx, userID, concepts)
+	states, err := repo.ListDKTStates(ctx, userID, concepts)
 	if err != nil {
 		return nil, err
 	}
-	params, err := repo.ListBKTParams(ctx, concepts)
+	history, err := repo.ListRecentInteractions(ctx, userID, dktMaxSequenceLength)
 	if err != nil {
 		return nil, err
 	}
+	current := LearningInteraction{
+		ExerciseID:  exercise.ID,
+		ConceptIDs:  concepts,
+		IsCorrect:   isCorrect,
+		Difficulty:  exercise.Difficulty,
+		SubmittedAt: now,
+	}
+	sequence := buildDKTSequence(history, current)
 
 	mastery := normalizeFloatMap(profile.MasteryVector)
 	tendency := normalizeFloatMap(profile.ErrorTendency)
@@ -562,37 +573,32 @@ func (s *Service) updateTracking(ctx context.Context, repo Repository, userID st
 		tendency[*errorType] += 1
 	}
 	masteryUpdate := map[string]float64{}
-	upserts := make([]BKTState, 0, len(concepts))
+	upserts := make([]DKTState, 0, len(concepts))
 	for _, conceptID := range concepts {
 		state, hasState := states[conceptID]
-		baseParams := params[conceptID]
-		if baseParams == (BKTParams{}) {
-			baseParams = defaultBKTParams()
-		}
-		personalized := personalizeBKT(baseParams, profile.PreferredDifficulty, profile.LearningPace, exercise.Difficulty, optionalStringValue(errorType))
 		prior := mastery[conceptID]
 		if prior == 0 {
-			prior = personalized.PL0
+			prior = dktColdStartMastery(profile.PreferredDifficulty, profile.LearningPace, exercise.Difficulty)
 		}
 		if hasState {
 			prior = state.MasteryProb
 			if state.LastAttemptAt != nil {
 				daysSince := now.Sub(*state.LastAttemptAt).Hours() / 24.0
-				prior = applyForgetting(prior, daysSince, state.PL0)
+				prior = applyForgetting(prior, daysSince, dktRetentionFloor)
 			}
 		} else {
 			id, err := s.newID()
 			if err != nil {
 				return nil, err
 			}
-			state = BKTState{
+			state = DKTState{
 				ID:        id,
 				StudentID: userID,
 				ConceptID: conceptID,
 				CreatedAt: now,
 			}
 		}
-		result := bktUpdate(prior, isCorrect, personalized, state.AttemptCount)
+		result := dktUpdate(prior, conceptID, current, sequence, profile, optionalStringValue(errorType), state.AttemptCount)
 		nextMastery := round4(result.mastery)
 		nextConfidence := round4(result.confidence)
 		mastery[conceptID] = nextMastery
@@ -605,16 +611,15 @@ func (s *Service) updateTracking(ctx context.Context, repo Repository, userID st
 		state.AttemptCount++
 		state.CorrectCount += boolInt(isCorrect)
 		state.IncorrectCount += boolInt(!isCorrect)
-		state.PL0 = round4(personalized.PL0)
-		state.PT = round4(personalized.PT)
-		state.PG = round4(personalized.PG)
-		state.PS = round4(personalized.PS)
+		state.SequenceLength = result.sequenceLength
+		state.AttentionWeight = round4(result.attentionWeight)
 		state.LastOutcome = &outcome
+		state.LastExerciseID = &exercise.ID
 		state.LastAttemptAt = &now
 		state.UpdatedAt = now
 		upserts = append(upserts, state)
 	}
-	if err := repo.UpsertBKTStates(ctx, upserts); err != nil {
+	if err := repo.UpsertDKTStates(ctx, upserts); err != nil {
 		return nil, err
 	}
 	if err := repo.UpdateProfileTracking(ctx, userID, ProfileTrackingUpdate{
@@ -710,6 +715,45 @@ func toExerciseResponse(exercise Exercise) *ExerciseResponse {
 	}
 }
 
+type errorTaxonomy struct {
+	ErrorType  *string
+	Code       string
+	Subtype    string
+	Severity   string
+	Suggestion string
+}
+
+func classifyMathError(reason string, imageOnly bool) errorTaxonomy {
+	if imageOnly {
+		errorType := "symbolic"
+		return errorTaxonomy{
+			ErrorType:  &errorType,
+			Code:       "S-Type",
+			Subtype:    "notation_or_ocr_pending",
+			Severity:   "medium",
+			Suggestion: "请补充可解析的文本答案，重点检查符号书写、上下标和等号链是否清晰。",
+		}
+	}
+	normalized := strings.ToLower(reason)
+	switch {
+	case strings.Contains(normalized, "concept") || strings.Contains(reason, "概念") || strings.Contains(reason, "定义"):
+		errorType := "conceptual"
+		return errorTaxonomy{ErrorType: &errorType, Code: "C-Type", Subtype: "concept_misunderstanding", Severity: "high", Suggestion: "先回到相关定义和适用条件，再重新判断题目属于哪类对象。"}
+	case strings.Contains(normalized, "logic") || strings.Contains(reason, "逻辑") || strings.Contains(reason, "充分") || strings.Contains(reason, "必要"):
+		errorType := "logical"
+		return errorTaxonomy{ErrorType: &errorType, Code: "L-Type", Subtype: "invalid_inference", Severity: "high", Suggestion: "逐步检查每个推理箭头是否成立，尤其区分充分条件和必要条件。"}
+	case strings.Contains(normalized, "symbol") || strings.Contains(reason, "符号") || strings.Contains(reason, "格式"):
+		errorType := "symbolic"
+		return errorTaxonomy{ErrorType: &errorType, Code: "S-Type", Subtype: "notation_error", Severity: "medium", Suggestion: "规范书写变量、上下标、积分/微分符号和等号链，避免表达式歧义。"}
+	case strings.Contains(normalized, "step") || strings.Contains(reason, "步骤") || strings.Contains(reason, "方法") || strings.Contains(reason, "过程"):
+		errorType := "procedural"
+		return errorTaxonomy{ErrorType: &errorType, Code: "P-Type", Subtype: "procedure_misuse", Severity: "medium", Suggestion: "对照标准算法逐步复核，先确认方法选择，再检查每一步执行。"}
+	default:
+		errorType := "procedural"
+		return errorTaxonomy{ErrorType: &errorType, Code: "P-Type", Subtype: "answer_mismatch", Severity: "medium", Suggestion: "请按步骤复算，并标出最早与标准解不一致的位置。"}
+	}
+}
+
 func basicDiagnosis(reason string, imageOnly bool, concepts []string) *DiagnosisDetail {
 	explanation := "答案不正确"
 	suggestion := "请重新检查解题过程"
@@ -719,12 +763,15 @@ func basicDiagnosis(reason string, imageOnly bool, concepts []string) *Diagnosis
 	if imageOnly {
 		suggestion = "图片答案已记录，OCR 诊断能力将在 AI 迁移阶段恢复；请优先提交文本答案以获得自动判题。"
 	}
+	taxonomy := classifyMathError(reason, imageOnly)
 	return &DiagnosisDetail{
-		ErrorType:        nil,
+		ErrorType:        taxonomy.ErrorType,
+		ErrorSubtype:     taxonomy.Subtype,
+		TaxonomyCode:     taxonomy.Code,
 		ErrorDescription: explanation,
 		ErrorStepIndex:   nil,
-		Severity:         "medium",
-		Suggestion:       suggestion,
+		Severity:         taxonomy.Severity,
+		Suggestion:       nonEmptyString(taxonomy.Suggestion, suggestion),
 		RelatedConcepts:  copyStrings(concepts),
 	}
 }
@@ -909,6 +956,13 @@ func optionalStringValue(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func nonEmptyString(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func boolScore(value bool) float64 {

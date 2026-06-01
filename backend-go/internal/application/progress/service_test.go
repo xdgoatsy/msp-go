@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestGetOverviewCombinesProfileBKTAndAttemptStats(t *testing.T) {
+func TestGetOverviewCombinesProfileDKTAndAttemptStats(t *testing.T) {
 	now := time.Date(2026, time.April, 8, 15, 0, 0, 0, time.UTC)
 	latest := now.Add(-2 * time.Hour)
 	repo := &fakeProgressRepo{
@@ -26,8 +26,8 @@ func TestGetOverviewCombinesProfileBKTAndAttemptStats(t *testing.T) {
 			now.AddDate(0, 0, -2),
 		},
 		masteryStates: []MasteryState{
-			{ConceptID: "limit", Mastery: 0.91, Confidence: 0.7, AttemptCount: 4, PL0: 0.25},
-			{ConceptID: "weak", Mastery: 0.4, Confidence: 0.2, AttemptCount: 1, PL0: 0.25},
+			{ConceptID: "limit", Mastery: 0.91, Confidence: 0.7, AttemptCount: 4},
+			{ConceptID: "weak", Mastery: 0.4, Confidence: 0.2, AttemptCount: 1},
 		},
 	}
 	service := newTestService(repo, now)
@@ -42,7 +42,7 @@ func TestGetOverviewCombinesProfileBKTAndAttemptStats(t *testing.T) {
 	if overview.StudyMinutes != 120 || overview.TodayStats.StudyMinutes != 30 || overview.TodayStats.ExercisesCompleted != 3 {
 		t.Fatalf("overview time stats = %#v", overview)
 	}
-	if overview.StreakDays != 3 || overview.MasteredConcepts != 2 {
+	if overview.StreakDays != 3 || overview.MasteredConcepts != 1 {
 		t.Fatalf("overview mastery stats = %#v", overview)
 	}
 	if overview.RecentContent == nil || overview.RecentContent.LastAccessed == "" {
@@ -89,8 +89,8 @@ func TestGetLearningPathUsesGraphOrderAndNodeStatus(t *testing.T) {
 	repo := &fakeProgressRepo{
 		hasProfile: true,
 		masteryStates: []MasteryState{
-			{ConceptID: "a", Mastery: 0.9, Confidence: 0.7, AttemptCount: 3, PL0: 0.25},
-			{ConceptID: "b", Mastery: 0.6, Confidence: 0.4, AttemptCount: 0, PL0: 0.25},
+			{ConceptID: "a", Mastery: 0.9, Confidence: 0.7, AttemptCount: 3},
+			{ConceptID: "b", Mastery: 0.6, Confidence: 0.4, AttemptCount: 0},
 		},
 		nodes: []KnowledgeNode{
 			{ID: "a", Name: "导数", NodeType: "CONCEPT", Description: "desc-a", Chapter: &chapter, Difficulty: 0.5},
@@ -117,6 +117,39 @@ func TestGetLearningPathUsesGraphOrderAndNodeStatus(t *testing.T) {
 	}
 	if path.EstimatedExercises != 5 || path.Statistics.Completed != 1 || path.Statistics.Progress != 0.5 {
 		t.Fatalf("path summary = %#v", path)
+	}
+}
+
+func TestGetLearningPathPrunesTargetAndLocksMissingPrerequisite(t *testing.T) {
+	now := time.Date(2026, time.April, 8, 15, 0, 0, 0, time.UTC)
+	chapter := "多元微积分"
+	repo := &fakeProgressRepo{
+		hasProfile: true,
+		masteryStates: []MasteryState{
+			{ConceptID: "derivative", Mastery: 0.3, Confidence: 0.2, AttemptCount: 0},
+			{ConceptID: "partial", Mastery: 0.2, Confidence: 0.1, AttemptCount: 0},
+			{ConceptID: "integral", Mastery: 0.95, Confidence: 0.8, AttemptCount: 5},
+		},
+		nodes: []KnowledgeNode{
+			{ID: "derivative", Name: "导数定义", NodeType: "CONCEPT", Description: "先修", Chapter: &chapter, Difficulty: 0.3},
+			{ID: "partial", Name: "偏导数", NodeType: "CONCEPT", Description: "目标", Chapter: &chapter, Difficulty: 0.6},
+			{ID: "integral", Name: "定积分", NodeType: "CONCEPT", Description: "无关", Difficulty: 0.5},
+		},
+		relations: []KnowledgeRelation{
+			{ID: "r1", SourceID: "partial", TargetID: "derivative", RelationType: "HAS_PREREQUISITE"},
+		},
+	}
+	service := newTestService(repo, now)
+
+	path, err := service.GetLearningPath(context.Background(), "student-1", "partial")
+	if err != nil {
+		t.Fatalf("GetLearningPath() error = %v", err)
+	}
+	if len(path.Path) != 2 || path.Path[0].ID != "derivative" || path.Path[1].ID != "partial" {
+		t.Fatalf("path = %#v", path.Path)
+	}
+	if path.Path[1].Status != "locked" || len(path.Path[1].LockedBy) != 1 || path.Path[1].LockedBy[0] != "derivative" {
+		t.Fatalf("locked target = %#v", path.Path[1])
 	}
 }
 

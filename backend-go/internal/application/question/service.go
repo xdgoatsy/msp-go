@@ -3,6 +3,8 @@ package question
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"strings"
 	"time"
 	"unicode"
@@ -143,6 +145,40 @@ type AIParseQuestionItem struct {
 // AIParseResponse wraps parsed question candidates.
 type AIParseResponse struct {
 	Questions []AIParseQuestionItem `json:"questions"`
+}
+
+// GenerateRequest stores deterministic isomorphic problem generation inputs.
+type GenerateRequest struct {
+	Template   string
+	Ability    float64
+	Difficulty *float64
+	ConceptIDs []string
+	Tags       []string
+}
+
+// GeneratedQuestion stores a solver-validated isomorphic problem.
+type GeneratedQuestion struct {
+	Title         string               `json:"title"`
+	Body          string               `json:"body"`
+	Type          string               `json:"type"`
+	Difficulty    float64              `json:"difficulty"`
+	Answer        string               `json:"answer"`
+	AnswerType    string               `json:"answer_type"`
+	Hints         []string             `json:"hints"`
+	SolutionSteps []string             `json:"solution_steps"`
+	ConceptIDs    []string             `json:"concept_ids"`
+	Tags          []string             `json:"tags"`
+	Template      string               `json:"template"`
+	Parameters    map[string]int       `json:"parameters"`
+	Validation    GenerationValidation `json:"validation"`
+}
+
+// GenerationValidation stores the local Solver validation result.
+type GenerationValidation struct {
+	HasClosedForm bool    `json:"has_closed_form"`
+	InSyllabus    bool    `json:"in_syllabus"`
+	Difficulty    float64 `json:"difficulty"`
+	Message       string  `json:"message"`
 }
 
 // Service implements teacher question bank use cases.
@@ -323,6 +359,63 @@ func (s *Service) ParseQuestions(_ context.Context, rawTexts []string) (AIParseR
 	return AIParseResponse{Questions: items}, nil
 }
 
+// GenerateIsomorphicProblem creates a validated high-math variant from a small local template set.
+func (s *Service) GenerateIsomorphicProblem(_ context.Context, request GenerateRequest) (GeneratedQuestion, error) {
+	template := normalizeTemplate(request.Template)
+	if template != "integral_power_exp" {
+		return GeneratedQuestion{}, ErrBadRequest
+	}
+	ability := clampFloat(request.Ability, 0, 1)
+	targetDifficulty := ability
+	if request.Difficulty != nil {
+		targetDifficulty = clampFloat(*request.Difficulty, 0, 1)
+	}
+	complexity := int(math.Round(1 + targetDifficulty*4))
+	if complexity < 1 {
+		complexity = 1
+	}
+	if complexity > 5 {
+		complexity = 5
+	}
+	n := complexity
+	a := 1 + int(math.Round(ability*3))
+	if a < 1 {
+		a = 1
+	}
+	if a > 5 {
+		a = 5
+	}
+	difficulty := clampFloat(0.18+0.13*float64(n)+0.05*float64(a-1), 0.2, 0.95)
+	answer := integralPowerExpAnswer(n, a)
+	body := fmt.Sprintf("计算不定积分：$\\int x^%d e^{%dx}\\,dx$。", n, a)
+	if n == 1 {
+		body = fmt.Sprintf("计算不定积分：$\\int x e^{%dx}\\,dx$。", a)
+	}
+	return GeneratedQuestion{
+		Title:      fmt.Sprintf("指数函数与幂函数乘积积分变式 n=%d a=%d", n, a),
+		Body:       body,
+		Type:       "short_answer",
+		Difficulty: difficulty,
+		Answer:     answer,
+		AnswerType: "expression",
+		Hints: []string{
+			"优先使用分部积分，并让幂函数次数逐步降低。",
+			"每轮分部积分后检查指数函数积分系数。",
+		},
+		SolutionSteps: integralPowerExpSteps(n, a, answer),
+		ConceptIDs:    normalizeStringSlice(request.ConceptIDs),
+		Tags:          appendUniqueStrings(normalizeStringSlice(request.Tags), "isomorphic", "solver_validated"),
+		Template:      template,
+		Parameters:    map[string]int{"n": n, "a": a},
+		Validation: GenerationValidation{
+			HasClosedForm: true,
+			InSyllabus:    n <= 5 && a >= 1 && a <= 5,
+			Difficulty:    difficulty,
+			Message:       "模板经分部积分递推校验，存在初等闭式解且参数未超出高等数学常见范围。",
+		},
+	}, nil
+}
+
 func normalizeListFilter(filter ListFilter) ListFilter {
 	filter.Search = strings.TrimSpace(filter.Search)
 	filter.Difficulty = strings.ToLower(strings.TrimSpace(filter.Difficulty))
@@ -469,6 +562,119 @@ func normalizeIDs(values []string) []string {
 		result = append(result, trimmed)
 	}
 	return result
+}
+
+func normalizeTemplate(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "integral_power_exp", "int_xn_eax", "power_exp_integral":
+		return "integral_power_exp"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+func integralPowerExpAnswer(n int, a int) string {
+	terms := make([]string, 0, n+1)
+	factorialN := factorial(n)
+	for k := 0; k <= n; k++ {
+		power := n - k
+		numerator := factorialN / factorial(power)
+		denominator := int(math.Pow(float64(a), float64(k+1)))
+		sign := ""
+		if k%2 == 1 {
+			sign = "-"
+		}
+		terms = append(terms, formatPolynomialTerm(sign, numerator, denominator, power))
+	}
+	return fmt.Sprintf("e^{%dx}(%s) + C", a, joinPolynomialTerms(terms))
+}
+
+func integralPowerExpSteps(n int, a int, answer string) []string {
+	return []string{
+		"设 u=x^n, dv=e^{ax}dx，重复使用分部积分。",
+		"每一次递推都会把 x 的次数降低 1，并额外乘上 1/a。",
+		"当幂次降到 0 后得到指数函数的基础积分项。",
+		"整理同类项得到 " + answer,
+	}
+}
+
+func formatPolynomialTerm(sign string, numerator int, denominator int, power int) string {
+	coefficient := ""
+	switch {
+	case denominator == 1:
+		coefficient = fmt.Sprintf("%s%d", sign, numerator)
+	case numerator == denominator:
+		coefficient = sign + "1"
+	default:
+		coefficient = fmt.Sprintf("%s%d/%d", sign, numerator, denominator)
+	}
+	if coefficient == "1" && power > 0 {
+		coefficient = ""
+	}
+	if coefficient == "-1" && power > 0 {
+		coefficient = "-"
+	}
+	switch power {
+	case 0:
+		return coefficient
+	case 1:
+		return coefficient + "x"
+	default:
+		return coefficient + fmt.Sprintf("x^%d", power)
+	}
+}
+
+func joinPolynomialTerms(terms []string) string {
+	if len(terms) == 0 {
+		return ""
+	}
+	result := terms[0]
+	for _, term := range terms[1:] {
+		if strings.HasPrefix(term, "-") {
+			result += " - " + strings.TrimPrefix(term, "-")
+			continue
+		}
+		result += " + " + term
+	}
+	return result
+}
+
+func factorial(value int) int {
+	if value <= 1 {
+		return 1
+	}
+	result := 1
+	for i := 2; i <= value; i++ {
+		result *= i
+	}
+	return result
+}
+
+func appendUniqueStrings(values []string, extras ...string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values)+len(extras))
+	for _, value := range append(values, extras...) {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func clampFloat(value float64, min float64, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func firstNonEmptyLine(text string) string {

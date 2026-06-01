@@ -106,6 +106,31 @@ func TestParseQuestionsBuildsShapeCompatibleFallback(t *testing.T) {
 	}
 }
 
+func TestGenerateIsomorphicProblemBuildsValidatedIntegralVariant(t *testing.T) {
+	service := newTestService(&fakeQuestionRepo{}, time.Now())
+	difficulty := 0.75
+
+	response, err := service.GenerateIsomorphicProblem(context.Background(), GenerateRequest{
+		Template:   "integral_power_exp",
+		Ability:    0.6,
+		Difficulty: &difficulty,
+		ConceptIDs: []string{"integral"},
+		Tags:       []string{"exam"},
+	})
+	if err != nil {
+		t.Fatalf("GenerateIsomorphicProblem() error = %v", err)
+	}
+	if response.Template != "integral_power_exp" || response.Parameters["n"] < 1 || response.Parameters["a"] < 1 {
+		t.Fatalf("response = %#v", response)
+	}
+	if !response.Validation.HasClosedForm || !response.Validation.InSyllabus || response.Answer == "" {
+		t.Fatalf("validation/answer = %#v %q", response.Validation, response.Answer)
+	}
+	if len(response.Tags) < 3 || response.Tags[0] != "exam" {
+		t.Fatalf("tags = %#v", response.Tags)
+	}
+}
+
 func TestNewServiceRejectsNilRepository(t *testing.T) {
 	if _, err := NewService(nil); err == nil {
 		t.Fatal("NewService(nil) error = nil, want error")

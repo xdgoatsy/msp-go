@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -13,7 +14,9 @@ const (
 	// StreakLookbackDays matches the Python progress service lookback window.
 	StreakLookbackDays = 365
 
-	masteryThreshold = 0.8
+	masteryThreshold  = 0.85
+	dktRetentionFloor = 0.05
+	dktModelName      = "dkt-sakt-lite"
 )
 
 // Repository is the persistence surface required by progress use cases.
@@ -42,13 +45,12 @@ type StudentProfile struct {
 	MasteryVector  map[string]float64
 }
 
-// MasteryState stores BKT state used by read-side progress queries.
+// MasteryState stores DKT state used by read-side progress queries.
 type MasteryState struct {
 	ConceptID     string
 	Mastery       float64
 	Confidence    float64
 	AttemptCount  int
-	PL0           float64
 	LastAttemptAt *time.Time
 }
 
@@ -139,15 +141,17 @@ type PathResponse struct {
 
 // PathItem stores one personalized learning path node.
 type PathItem struct {
-	ID          string  `json:"id"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	Chapter     *string `json:"chapter"`
-	Status      string  `json:"status"`
-	Mastery     float64 `json:"mastery"`
-	Confidence  float64 `json:"confidence"`
-	Exercises   int     `json:"exercises"`
-	Difficulty  float64 `json:"difficulty"`
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	Description    string   `json:"description"`
+	Chapter        *string  `json:"chapter"`
+	Status         string   `json:"status"`
+	LockedBy       []string `json:"locked_by,omitempty"`
+	Recommendation string   `json:"recommendation,omitempty"`
+	Mastery        float64  `json:"mastery"`
+	Confidence     float64  `json:"confidence"`
+	Exercises      int      `json:"exercises"`
+	Difficulty     float64  `json:"difficulty"`
 }
 
 // PathStatistics stores learning path aggregate counters.
@@ -328,7 +332,7 @@ func (s *Service) GetMasteryVector(ctx context.Context, userID string) (MasteryR
 			Confidence: confidence[key],
 		})
 	}
-	return MasteryResponse{Topics: topics, Model: "bkt"}, nil
+	return MasteryResponse{Topics: topics, Model: dktModelName}, nil
 }
 
 // GetLearningPath returns a personalized learning path.
@@ -384,8 +388,9 @@ func (s *Service) GetLearningPath(ctx context.Context, userID string, target str
 
 	sortedIDs := topologicalLearningOrder(nodeMap, prereqEdges, dependents, mastery)
 	if target != "" {
-		if _, ok := nodeMap[target]; ok {
-			needed := collectPrerequisites(target, prereqEdges)
+		targetNodes := selectTargetNodes(target, nodeMap)
+		if len(targetNodes) > 0 {
+			needed := collectLearningSubgraph(targetNodes, prereqEdges, mastery)
 			filtered := make([]string, 0, len(sortedIDs))
 			for _, id := range sortedIDs {
 				if _, ok := needed[id]; ok {
@@ -404,22 +409,25 @@ func (s *Service) GetLearningPath(ctx context.Context, userID string, target str
 		masteryValue := mastery[id]
 		confidenceValue := confidence[id]
 		exerciseCount := attempts[id]
-		status := learningNodeStatus(id, prereqEdges, mastery, confidenceValue, exerciseCount)
+		lockedBy := lockedPrerequisites(id, prereqEdges, mastery, confidence)
+		status := learningNodeStatus(id, lockedBy, mastery, confidenceValue, exerciseCount)
 		if status == "completed" {
 			completed++
 		} else if remaining := 5 - exerciseCount; remaining > 0 {
 			estimatedRemaining += remaining
 		}
 		path = append(path, PathItem{
-			ID:          id,
-			Title:       node.Name,
-			Description: node.Description,
-			Chapter:     node.Chapter,
-			Status:      status,
-			Mastery:     round4(masteryValue),
-			Confidence:  round4(confidenceValue),
-			Exercises:   exerciseCount,
-			Difficulty:  node.Difficulty,
+			ID:             id,
+			Title:          node.Name,
+			Description:    node.Description,
+			Chapter:        node.Chapter,
+			Status:         status,
+			LockedBy:       lockedBy,
+			Recommendation: learningRecommendation(status),
+			Mastery:        round4(masteryValue),
+			Confidence:     round4(confidenceValue),
+			Exercises:      exerciseCount,
+			Difficulty:     node.Difficulty,
 		})
 	}
 
@@ -642,7 +650,7 @@ func (s *Service) masteryDetails(ctx context.Context, userID string, fallback ma
 		rawMastery := state.Mastery
 		if state.LastAttemptAt != nil {
 			daysSince := now.Sub(*state.LastAttemptAt).Hours() / 24.0
-			rawMastery = applyForgetting(rawMastery, daysSince, state.PL0)
+			rawMastery = applyForgetting(rawMastery, daysSince, dktRetentionFloor)
 		}
 		mastery[state.ConceptID] = round4(rawMastery)
 		confidence[state.ConceptID] = round4(state.Confidence)
@@ -739,19 +747,86 @@ func collectPrerequisites(target string, prereqEdges map[string]map[string]struc
 	return needed
 }
 
-func learningNodeStatus(id string, prereqEdges map[string]map[string]struct{}, mastery map[string]float64, confidence float64, exercises int) string {
+func selectTargetNodes(target string, nodes map[string]KnowledgeNode) []string {
+	normalized := normalizeTarget(target)
+	if normalized == "" {
+		return nil
+	}
+	if _, ok := nodes[target]; ok {
+		return []string{target}
+	}
+	selected := []string{}
+	for id, node := range nodes {
+		if strings.Contains(normalizeTarget(node.Name), normalized) ||
+			strings.Contains(normalizeTarget(node.Description), normalized) ||
+			(node.Chapter != nil && strings.Contains(normalizeTarget(*node.Chapter), normalized)) {
+			selected = append(selected, id)
+		}
+	}
+	sort.Strings(selected)
+	return selected
+}
+
+func collectLearningSubgraph(targets []string, prereqEdges map[string]map[string]struct{}, mastery map[string]float64) map[string]struct{} {
+	needed := map[string]struct{}{}
+	for _, target := range targets {
+		if mastery[target] < masteryThreshold {
+			for id := range collectPrerequisites(target, prereqEdges) {
+				needed[id] = struct{}{}
+			}
+			continue
+		}
+		for prereq := range prereqEdges[target] {
+			if mastery[prereq] < masteryThreshold {
+				for id := range collectPrerequisites(prereq, prereqEdges) {
+					needed[id] = struct{}{}
+				}
+			}
+		}
+	}
+	if len(needed) == 0 {
+		for _, target := range targets {
+			needed[target] = struct{}{}
+		}
+	}
+	return needed
+}
+
+func lockedPrerequisites(id string, prereqEdges map[string]map[string]struct{}, mastery map[string]float64, confidence map[string]float64) []string {
+	locked := []string{}
+	for prereq := range prereqEdges[id] {
+		if mastery[prereq] < masteryThreshold || confidence[prereq] < 0.5 {
+			locked = append(locked, prereq)
+		}
+	}
+	sort.Strings(locked)
+	return locked
+}
+
+func learningNodeStatus(id string, lockedBy []string, mastery map[string]float64, confidence float64, exercises int) string {
 	if mastery[id] >= masteryThreshold && confidence >= 0.5 {
 		return "completed"
+	}
+	if len(lockedBy) > 0 {
+		return "locked"
 	}
 	if exercises > 0 {
 		return "current"
 	}
-	for prereq := range prereqEdges[id] {
-		if mastery[prereq] < masteryThreshold*0.7 {
-			return "locked"
-		}
-	}
 	return "available"
+}
+
+func learningRecommendation(status string) string {
+	switch status {
+	case "locked":
+		return "先完成先修节点的微课视频和基础练习"
+	case "current":
+		return "继续进行当前知识点的针对性练习"
+	case "available":
+		return "可以开始该知识点的入门练习"
+	default:
+		return ""
+	}
 }
 
 func buildDailyStats(interval string, startDate time.Time, today time.Time, rangeDays int, rows []PeriodStat) []DailyStat {
@@ -843,7 +918,7 @@ func graphRelationType(value string) string {
 
 func applyForgetting(mastery float64, daysSinceLast float64, floor float64) float64 {
 	if floor == 0 {
-		floor = 0.25
+		floor = dktRetentionFloor
 	}
 	if daysSinceLast <= 0 || mastery <= floor {
 		return mastery
@@ -900,6 +975,10 @@ func weekdayMondayIndex(value time.Time) int {
 
 func dateString(value time.Time) string {
 	return value.Format("2006-01-02")
+}
+
+func normalizeTarget(value string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), " ", ""))
 }
 
 func round1(value float64) float64 {

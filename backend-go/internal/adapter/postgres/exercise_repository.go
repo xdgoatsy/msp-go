@@ -294,9 +294,9 @@ func (r ExerciseRepository) HasSubmittedAttempt(ctx context.Context, userID stri
 	)
 }
 
-// ListBKTStates returns current BKT state rows for the requested concepts.
-func (r ExerciseRepository) ListBKTStates(ctx context.Context, userID string, conceptIDs []string) (map[string]exerciseapp.BKTState, error) {
-	states := map[string]exerciseapp.BKTState{}
+// ListDKTStates returns current DKT state rows for the requested concepts.
+func (r ExerciseRepository) ListDKTStates(ctx context.Context, userID string, conceptIDs []string) (map[string]exerciseapp.DKTState, error) {
+	states := map[string]exerciseapp.DKTState{}
 	if len(conceptIDs) == 0 {
 		return states, nil
 	}
@@ -310,15 +310,14 @@ func (r ExerciseRepository) ListBKTStates(ctx context.Context, userID string, co
 			attempt_count,
 			correct_count,
 			incorrect_count,
-			p_l0,
-			p_t,
-			p_g,
-			p_s,
+			sequence_length,
+			attention_weight,
 			last_outcome,
+			last_exercise_id,
 			last_attempt_at,
 			created_at,
 			updated_at
-		FROM public.student_concept_bkt_states
+		FROM public.student_concept_dkt_states
 		WHERE student_id = $1 AND concept_id = ANY($2::varchar[])`,
 		userID,
 		conceptIDs,
@@ -329,8 +328,9 @@ func (r ExerciseRepository) ListBKTStates(ctx context.Context, userID string, co
 	defer rows.Close()
 
 	for rows.Next() {
-		var state exerciseapp.BKTState
+		var state exerciseapp.DKTState
 		var lastOutcome pgtype.Bool
+		var lastExerciseID pgtype.Text
 		var lastAttemptAt pgtype.Timestamp
 		if err := rows.Scan(
 			&state.ID,
@@ -341,11 +341,10 @@ func (r ExerciseRepository) ListBKTStates(ctx context.Context, userID string, co
 			&state.AttemptCount,
 			&state.CorrectCount,
 			&state.IncorrectCount,
-			&state.PL0,
-			&state.PT,
-			&state.PG,
-			&state.PS,
+			&state.SequenceLength,
+			&state.AttentionWeight,
 			&lastOutcome,
+			&lastExerciseID,
 			&lastAttemptAt,
 			&state.CreatedAt,
 			&state.UpdatedAt,
@@ -356,6 +355,10 @@ func (r ExerciseRepository) ListBKTStates(ctx context.Context, userID string, co
 			value := lastOutcome.Bool
 			state.LastOutcome = &value
 		}
+		if lastExerciseID.Valid {
+			value := lastExerciseID.String
+			state.LastExerciseID = &value
+		}
 		if lastAttemptAt.Valid {
 			value := lastAttemptAt.Time
 			state.LastAttemptAt = &value
@@ -365,32 +368,52 @@ func (r ExerciseRepository) ListBKTStates(ctx context.Context, userID string, co
 	return states, rows.Err()
 }
 
-// ListBKTParams returns concept BKT params.
-func (r ExerciseRepository) ListBKTParams(ctx context.Context, conceptIDs []string) (map[string]exerciseapp.BKTParams, error) {
-	params := map[string]exerciseapp.BKTParams{}
-	if len(conceptIDs) == 0 {
-		return params, nil
+// ListRecentInteractions returns recent submitted exercise events for sequence-based DKT.
+func (r ExerciseRepository) ListRecentInteractions(ctx context.Context, userID string, limit int) ([]exerciseapp.LearningInteraction, error) {
+	if limit < 1 {
+		return []exerciseapp.LearningInteraction{}, nil
 	}
 	rows, err := r.DB().Query(ctx, `
-		SELECT concept_id, p_l0, p_t, p_g, p_s
-		FROM public.concept_bkt_params
-		WHERE concept_id = ANY($1::varchar[])`,
-		conceptIDs,
+		SELECT
+			ca.content_id,
+			c.concept_ids,
+			ca.is_correct,
+			c.difficulty,
+			ca.submitted_at
+		FROM public.content_attempts ca
+		JOIN public.contents c ON c.id = ca.content_id
+		WHERE ca.student_id = $1 AND ca.submitted_at IS NOT NULL
+		ORDER BY ca.submitted_at DESC, ca.id DESC
+		LIMIT $2`,
+		userID,
+		limit,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
+	interactions := []exerciseapp.LearningInteraction{}
 	for rows.Next() {
-		var conceptID string
-		var param exerciseapp.BKTParams
-		if err := rows.Scan(&conceptID, &param.PL0, &param.PT, &param.PG, &param.PS); err != nil {
+		var interaction exerciseapp.LearningInteraction
+		var conceptIDsRaw []byte
+		if err := rows.Scan(
+			&interaction.ExerciseID,
+			&conceptIDsRaw,
+			&interaction.IsCorrect,
+			&interaction.Difficulty,
+			&interaction.SubmittedAt,
+		); err != nil {
 			return nil, err
 		}
-		params[conceptID] = param
+		conceptIDs, err := decodeStringSlice(conceptIDsRaw)
+		if err != nil {
+			return nil, fmt.Errorf("decode interaction concept ids: %w", err)
+		}
+		interaction.ConceptIDs = conceptIDs
+		interactions = append(interactions, interaction)
 	}
-	return params, rows.Err()
+	return interactions, rows.Err()
 }
 
 // InsertAttempt inserts a submitted answer attempt.
@@ -467,11 +490,11 @@ func (r ExerciseRepository) InsertDiagnosis(ctx context.Context, record exercise
 	return err
 }
 
-// UpsertBKTStates writes student concept BKT states.
-func (r ExerciseRepository) UpsertBKTStates(ctx context.Context, states []exerciseapp.BKTState) error {
+// UpsertDKTStates writes student concept DKT states.
+func (r ExerciseRepository) UpsertDKTStates(ctx context.Context, states []exerciseapp.DKTState) error {
 	for _, state := range states {
 		_, err := r.DB().Exec(ctx, `
-			INSERT INTO public.student_concept_bkt_states (
+			INSERT INTO public.student_concept_dkt_states (
 				id,
 				student_id,
 				concept_id,
@@ -480,27 +503,25 @@ func (r ExerciseRepository) UpsertBKTStates(ctx context.Context, states []exerci
 				attempt_count,
 				correct_count,
 				incorrect_count,
-				p_l0,
-				p_t,
-				p_g,
-				p_s,
+				sequence_length,
+				attention_weight,
 				last_outcome,
+				last_exercise_id,
 				last_attempt_at,
 				created_at,
 				updated_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-			ON CONFLICT ON CONSTRAINT uq_student_concept_bkt_state DO UPDATE SET
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			ON CONFLICT ON CONSTRAINT uq_student_concept_dkt_state DO UPDATE SET
 				mastery_prob = EXCLUDED.mastery_prob,
 				confidence = EXCLUDED.confidence,
 				attempt_count = EXCLUDED.attempt_count,
 				correct_count = EXCLUDED.correct_count,
 				incorrect_count = EXCLUDED.incorrect_count,
-				p_l0 = EXCLUDED.p_l0,
-				p_t = EXCLUDED.p_t,
-				p_g = EXCLUDED.p_g,
-				p_s = EXCLUDED.p_s,
+				sequence_length = EXCLUDED.sequence_length,
+				attention_weight = EXCLUDED.attention_weight,
 				last_outcome = EXCLUDED.last_outcome,
+				last_exercise_id = EXCLUDED.last_exercise_id,
 				last_attempt_at = EXCLUDED.last_attempt_at,
 				updated_at = EXCLUDED.updated_at`,
 			state.ID,
@@ -511,11 +532,10 @@ func (r ExerciseRepository) UpsertBKTStates(ctx context.Context, states []exerci
 			state.AttemptCount,
 			state.CorrectCount,
 			state.IncorrectCount,
-			state.PL0,
-			state.PT,
-			state.PG,
-			state.PS,
+			state.SequenceLength,
+			state.AttentionWeight,
 			state.LastOutcome,
+			state.LastExerciseID,
 			state.LastAttemptAt,
 			state.CreatedAt,
 			state.UpdatedAt,

@@ -27,6 +27,7 @@ type Service interface {
 	BatchDuplicate(context.Context, string, []string) (questionapp.BatchOperationResponse, error)
 	BatchImport(context.Context, string, []questionapp.QuestionInput) (questionapp.BatchOperationResponse, error)
 	ParseQuestions(context.Context, []string) (questionapp.AIParseResponse, error)
+	GenerateIsomorphicProblem(context.Context, questionapp.GenerateRequest) (questionapp.GeneratedQuestion, error)
 }
 
 // Authenticator decodes Go/Python-compatible access tokens.
@@ -66,6 +67,7 @@ func (h *Handler) Register(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("POST "+prefix+"/batch/duplicate", h.batchDuplicate)
 	mux.HandleFunc("POST "+prefix+"/batch/import", h.batchImport)
 	mux.HandleFunc("POST "+prefix+"/ai-parse", h.aiParse)
+	mux.HandleFunc("POST "+prefix+"/generate-isomorphic", h.generateIsomorphic)
 	mux.HandleFunc("GET "+prefix+"/{question_id}", h.detail)
 	mux.HandleFunc("PUT "+prefix+"/{question_id}", h.update)
 	mux.HandleFunc("DELETE "+prefix+"/{question_id}", h.delete)
@@ -112,6 +114,14 @@ type batchImportRequest struct {
 
 type aiParseRequest struct {
 	RawTexts []string `json:"raw_texts"`
+}
+
+type generateRequest struct {
+	Template   string   `json:"template"`
+	Ability    *float64 `json:"ability"`
+	Difficulty *float64 `json:"difficulty"`
+	ConceptIDs []string `json:"concept_ids"`
+	Tags       []string `json:"tags"`
 }
 
 type errorResponse struct {
@@ -370,6 +380,44 @@ func (h *Handler) aiParse(w http.ResponseWriter, r *http.Request) {
 		}
 		h.logger.Error("parse questions failed", "error", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "AI 题目识别失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) generateIsomorphic(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireTeacher(w, r); !ok {
+		return
+	}
+	var request generateRequest
+	if !decodeRequest(w, r, &request) {
+		return
+	}
+	ability := 0.5
+	if request.Ability != nil {
+		if *request.Ability < 0 || *request.Ability > 1 {
+			writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "ability 必须在 0 到 1 之间")
+			return
+		}
+		ability = *request.Ability
+	}
+	if !validateDifficulty(w, request.Difficulty) {
+		return
+	}
+	response, err := h.service.GenerateIsomorphicProblem(r.Context(), questionapp.GenerateRequest{
+		Template:   request.Template,
+		Ability:    ability,
+		Difficulty: request.Difficulty,
+		ConceptIDs: request.ConceptIDs,
+		Tags:       request.Tags,
+	})
+	if err != nil {
+		if errors.Is(err, questionapp.ErrBadRequest) {
+			writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "不支持的题目模板")
+			return
+		}
+		h.logger.Error("generate isomorphic question failed", "error", err)
+		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "生成变式题失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, response)

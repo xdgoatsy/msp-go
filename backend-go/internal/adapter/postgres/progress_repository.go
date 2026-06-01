@@ -150,11 +150,11 @@ func (r ProgressRepository) ListSubmittedAttemptDays(ctx context.Context, userID
 	return days, rows.Err()
 }
 
-// ListMasteryStates returns BKT mastery states for a student.
+// ListMasteryStates returns DKT mastery states for a student.
 func (r ProgressRepository) ListMasteryStates(ctx context.Context, userID string, conceptIDs []string) ([]progressapp.MasteryState, error) {
 	query := `
-		SELECT concept_id, mastery_prob, confidence, attempt_count, p_l0, last_attempt_at
-		FROM public.student_concept_bkt_states
+		SELECT concept_id, mastery_prob, confidence, attempt_count, last_attempt_at
+		FROM public.student_concept_dkt_states
 		WHERE student_id = $1`
 	args := []any{userID}
 	if len(conceptIDs) > 0 {
@@ -178,7 +178,6 @@ func (r ProgressRepository) ListMasteryStates(ctx context.Context, userID string
 			&state.Mastery,
 			&state.Confidence,
 			&state.AttemptCount,
-			&state.PL0,
 			&lastAttempt,
 		); err != nil {
 			return nil, err

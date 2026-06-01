@@ -233,6 +233,33 @@ func TestBatchImportAndAIParse(t *testing.T) {
 	}
 }
 
+func TestGenerateIsomorphicProblemForwardsRequest(t *testing.T) {
+	service := &fakeQuestionService{
+		generateResponse: questionapp.GeneratedQuestion{
+			Title:      "变式题",
+			Template:   "integral_power_exp",
+			Parameters: map[string]int{"n": 2, "a": 3},
+			Validation: questionapp.GenerationValidation{HasClosedForm: true, InSyllabus: true},
+		},
+	}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}}
+	handler := newTestHandler(t, service, auth)
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/questions")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/questions/generate-isomorphic", bytes.NewBufferString(`{"template":"integral_power_exp","ability":0.7,"concept_ids":["integral"]}`))
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.lastGenerate.Ability != 0.7 || len(service.lastGenerate.ConceptIDs) != 1 || service.lastGenerate.ConceptIDs[0] != "integral" {
+		t.Fatalf("generate request = %#v", service.lastGenerate)
+	}
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -263,35 +290,38 @@ func (a *fakeAuthenticator) DecodeAccessToken(string) (authapp.Principal, bool) 
 }
 
 type fakeQuestionService struct {
-	listResponse   questionapp.ListResponse
-	detailResponse questionapp.Question
-	createResponse questionapp.Question
-	updateResponse questionapp.Question
-	groupsResponse questionapp.GroupsResponse
-	statsResponse  questionapp.Stats
-	batchResponse  questionapp.BatchOperationResponse
-	parseResponse  questionapp.AIParseResponse
-	listErr        error
-	detailErr      error
-	createErr      error
-	updateErr      error
-	deleteErr      error
-	groupsErr      error
-	statsErr       error
-	batchErr       error
-	importErr      error
-	parseErr       error
-	lastOwnerID    string
-	lastQuestionID string
-	lastFilter     questionapp.ListFilter
-	lastInput      questionapp.QuestionInput
-	lastUpdate     questionapp.QuestionUpdate
-	lastIDs        []string
-	lastInputs     []questionapp.QuestionInput
-	lastRawTexts   []string
-	statsCalled    bool
-	groupsCalled   bool
-	detailCalled   bool
+	listResponse     questionapp.ListResponse
+	detailResponse   questionapp.Question
+	createResponse   questionapp.Question
+	updateResponse   questionapp.Question
+	groupsResponse   questionapp.GroupsResponse
+	statsResponse    questionapp.Stats
+	batchResponse    questionapp.BatchOperationResponse
+	parseResponse    questionapp.AIParseResponse
+	generateResponse questionapp.GeneratedQuestion
+	listErr          error
+	detailErr        error
+	createErr        error
+	updateErr        error
+	deleteErr        error
+	groupsErr        error
+	statsErr         error
+	batchErr         error
+	importErr        error
+	parseErr         error
+	generateErr      error
+	lastOwnerID      string
+	lastQuestionID   string
+	lastFilter       questionapp.ListFilter
+	lastInput        questionapp.QuestionInput
+	lastUpdate       questionapp.QuestionUpdate
+	lastIDs          []string
+	lastInputs       []questionapp.QuestionInput
+	lastRawTexts     []string
+	lastGenerate     questionapp.GenerateRequest
+	statsCalled      bool
+	groupsCalled     bool
+	detailCalled     bool
 }
 
 func (s *fakeQuestionService) ListQuestions(_ context.Context, ownerID string, filter questionapp.ListFilter) (questionapp.ListResponse, error) {
@@ -365,4 +395,9 @@ func (s *fakeQuestionService) BatchImport(_ context.Context, ownerID string, inp
 func (s *fakeQuestionService) ParseQuestions(_ context.Context, rawTexts []string) (questionapp.AIParseResponse, error) {
 	s.lastRawTexts = rawTexts
 	return s.parseResponse, s.parseErr
+}
+
+func (s *fakeQuestionService) GenerateIsomorphicProblem(_ context.Context, request questionapp.GenerateRequest) (questionapp.GeneratedQuestion, error) {
+	s.lastGenerate = request
+	return s.generateResponse, s.generateErr
 }

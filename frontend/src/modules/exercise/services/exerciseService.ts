@@ -25,6 +25,8 @@ export interface Question {
 
 export interface DiagnosisDetail {
   errorType: string | null;
+  errorSubtype?: string;
+  taxonomyCode?: string;
   errorDescription: string;
   errorStepIndex: number | null;
   severity: string;
@@ -40,6 +42,7 @@ export interface SubmitResult {
   diagnosis: DiagnosisDetail | null;
   feedback: string;
   masteryUpdate: Record<string, number> | null;
+  masteryModel: string;
   nextRecommendation: 'continue' | 'review' | 'advance';
 }
 
@@ -112,6 +115,8 @@ export const exerciseService = {
       correct_answer_latex: string;
       diagnosis: {
         error_type: string | null;
+        error_subtype?: string;
+        taxonomy_code?: string;
         error_description: string;
         error_step_index: number | null;
         severity: string;
@@ -120,6 +125,7 @@ export const exerciseService = {
       } | null;
       feedback: string;
       mastery_update: Record<string, number> | null;
+      mastery_model: string;
       next_recommendation: string;
     }>('/exercise/submit', {
       exercise_id: payload.exerciseId,
@@ -136,8 +142,10 @@ export const exerciseService = {
       studentAnswerLatex: data.student_answer_latex,
       correctAnswerLatex: data.correct_answer_latex,
       diagnosis: data.diagnosis
-        ? {
+          ? {
             errorType: data.diagnosis.error_type,
+            errorSubtype: data.diagnosis.error_subtype,
+            taxonomyCode: data.diagnosis.taxonomy_code,
             errorDescription: data.diagnosis.error_description,
             errorStepIndex: data.diagnosis.error_step_index,
             severity: data.diagnosis.severity,
@@ -147,6 +155,7 @@ export const exerciseService = {
         : null,
       feedback: data.feedback,
       masteryUpdate: data.mastery_update,
+      masteryModel: data.mastery_model,
       nextRecommendation: data.next_recommendation as SubmitResult['nextRecommendation'],
     };
   },

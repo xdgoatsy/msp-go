@@ -175,7 +175,7 @@ func (s *fakeProgressService) GetOverview(_ context.Context, userID string) (pro
 
 func (s *fakeProgressService) GetMasteryVector(_ context.Context, userID string) (progressapp.MasteryResponse, error) {
 	s.lastUserID = userID
-	return progressapp.MasteryResponse{Topics: []progressapp.MasteryTopic{}, Model: "bkt"}, nil
+	return progressapp.MasteryResponse{Topics: []progressapp.MasteryTopic{}, Model: "dkt-sakt-lite"}, nil
 }
 
 func (s *fakeProgressService) GetLearningPath(_ context.Context, userID string, target string) (progressapp.PathResponse, error) {

@@ -19,7 +19,6 @@ import (
 	adminstatshttp "mathstudy/backend-go/internal/adapter/http/adminstats"
 	adminuserhttp "mathstudy/backend-go/internal/adapter/http/adminuser"
 	authhttp "mathstudy/backend-go/internal/adapter/http/auth"
-	bkthttp "mathstudy/backend-go/internal/adapter/http/bkt"
 	classroomhttp "mathstudy/backend-go/internal/adapter/http/classroom"
 	exercisehttp "mathstudy/backend-go/internal/adapter/http/exercise"
 	knowledgehttp "mathstudy/backend-go/internal/adapter/http/knowledge"
@@ -41,7 +40,6 @@ import (
 	adminstatsapp "mathstudy/backend-go/internal/application/adminstats"
 	adminuserapp "mathstudy/backend-go/internal/application/adminuser"
 	authapp "mathstudy/backend-go/internal/application/auth"
-	bktapp "mathstudy/backend-go/internal/application/bkt"
 	classroomapp "mathstudy/backend-go/internal/application/classroom"
 	exerciseapp "mathstudy/backend-go/internal/application/exercise"
 	knowledgeapp "mathstudy/backend-go/internal/application/knowledge"
@@ -306,21 +304,6 @@ func main() {
 		logger.Error("configure knowledge handler", "error", err)
 		os.Exit(1)
 	}
-	bktRepo, err := adapterpostgres.NewBKTRepository(dbPool)
-	if err != nil {
-		logger.Error("configure bkt repository", "error", err)
-		os.Exit(1)
-	}
-	bktService, err := bktapp.NewService(bktRepo)
-	if err != nil {
-		logger.Error("configure bkt service", "error", err)
-		os.Exit(1)
-	}
-	bktHandler, err := bkthttp.NewHandler(logger, bktService, authService)
-	if err != nil {
-		logger.Error("configure bkt handler", "error", err)
-		os.Exit(1)
-	}
 	adminUserService, err := adminuserapp.NewService(userRepo)
 	if err != nil {
 		logger.Error("configure admin user service", "error", err)
@@ -492,7 +475,6 @@ func main() {
 			adminSettingsHandler.Register(mux, cfg.APIV1Prefix+"/admin/settings")
 			securityLogHandler.Register(mux, cfg.APIV1Prefix+"/admin/security-logs")
 			knowledgeHandler.Register(mux, cfg.APIV1Prefix+"/admin/knowledge")
-			bktHandler.Register(mux, cfg.APIV1Prefix+"/admin/bkt")
 		}),
 	)
 	if err != nil {

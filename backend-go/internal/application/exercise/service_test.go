@@ -83,7 +83,7 @@ func TestSubmitAnswerRecordsCorrectAttemptAndUpdatesTracking(t *testing.T) {
 	}
 	service := newTestService(repo)
 	service.now = func() time.Time { return now }
-	service.newID = sequentialIDs("attempt-1", "bkt-1")
+	service.newID = sequentialIDs("attempt-1", "dkt-1")
 
 	response, err := service.SubmitAnswer(context.Background(), "student-1", SubmitRequest{
 		ExerciseID:       "exercise-1",
@@ -103,8 +103,14 @@ func TestSubmitAnswerRecordsCorrectAttemptAndUpdatesTracking(t *testing.T) {
 	if len(repo.insertedDiagnoses) != 0 {
 		t.Fatalf("diagnoses = %#v", repo.insertedDiagnoses)
 	}
+	if response.MasteryModel != dktModelName {
+		t.Fatalf("mastery model = %q", response.MasteryModel)
+	}
 	if len(repo.upsertedStates) != 1 || repo.upsertedStates[0].ConceptID != "algebra" || repo.upsertedStates[0].AttemptCount != 1 {
 		t.Fatalf("states = %#v", repo.upsertedStates)
+	}
+	if repo.upsertedStates[0].SequenceLength == 0 || repo.upsertedStates[0].AttentionWeight <= 0 {
+		t.Fatalf("dkt state = %#v", repo.upsertedStates[0])
 	}
 	if repo.profileUpdate.TotalExercises != 3 || repo.profileUpdate.CorrectCount != 2 {
 		t.Fatalf("profile update = %#v", repo.profileUpdate)
@@ -129,7 +135,7 @@ func TestSubmitAnswerRecordsBasicDiagnosisForImageOnlyAnswer(t *testing.T) {
 	}
 	service := newTestService(repo)
 	service.now = func() time.Time { return now }
-	service.newID = sequentialIDs("attempt-1", "diagnosis-1", "bkt-1")
+	service.newID = sequentialIDs("attempt-1", "diagnosis-1", "dkt-1")
 
 	response, err := service.SubmitAnswer(context.Background(), "student-1", SubmitRequest{
 		ExerciseID:     "exercise-1",
@@ -140,6 +146,9 @@ func TestSubmitAnswerRecordsBasicDiagnosisForImageOnlyAnswer(t *testing.T) {
 	}
 	if response.IsCorrect || response.Diagnosis == nil {
 		t.Fatalf("response = %#v", response)
+	}
+	if response.Diagnosis.TaxonomyCode != "S-Type" || response.Diagnosis.ErrorType == nil || *response.Diagnosis.ErrorType != "symbolic" {
+		t.Fatalf("diagnosis taxonomy = %#v", response.Diagnosis)
 	}
 	if len(repo.insertedDiagnoses) != 1 || repo.insertedDiagnoses[0].ID != "diagnosis-1" {
 		t.Fatalf("diagnoses = %#v", repo.insertedDiagnoses)
@@ -247,13 +256,13 @@ type fakeExerciseRepo struct {
 	profile              StudentProfile
 	hasProfile           bool
 	hasSubmitted         bool
-	bktStates            map[string]BKTState
-	bktParams            map[string]BKTParams
+	dktStates            map[string]DKTState
+	interactions         []LearningInteraction
 	updatedCurrent       *string
 	updatedAttempted     []string
 	insertedAttempts     []AttemptRecord
 	insertedDiagnoses    []DiagnosisRecord
-	upsertedStates       []BKTState
+	upsertedStates       []DKTState
 	profileUpdate        ProfileTrackingUpdate
 }
 
@@ -314,18 +323,15 @@ func (r *fakeExerciseRepo) HasSubmittedAttempt(context.Context, string, string) 
 	return r.hasSubmitted, nil
 }
 
-func (r *fakeExerciseRepo) ListBKTStates(context.Context, string, []string) (map[string]BKTState, error) {
-	if r.bktStates == nil {
-		return map[string]BKTState{}, nil
+func (r *fakeExerciseRepo) ListDKTStates(context.Context, string, []string) (map[string]DKTState, error) {
+	if r.dktStates == nil {
+		return map[string]DKTState{}, nil
 	}
-	return r.bktStates, nil
+	return r.dktStates, nil
 }
 
-func (r *fakeExerciseRepo) ListBKTParams(context.Context, []string) (map[string]BKTParams, error) {
-	if r.bktParams == nil {
-		return map[string]BKTParams{}, nil
-	}
-	return r.bktParams, nil
+func (r *fakeExerciseRepo) ListRecentInteractions(context.Context, string, int) ([]LearningInteraction, error) {
+	return r.interactions, nil
 }
 
 func (r *fakeExerciseRepo) InsertAttempt(_ context.Context, record AttemptRecord) error {
@@ -338,7 +344,7 @@ func (r *fakeExerciseRepo) InsertDiagnosis(_ context.Context, record DiagnosisRe
 	return nil
 }
 
-func (r *fakeExerciseRepo) UpsertBKTStates(_ context.Context, states []BKTState) error {
+func (r *fakeExerciseRepo) UpsertDKTStates(_ context.Context, states []DKTState) error {
 	r.upsertedStates = append(r.upsertedStates, states...)
 	return nil
 }
