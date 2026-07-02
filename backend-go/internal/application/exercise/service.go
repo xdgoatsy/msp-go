@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	uploadapp "mathstudy/backend-go/internal/application/upload"
 )
 
 // Public exercise errors mapped by the HTTP layer.
@@ -963,7 +965,7 @@ func nextRecommendation(isCorrect bool, masteryUpdate map[string]float64) string
 }
 
 func isSafeAnswerImageURL(imageURL string) bool {
-	return strings.HasPrefix(imageURL, "/uploads/")
+	return uploadapp.IsSafeImagePath(imageURL)
 }
 
 func normalizeAnswer(value string) string {

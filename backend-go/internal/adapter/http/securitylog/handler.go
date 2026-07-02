@@ -6,12 +6,14 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	securitylogapp "mathstudy/backend-go/internal/application/securitylog"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the security log application surface used by HTTP handlers.
@@ -210,9 +212,9 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (authapp.
 func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback string) {
 	switch {
 	case errors.Is(err, securitylogapp.ErrBadRequest):
-		writeSecurityLogError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
+		writeSecurityLogError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", redact.String(err.Error()))
 	default:
-		h.logger.Error("security log request failed", "error", err)
+		h.logger.Error("security log request failed", "error", redact.String(err.Error()))
 		writeSecurityLogError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 	}
 }
@@ -225,6 +227,14 @@ func parseQueryFilter(w http.ResponseWriter, r *http.Request) (securitylogapp.Qu
 	}
 	pageSize, ok := parseIntQuery(w, query.Get("page_size"), 50, "page_size")
 	if !ok {
+		return securitylogapp.QueryFilter{}, false
+	}
+	if page < 1 {
+		writeSecurityLogError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "page 必须大于等于 1")
+		return securitylogapp.QueryFilter{}, false
+	}
+	if pageSize < 1 || pageSize > 100 {
+		writeSecurityLogError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "page_size 必须在 1 到 100 之间")
 		return securitylogapp.QueryFilter{}, false
 	}
 	startDate, ok := parseTimeQuery(w, query.Get("start_date"), "start_date")
@@ -247,10 +257,7 @@ func parseQueryFilter(w http.ResponseWriter, r *http.Request) (securitylogapp.Qu
 }
 
 func parseIntQuery(w http.ResponseWriter, value string, fallback int, name string) (int, bool) {
-	if value == "" {
-		return fallback, true
-	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := httpquery.Int(value, fallback)
 	if err != nil {
 		writeSecurityLogError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
 		return 0, false
@@ -304,9 +311,7 @@ func parseSeverities(values []string) []securitylogapp.Severity {
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	defer r.Body.Close()
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
 		writeSecurityLogError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}

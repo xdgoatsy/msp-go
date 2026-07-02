@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 var (
@@ -292,9 +294,18 @@ func (s *Service) sync(ctx context.Context, userID string, dataType string) (Syn
 func normalizeServiceError(err error, fallbackCode string, fallbackMessage string) error {
 	var serviceErr ServiceError
 	if errors.As(err, &serviceErr) {
-		return serviceErr
+		return sanitizeServiceError(serviceErr)
 	}
 	return ServiceError{Code: fallbackCode, Message: fallbackMessage, Status: 400, Err: err}
+}
+
+func sanitizeServiceError(serviceErr ServiceError) ServiceError {
+	serviceErr.Code = redact.String(serviceErr.Code)
+	serviceErr.Message = redact.String(serviceErr.Message)
+	if serviceErr.Err != nil {
+		serviceErr.Err = errors.New(redact.String(serviceErr.Err.Error()))
+	}
+	return serviceErr
 }
 
 func stringValue(value *string) string {
@@ -376,8 +387,9 @@ func (s *MemoryChallengeStore) Delete(_ context.Context, id string) error {
 }
 
 func (e ServiceError) Error() string {
-	if e.Err != nil {
-		return fmt.Sprintf("%s: %s: %v", e.Code, e.Message, e.Err)
+	sanitized := sanitizeServiceError(e)
+	if sanitized.Err != nil {
+		return fmt.Sprintf("%s: %s: %v", sanitized.Code, sanitized.Message, sanitized.Err)
 	}
-	return e.Code + ": " + e.Message
+	return sanitized.Code + ": " + sanitized.Message
 }

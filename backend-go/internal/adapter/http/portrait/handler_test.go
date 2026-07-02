@@ -1,12 +1,15 @@
 package portraithttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
@@ -118,6 +121,62 @@ func TestGenerateAndClearPortrait(t *testing.T) {
 	}
 }
 
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	credentialErr := errors.New("portrait repo failed Authorization: Bearer portrait-secret token=query-token api_key=plain password=letmein")
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		service fakePortraitService
+	}{
+		{
+			name:    "get",
+			method:  http.MethodGet,
+			path:    "/api/v1/portrait",
+			service: fakePortraitService{getErr: credentialErr},
+		},
+		{
+			name:    "generate",
+			method:  http.MethodPost,
+			path:    "/api/v1/portrait/generate",
+			service: fakePortraitService{generateErr: credentialErr},
+		},
+		{
+			name:    "clear",
+			method:  http.MethodDelete,
+			path:    "/api/v1/portrait",
+			service: fakePortraitService{clearErr: credentialErr},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuffer bytes.Buffer
+			service := tt.service
+			handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), &service, &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}})
+			if err != nil {
+				t.Fatalf("NewHandler() error = %v", err)
+			}
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/portrait")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if logBuffer.Len() == 0 {
+				t.Fatal("expected internal error log")
+			}
+			assertNoPortraitCredentialLeak(t, recorder.Body.String())
+			assertNoPortraitCredentialLeak(t, logBuffer.String())
+		})
+	}
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -136,6 +195,15 @@ func newTestHandler(t *testing.T, service Service, auth Authenticator) *Handler 
 	return handler
 }
 
+func assertNoPortraitCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"portrait-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer portrait-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
+}
+
 type fakeAuthenticator struct {
 	principal authapp.Principal
 }
@@ -148,23 +216,26 @@ func (a *fakeAuthenticator) DecodeAccessToken(string) (authapp.Principal, bool) 
 }
 
 type fakePortraitService struct {
-	portrait   portraitapp.PortraitResponse
-	generated  portraitapp.GenerateResponse
-	clear      portraitapp.ClearResponse
-	lastUserID string
+	portrait    portraitapp.PortraitResponse
+	generated   portraitapp.GenerateResponse
+	clear       portraitapp.ClearResponse
+	getErr      error
+	generateErr error
+	clearErr    error
+	lastUserID  string
 }
 
 func (s *fakePortraitService) GetPortrait(_ context.Context, userID string) (portraitapp.PortraitResponse, error) {
 	s.lastUserID = userID
-	return s.portrait, nil
+	return s.portrait, s.getErr
 }
 
 func (s *fakePortraitService) GeneratePortrait(_ context.Context, userID string) (portraitapp.GenerateResponse, error) {
 	s.lastUserID = userID
-	return s.generated, nil
+	return s.generated, s.generateErr
 }
 
 func (s *fakePortraitService) ClearPortrait(_ context.Context, userID string) (portraitapp.ClearResponse, error) {
 	s.lastUserID = userID
-	return s.clear, nil
+	return s.clear, s.clearErr
 }

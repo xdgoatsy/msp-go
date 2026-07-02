@@ -6,11 +6,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	teacherapp "mathstudy/backend-go/internal/application/teacher"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the teacher application surface used by HTTP handlers.
@@ -72,7 +73,7 @@ func (h *Handler) dashboardStats(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetDashboardStats(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get teacher dashboard stats failed", "error", err)
+		h.logTeacherError("get teacher dashboard stats failed", err)
 		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取教师工作台统计失败")
 		return
 	}
@@ -86,7 +87,7 @@ func (h *Handler) studentsStats(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetStudentsStats(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get teacher students stats failed", "error", err)
+		h.logTeacherError("get teacher students stats failed", err)
 		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生管理统计失败")
 		return
 	}
@@ -118,7 +119,7 @@ func (h *Handler) students(w http.ResponseWriter, r *http.Request) {
 		PageSize: pageSize,
 	})
 	if err != nil {
-		h.logger.Error("list teacher students failed", "error", err)
+		h.logTeacherError("list teacher students failed", err)
 		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生列表失败")
 		return
 	}
@@ -144,7 +145,7 @@ func (h *Handler) analytics(w http.ResponseWriter, r *http.Request) {
 			writeTeacherError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "time_range 必须是 today、week、month 或 semester")
 			return
 		}
-		h.logger.Error("get teacher analytics failed", "error", err)
+		h.logTeacherError("get teacher analytics failed", err)
 		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取教师数据分析失败")
 		return
 	}
@@ -162,7 +163,7 @@ func (h *Handler) classAnalytics(w http.ResponseWriter, r *http.Request) {
 			writeTeacherError(w, http.StatusNotFound, "NOT_FOUND", "班级不存在或无权限访问")
 			return
 		}
-		h.logger.Error("get class analytics failed", "error", err)
+		h.logTeacherError("get class analytics failed", err)
 		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取班级分析失败")
 		return
 	}
@@ -184,7 +185,7 @@ func (h *Handler) studentDetail(w http.ResponseWriter, r *http.Request) {
 			writeTeacherError(w, http.StatusNotFound, "NOT_FOUND", "学生不存在")
 			return
 		}
-		h.logger.Error("get student detail failed", "error", err)
+		h.logTeacherError("get student detail failed", err)
 		writeTeacherError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生详情失败")
 		return
 	}
@@ -212,11 +213,15 @@ func (h *Handler) requireTeacher(w http.ResponseWriter, r *http.Request) (authap
 	return principal, true
 }
 
+func (h *Handler) logTeacherError(message string, err error) {
+	h.logger.Error(message, "error", redact.String(err.Error()))
+}
+
 func parsePositiveIntQuery(w http.ResponseWriter, raw string, fallback int, name string) (int, bool) {
 	if strings.TrimSpace(raw) == "" {
 		return fallback, true
 	}
-	value, err := strconv.Atoi(raw)
+	value, err := httpquery.Int(raw, fallback)
 	if err != nil {
 		writeTeacherError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
 		return 0, false

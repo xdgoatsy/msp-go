@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	adminsettingsapp "mathstudy/backend-go/internal/application/adminsettings"
+	"mathstudy/backend-go/internal/domain/user"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 var sensitiveExportFields = map[string]bool{
@@ -84,7 +86,11 @@ func (r AdminSettingsRepository) ExportTable(ctx context.Context, table string) 
 	if !safeTableName(table) {
 		return nil, fmt.Errorf("unsafe table name %q", table)
 	}
-	rows, err := r.DB().Query(ctx, "SELECT * FROM "+pgx.Identifier{"public", table}.Sanitize())
+	sql := "SELECT * FROM " + pgx.Identifier{"public", table}.Sanitize()
+	if table == "users" {
+		sql += " WHERE role <> 'ADMIN'::public.userrole"
+	}
+	rows, err := r.DB().Query(ctx, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -100,10 +106,10 @@ func (r AdminSettingsRepository) ExportTable(ctx context.Context, table string) 
 		item := map[string]any{}
 		for index, field := range fields {
 			name := field.Name
-			if sensitiveExportFields[name] {
+			if shouldOmitExportField(table, name) {
 				continue
 			}
-			item[name] = normalizeExportValue(values[index])
+			item[name] = normalizeExportValue(name, values[index])
 		}
 		result = append(result, item)
 	}
@@ -117,7 +123,7 @@ func (r AdminSettingsRepository) ImportRows(ctx context.Context, table string, r
 	}
 	var result adminsettingsapp.TableImportResult
 	for _, row := range rows {
-		filtered := filterImportRow(row)
+		filtered := filterImportRow(table, row)
 		if len(filtered) == 0 {
 			result.Skipped++
 			continue
@@ -213,7 +219,7 @@ func (r AdminSettingsRepository) TableStats(ctx context.Context) ([]adminsetting
 	return stats, rows.Err()
 }
 
-func filterImportRow(row map[string]any) map[string]any {
+func filterImportRow(table string, row map[string]any) map[string]any {
 	filtered := map[string]any{}
 	for column, value := range row {
 		if sensitiveExportFields[column] || !safeColumnName(column) {
@@ -221,21 +227,64 @@ func filterImportRow(row map[string]any) map[string]any {
 		}
 		filtered[column] = value
 	}
+	if table == "users" && !normalizeImportedUserRow(filtered) {
+		return map[string]any{}
+	}
 	return filtered
 }
 
-func normalizeExportValue(value any) any {
+func normalizeImportedUserRow(row map[string]any) bool {
+	roleValue, ok := stringValue(row["role"])
+	if !ok {
+		return false
+	}
+	role, err := user.ParseRole(roleValue)
+	if err != nil || role == user.RoleAdmin {
+		return false
+	}
+	row["role"] = role.DBValue()
+
+	statusValue, ok := stringValue(row["status"])
+	if !ok {
+		return false
+	}
+	status, err := user.ParseStatus(statusValue)
+	if err != nil {
+		return false
+	}
+	row["status"] = status.DBValue()
+	row["is_active"] = status == user.StatusActive
+	return true
+}
+
+func stringValue(value any) (string, bool) {
+	typed, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	typed = strings.TrimSpace(typed)
+	if typed == "" {
+		return "", false
+	}
+	return typed, true
+}
+
+func shouldOmitExportField(table string, field string) bool {
+	return sensitiveExportFields[field] || (table == "security_logs" && field == "ip_address")
+}
+
+func normalizeExportValue(field string, value any) any {
 	switch typed := value.(type) {
 	case []byte:
 		if json.Valid(typed) {
 			var decoded any
 			if err := json.Unmarshal(typed, &decoded); err == nil {
-				return decoded
+				return redact.Value(field, decoded)
 			}
 		}
-		return string(typed)
+		return redact.Value(field, string(typed))
 	default:
-		return value
+		return redact.Value(field, typed)
 	}
 }
 

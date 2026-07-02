@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	adminaiconfigapp "mathstudy/backend-go/internal/application/adminaiconfig"
@@ -102,6 +103,138 @@ func TestAgentRoutesAndFetchModels(t *testing.T) {
 	}
 }
 
+func TestJSONRoutesRejectTrailingJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		assert func(*testing.T, *fakeAIConfigService)
+	}{
+		{
+			name:   "create provider",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/ai-config/providers",
+			body:   `{"name":"DeepSeek","code":"deepseek","base_url":"https://api.deepseek.com","api_key":"secret"} {"api_key":"extra"}`,
+			assert: func(t *testing.T, service *fakeAIConfigService) {
+				t.Helper()
+				if service.lastProviderCreate.Name != "" {
+					t.Fatalf("service was called for create provider trailing JSON: %#v", service.lastProviderCreate)
+				}
+			},
+		},
+		{
+			name:   "create provider with models",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/ai-config/providers/with-models",
+			body:   `{"name":"DeepSeek","code":"deepseek","base_url":"https://api.deepseek.com","api_key":"secret","models":[{"model_id":"deepseek-chat"}]} {"api_key":"extra"}`,
+			assert: func(t *testing.T, service *fakeAIConfigService) {
+				t.Helper()
+				if service.lastProviderWithModels.Name != "" {
+					t.Fatalf("service was called for create provider with models trailing JSON: %#v", service.lastProviderWithModels)
+				}
+			},
+		},
+		{
+			name:   "update provider",
+			method: http.MethodPut,
+			path:   "/api/v1/admin/ai-config/providers/provider-1",
+			body:   `{"name":"DeepSeek"} {"api_key":"extra"}`,
+			assert: func(t *testing.T, service *fakeAIConfigService) {
+				t.Helper()
+				if service.lastProviderID != "" {
+					t.Fatalf("service was called for update provider trailing JSON: id=%q request=%#v", service.lastProviderID, service.lastProviderUpdate)
+				}
+			},
+		},
+		{
+			name:   "fetch models by credentials",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/ai-config/channels/fetch-models",
+			body:   `{"base_url":"https://api.deepseek.com","api_key":"secret"} {"api_key":"extra"}`,
+			assert: func(t *testing.T, service *fakeAIConfigService) {
+				t.Helper()
+				if service.lastCredentials.BaseURL != "" {
+					t.Fatalf("service was called for fetch credentials trailing JSON: %#v", service.lastCredentials)
+				}
+			},
+		},
+		{
+			name:   "update provider models",
+			method: http.MethodPut,
+			path:   "/api/v1/admin/ai-config/providers/provider-1/models",
+			body:   `{"models":[{"model_id":"deepseek-chat"}]} {"models":[{"model_id":"extra"}]}`,
+			assert: func(t *testing.T, service *fakeAIConfigService) {
+				t.Helper()
+				if service.lastProviderID != "" || len(service.lastModels.Models) != 0 {
+					t.Fatalf("service was called for update provider models trailing JSON: id=%q models=%#v", service.lastProviderID, service.lastModels)
+				}
+			},
+		},
+		{
+			name:   "create model",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/ai-config/models",
+			body:   `{"provider_id":"provider-1","name":"deepseek-chat","model_id":"deepseek-chat"} {"model_id":"extra"}`,
+			assert: func(t *testing.T, service *fakeAIConfigService) {
+				t.Helper()
+				if service.lastModelCreate.ModelID != "" {
+					t.Fatalf("service was called for create model trailing JSON: %#v", service.lastModelCreate)
+				}
+			},
+		},
+		{
+			name:   "update model",
+			method: http.MethodPut,
+			path:   "/api/v1/admin/ai-config/models/model-1",
+			body:   `{"name":"deepseek-chat"} {"model_id":"extra"}`,
+			assert: func(t *testing.T, service *fakeAIConfigService) {
+				t.Helper()
+				if service.lastModelID != "" {
+					t.Fatalf("service was called for update model trailing JSON: id=%q request=%#v", service.lastModelID, service.lastModelUpdate)
+				}
+			},
+		},
+		{
+			name:   "update agent config",
+			method: http.MethodPut,
+			path:   "/api/v1/admin/ai-config/agents/tutor",
+			body:   `{"model_id":"model-1","temperature_override":0.2} {"model_id":"extra"}`,
+			assert: func(t *testing.T, service *fakeAIConfigService) {
+				t.Helper()
+				if service.lastAgentType != "" {
+					t.Fatalf("service was called for update agent trailing JSON: agent=%q request=%#v", service.lastAgentType, service.lastAgentUpdate)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeAIConfigService{}
+			handler := newTestHandler(t, service, adminAuthenticator())
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/admin/ai-config")
+
+			request := authedRequest(tt.method, tt.path, tt.body)
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			var body map[string]string
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			if body["detail"] != "请求体格式错误" || body["code"] != "VALIDATION_ERROR" {
+				t.Fatalf("body = %#v", body)
+			}
+			tt.assert(t, service)
+		})
+	}
+}
+
 func TestServiceErrors(t *testing.T) {
 	handler := newTestHandler(t, &fakeAIConfigService{err: adminaiconfigapp.Error{Kind: adminaiconfigapp.ErrBadRequest, Message: "bad input"}}, adminAuthenticator())
 	mux := http.NewServeMux()
@@ -113,6 +246,44 @@ func TestServiceErrors(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
+}
+
+func TestServiceErrorsRedactPublicMessages(t *testing.T) {
+	handler := newTestHandler(t, &fakeAIConfigService{err: adminaiconfigapp.Error{Kind: adminaiconfigapp.ErrBadRequest, Message: "bad api_key=plain Authorization: Bearer secret"}}, adminAuthenticator())
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/ai-config")
+
+	request := authedRequest(http.MethodGet, "/api/v1/admin/ai-config/providers", ``)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	body := recorder.Body.String()
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, body)
+	}
+	assertNoAIConfigCredentialLeak(t, body)
+}
+
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	var logBuffer bytes.Buffer
+	handler, err := NewHandler(
+		slog.New(slog.NewTextHandler(&logBuffer, nil)),
+		&fakeAIConfigService{err: errors.New("db failed token=abc Authorization: Bearer secret")},
+		adminAuthenticator(),
+	)
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/ai-config")
+
+	request := authedRequest(http.MethodGet, "/api/v1/admin/ai-config/models", ``)
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoAIConfigCredentialLeak(t, recorder.Body.String())
+	assertNoAIConfigCredentialLeak(t, logBuffer.String())
 }
 
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
@@ -166,8 +337,12 @@ type fakeAIConfigService struct {
 	lastProviderID         string
 	lastModelID            string
 	lastAgentType          string
+	lastProviderCreate     adminaiconfigapp.CreateProviderRequest
+	lastProviderUpdate     adminaiconfigapp.UpdateProviderRequest
 	lastProviderWithModels adminaiconfigapp.CreateProviderWithModelsRequest
 	lastModels             adminaiconfigapp.ModelsUpdateRequest
+	lastModelCreate        adminaiconfigapp.CreateModelRequest
+	lastModelUpdate        adminaiconfigapp.UpdateModelRequest
 	lastAgentUpdate        adminaiconfigapp.UpdateAgentConfigRequest
 	lastCredentials        adminaiconfigapp.FetchModelsByCredentialsRequest
 }
@@ -190,7 +365,8 @@ func (s *fakeAIConfigService) GetProvider(context.Context, string) (adminaiconfi
 	return s.provider, s.maybeErr()
 }
 
-func (s *fakeAIConfigService) CreateProvider(context.Context, adminaiconfigapp.CreateProviderRequest) (adminaiconfigapp.LLMProvider, error) {
+func (s *fakeAIConfigService) CreateProvider(_ context.Context, request adminaiconfigapp.CreateProviderRequest) (adminaiconfigapp.LLMProvider, error) {
+	s.lastProviderCreate = request
 	return s.provider, s.maybeErr()
 }
 
@@ -199,7 +375,9 @@ func (s *fakeAIConfigService) CreateProviderWithModels(_ context.Context, reques
 	return adminaiconfigapp.ProviderWithModelsResponse{Provider: s.provider, Models: []adminaiconfigapp.LLMModel{s.model}, ModelsCount: 1}, s.maybeErr()
 }
 
-func (s *fakeAIConfigService) UpdateProvider(context.Context, string, adminaiconfigapp.UpdateProviderRequest) (adminaiconfigapp.LLMProvider, error) {
+func (s *fakeAIConfigService) UpdateProvider(_ context.Context, providerID string, request adminaiconfigapp.UpdateProviderRequest) (adminaiconfigapp.LLMProvider, error) {
+	s.lastProviderID = providerID
+	s.lastProviderUpdate = request
 	return s.provider, s.maybeErr()
 }
 
@@ -234,11 +412,14 @@ func (s *fakeAIConfigService) GetModel(context.Context, string) (adminaiconfigap
 	return s.model, s.maybeErr()
 }
 
-func (s *fakeAIConfigService) CreateModel(context.Context, adminaiconfigapp.CreateModelRequest) (adminaiconfigapp.LLMModel, error) {
+func (s *fakeAIConfigService) CreateModel(_ context.Context, request adminaiconfigapp.CreateModelRequest) (adminaiconfigapp.LLMModel, error) {
+	s.lastModelCreate = request
 	return s.model, s.maybeErr()
 }
 
-func (s *fakeAIConfigService) UpdateModel(context.Context, string, adminaiconfigapp.UpdateModelRequest) (adminaiconfigapp.LLMModel, error) {
+func (s *fakeAIConfigService) UpdateModel(_ context.Context, modelID string, request adminaiconfigapp.UpdateModelRequest) (adminaiconfigapp.LLMModel, error) {
+	s.lastModelID = modelID
+	s.lastModelUpdate = request
 	return s.model, s.maybeErr()
 }
 
@@ -306,5 +487,14 @@ func TestErrorMappingInternal(t *testing.T) {
 	mux.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func assertNoAIConfigCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"api_key=plain", "Bearer secret", "token=abc"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
 	}
 }

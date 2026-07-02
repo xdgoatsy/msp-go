@@ -15,6 +15,8 @@ import (
 	authapp "mathstudy/backend-go/internal/application/auth"
 	"mathstudy/backend-go/internal/domain/user"
 	"mathstudy/backend-go/internal/platform/config"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 const (
@@ -155,7 +157,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.Authenticate(r.Context(), request.Username, request.Password)
 	if err != nil {
-		h.logger.Error("login failed", "error", err)
+		h.logger.Error("login failed", "error", redact.String(err.Error()))
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "登录失败，请稍后重试")
 		return
 	}
@@ -185,7 +187,7 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.Register(r.Context(), request.Username, request.Email, request.Password, request.Role)
 	if err != nil {
-		h.logger.Error("register failed", "error", err)
+		h.logger.Error("register failed", "error", redact.String(err.Error()))
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "注册失败，请稍后重试")
 		return
 	}
@@ -219,7 +221,7 @@ func (h *Handler) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	success, message, err := h.service.ChangePassword(r.Context(), principal.UserID, request.OldPassword, request.NewPassword)
 	if err != nil {
-		h.logger.Error("change password failed", "error", err)
+		h.logger.Error("change password failed", "error", redact.String(err.Error()))
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "密码修改失败，请稍后重试")
 		return
 	}
@@ -252,7 +254,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 	accessToken, refreshToken, ok, err := h.service.RefreshTokens(r.Context(), principal)
 	if err != nil {
-		h.logger.Error("refresh token failed", "error", err)
+		h.logger.Error("refresh token failed", "error", redact.String(err.Error()))
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Token 刷新失败，请稍后重试")
 		return
 	}
@@ -275,7 +277,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := h.service.RevokeRefreshToken(r.Context(), cookie.Value); err != nil {
-			h.logger.Warn("revoke refresh token failed", "error", err)
+			h.logger.Warn("revoke refresh token failed", "error", redact.String(err.Error()))
 		}
 	}
 	h.clearAuthCookies(w)
@@ -289,7 +291,7 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	}
 	account, ok, err := h.service.GetUserByID(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get current user failed", "error", err)
+		h.logger.Error("get current user failed", "error", redact.String(err.Error()))
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取用户信息失败")
 		return
 	}
@@ -303,7 +305,7 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) registrationStatus(w http.ResponseWriter, r *http.Request) {
 	settings, err := h.service.RegistrationSettings(r.Context())
 	if err != nil {
-		h.logger.Error("get registration status failed", "error", err)
+		h.logger.Error("get registration status failed", "error", redact.String(err.Error()))
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取注册状态失败")
 		return
 	}
@@ -320,7 +322,7 @@ func (h *Handler) forgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.SubmitPasswordReset(r.Context(), request.Username, request.Email, request.Reason)
 	if err != nil {
-		h.logger.Error("submit password reset failed", "error", err)
+		h.logger.Error("submit password reset failed", "error", redact.String(err.Error()))
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "提交失败，请稍后重试")
 		return
 	}
@@ -340,7 +342,7 @@ func (h *Handler) forgotPasswordStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	status, err := h.service.PasswordResetStatus(r.Context(), username, email)
 	if err != nil {
-		h.logger.Error("get password reset status failed", "error", err)
+		h.logger.Error("get password reset status failed", "error", redact.String(err.Error()))
 		writeAuthError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "查询失败，请稍后重试")
 		return
 	}
@@ -376,7 +378,7 @@ func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (auth
 func (h *Handler) setAuthCookies(w http.ResponseWriter, refreshToken string) bool {
 	csrfToken, err := newCSRFToken()
 	if err != nil {
-		h.logger.Error("generate csrf token failed", "error", err)
+		h.logger.Error("generate csrf token failed", "error", redact.String(err.Error()))
 		return false
 	}
 	h.setRefreshCookie(w, refreshToken)
@@ -452,8 +454,7 @@ func newCSRFToken() (string, error) {
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
 		writeAuthError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}

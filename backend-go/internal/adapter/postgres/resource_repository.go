@@ -135,6 +135,20 @@ func (r ResourceRepository) CreateResource(ctx context.Context, ownerID string, 
 
 // UpdateResource updates a teacher-owned resource.
 func (r ResourceRepository) UpdateResource(ctx context.Context, resourceID string, ownerID string, input resourceapp.ResourceUpdate, now time.Time) (resourceapp.Resource, bool, error) {
+	var resource resourceapp.Resource
+	var found bool
+	err := r.withTx(ctx, func(tx ResourceRepository) error {
+		var err error
+		resource, found, err = tx.updateResource(ctx, resourceID, ownerID, input, now)
+		return err
+	})
+	if err != nil {
+		return resourceapp.Resource{}, false, err
+	}
+	return resource, found, nil
+}
+
+func (r ResourceRepository) updateResource(ctx context.Context, resourceID string, ownerID string, input resourceapp.ResourceUpdate, now time.Time) (resourceapp.Resource, bool, error) {
 	var currentType string
 	var title string
 	var body string
@@ -232,6 +246,20 @@ func (r ResourceRepository) UpdateResource(ctx context.Context, resourceID strin
 	}
 	if tag.RowsAffected() == 0 {
 		return resourceapp.Resource{}, false, nil
+	}
+	if input.URL != nil {
+		if err := r.replaceResourceAsset(
+			ctx,
+			resourceID,
+			resourceTypeFromDB(currentType),
+			metaStringDefault(meta, "storage_type", "external"),
+			metaStringPointer(meta, "duration"),
+			metaIntPointer(meta, "pages"),
+			input,
+			now,
+		); err != nil {
+			return resourceapp.Resource{}, false, err
+		}
 	}
 
 	resource, ok, _, err := r.getResource(ctx, resourceID, ownerID, false)
@@ -458,6 +486,46 @@ func (r ResourceRepository) insertResource(ctx context.Context, ownerID string, 
 	return resourceID, nil
 }
 
+func (r ResourceRepository) replaceResourceAsset(ctx context.Context, resourceID string, resourceType string, storageType string, duration *string, pages *int, input resourceapp.ResourceUpdate, now time.Time) error {
+	_, err := r.DB().Exec(ctx, `
+		DELETE FROM public.content_assets
+		WHERE content_id = $1`,
+		resourceID,
+	)
+	if err != nil {
+		return err
+	}
+	if input.URL == nil || *input.URL == "" {
+		return nil
+	}
+	assetID, err := newUUID()
+	if err != nil {
+		return err
+	}
+	if input.StorageType != nil {
+		storageType = *input.StorageType
+	}
+	assetMeta, err := json.Marshal(map[string]any{
+		"storage_type": storageType,
+		"duration":     duration,
+		"pages":        pages,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = r.DB().Exec(ctx, `
+		INSERT INTO public.content_assets (id, content_id, kind, url, meta, created_at)
+		VALUES ($1, $2, $3::public.assetkind, $4, $5::json, $6)`,
+		assetID,
+		resourceID,
+		resourceAssetKind(resourceType),
+		*input.URL,
+		string(assetMeta),
+		now,
+	)
+	return err
+}
+
 func (r ResourceRepository) getResource(ctx context.Context, resourceID string, userID string, onlyPublished bool) (resourceapp.Resource, bool, map[string]any, error) {
 	publishedClause := ""
 	if onlyPublished {
@@ -634,6 +702,14 @@ func metaStringPointer(meta map[string]any, key string) *string {
 		return nil
 	}
 	return &text
+}
+
+func metaStringDefault(meta map[string]any, key string, fallback string) string {
+	value := metaStringPointer(meta, key)
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return fallback
+	}
+	return *value
 }
 
 func metaIntPointer(meta map[string]any, key string) *int {

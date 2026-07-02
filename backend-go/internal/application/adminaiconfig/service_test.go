@@ -100,6 +100,55 @@ func TestFetchModelsByCredentialsReadsOpenAICompatibleList(t *testing.T) {
 	}
 }
 
+func TestFetchModelsAndProviderTestRedactTransportErrors(t *testing.T) {
+	repo := &fakeRepo{
+		providers: map[string]StoredProvider{
+			"provider-1": {LLMProvider: LLMProvider{ID: "provider-1", BaseURL: "https://api.example.com", IsActive: true}, EncryptedAPIKey: "enc:provider-secret"},
+		},
+	}
+	service := newTestService(t, repo)
+	service.httpClient = fakeHTTPDoer(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("upstream rejected Authorization: Bearer provider-secret api_key=plain url=https://api.example.com/v1/models?token=query-token")
+	})
+
+	fetchResponse, err := service.FetchModelsByCredentials(context.Background(), FetchModelsByCredentialsRequest{BaseURL: "https://api.example.com", APIKey: "plain"})
+	if err != nil {
+		t.Fatalf("FetchModelsByCredentials() error = %v", err)
+	}
+	assertNoCredentialLeak(t, fetchResponse.Message)
+
+	testResponse, err := service.TestProvider(context.Background(), "provider-1", "deepseek-chat")
+	if err != nil {
+		t.Fatalf("TestProvider() error = %v", err)
+	}
+	if testResponse.Success {
+		t.Fatalf("TestProvider() success = true, want false")
+	}
+	assertNoCredentialLeak(t, testResponse.Message)
+}
+
+func TestProviderBaseURLRejectsSSRFAndCredentialBoundaries(t *testing.T) {
+	service := newTestService(t, &fakeRepo{})
+	cases := []string{
+		"http://api.example.com",
+		"https://localhost:11434",
+		"https://127.0.0.1:11434",
+		"https://10.0.0.4/v1",
+		"https://169.254.169.254/latest/meta-data",
+		"https://user:pass@api.example.com",
+		"https://api.example.com/v1?target=internal",
+		"https://api.example.com/v1#fragment",
+	}
+	for _, baseURL := range cases {
+		t.Run(baseURL, func(t *testing.T) {
+			_, err := service.FetchModelsByCredentials(context.Background(), FetchModelsByCredentialsRequest{BaseURL: baseURL, APIKey: "key"})
+			if !errors.Is(err, ErrBadRequest) {
+				t.Fatalf("FetchModelsByCredentials(%q) error = %v, want ErrBadRequest", baseURL, err)
+			}
+		})
+	}
+}
+
 func TestValidationRejectsInvalidProviderAndAgentInputs(t *testing.T) {
 	service := newTestService(t, &fakeRepo{})
 	_, err := service.CreateProvider(context.Background(), CreateProviderRequest{Name: "", Code: "openai", BaseURL: "bad", APIKey: ""})
@@ -110,6 +159,18 @@ func TestValidationRejectsInvalidProviderAndAgentInputs(t *testing.T) {
 	_, err = service.UpdateAgentConfig(context.Background(), "unknown", UpdateAgentConfigRequest{ModelID: "model-1"})
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("UpdateAgentConfig(unknown) error = %v, want ErrBadRequest", err)
+	}
+}
+
+func assertNoCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"provider-secret", "api_key=plain", "token=query-token", "Bearer provider-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
+	if !strings.Contains(value, "[REDACTED]") {
+		t.Fatalf("value = %q, want redaction marker", value)
 	}
 }
 

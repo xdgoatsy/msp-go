@@ -11,6 +11,9 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	resourceapp "mathstudy/backend-go/internal/application/resource"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the resource application surface used by HTTP handlers.
@@ -93,6 +96,8 @@ type updateRequest struct {
 	Source      *string   `json:"source"`
 }
 
+const maxJSONBodyBytes = 2 << 20
+
 type errorResponse struct {
 	Detail  string `json:"detail"`
 	Code    string `json:"code,omitempty"`
@@ -110,7 +115,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetResources(r.Context(), principal.UserID, filter)
 	if err != nil {
-		h.logger.Error("get resource list failed", "error", err)
+		h.logger.Error("get resource list failed", "error", redact.String(err.Error()))
 		writeResourceError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取资源列表失败")
 		return
 	}
@@ -124,7 +129,7 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetStats(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get resource stats failed", "error", err)
+		h.logger.Error("get resource stats failed", "error", redact.String(err.Error()))
 		writeResourceError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取资源统计失败")
 		return
 	}
@@ -142,7 +147,7 @@ func (h *Handler) favorites(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetFavorites(r.Context(), principal.UserID, page, pageSize)
 	if err != nil {
-		h.logger.Error("get favorite resources failed", "error", err)
+		h.logger.Error("get favorite resources failed", "error", redact.String(err.Error()))
 		writeResourceError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取收藏列表失败")
 		return
 	}
@@ -160,7 +165,7 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 			writeResourceError(w, http.StatusNotFound, "NOT_FOUND", "资源不存在")
 			return
 		}
-		h.logger.Error("get resource detail failed", "error", err)
+		h.logger.Error("get resource detail failed", "error", redact.String(err.Error()))
 		writeResourceError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取资源详情失败")
 		return
 	}
@@ -182,7 +187,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.CreateResource(r.Context(), principal.UserID, input)
 	if err != nil {
-		h.logger.Error("create resource failed", "error", err)
+		if errors.Is(err, resourceapp.ErrBadRequest) {
+			writeResourceError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", redact.String(err.Error()))
+			return
+		}
+		h.logger.Error("create resource failed", "error", redact.String(err.Error()))
 		writeResourceError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "创建资源失败")
 		return
 	}
@@ -204,11 +213,15 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.UpdateResource(r.Context(), r.PathValue("resource_id"), principal.UserID, input)
 	if err != nil {
+		if errors.Is(err, resourceapp.ErrBadRequest) {
+			writeResourceError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", redact.String(err.Error()))
+			return
+		}
 		if errors.Is(err, resourceapp.ErrNotFound) {
 			writeResourceError(w, http.StatusNotFound, "NOT_FOUND", "资源不存在或无权限修改")
 			return
 		}
-		h.logger.Error("update resource failed", "error", err)
+		h.logger.Error("update resource failed", "error", redact.String(err.Error()))
 		writeResourceError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "更新资源失败")
 		return
 	}
@@ -226,7 +239,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 			writeResourceError(w, http.StatusNotFound, "NOT_FOUND", "资源不存在或无权限删除")
 			return
 		}
-		h.logger.Error("delete resource failed", "error", err)
+		h.logger.Error("delete resource failed", "error", redact.String(err.Error()))
 		writeResourceError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "删除资源失败")
 		return
 	}
@@ -244,7 +257,7 @@ func (h *Handler) toggleFavorite(w http.ResponseWriter, r *http.Request) {
 			writeResourceError(w, http.StatusNotFound, "NOT_FOUND", "资源不存在")
 			return
 		}
-		h.logger.Error("toggle resource favorite failed", "error", err)
+		h.logger.Error("toggle resource favorite failed", "error", redact.String(err.Error()))
 		writeResourceError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "切换收藏状态失败")
 		return
 	}
@@ -324,10 +337,7 @@ func parsePage(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 }
 
 func parseIntQuery(w http.ResponseWriter, value string, fallback int, name string) (int, bool) {
-	if value == "" {
-		return fallback, true
-	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := httpquery.Int(value, fallback)
 	if err != nil {
 		writeResourceError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
 		return 0, false
@@ -495,8 +505,7 @@ func validateOptionalPages(w http.ResponseWriter, value *int) bool {
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	defer r.Body.Close()
-	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, maxJSONBodyBytes, target); err != nil {
 		writeResourceError(w, http.StatusBadRequest, "BAD_REQUEST", "请求体不是有效 JSON")
 		return false
 	}

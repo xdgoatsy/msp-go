@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,6 +75,103 @@ func TestCreateResourceNormalizesStorageAndTags(t *testing.T) {
 	}
 	if repo.lastInput.Tags == nil || !repo.lastNow.Equal(now) {
 		t.Fatalf("tags/now = %#v %v", repo.lastInput.Tags, repo.lastNow)
+	}
+}
+
+func TestCreateResourceNormalizesExternalURL(t *testing.T) {
+	repo := &fakeResourceRepo{createResource: Resource{ID: "resource-1"}}
+	service := newTestService(repo, time.Now())
+
+	_, err := service.CreateResource(context.Background(), "teacher-1", ResourceInput{
+		Title: "导数",
+		Type:  "video",
+		URL:   stringPtr(" example.com:8443/watch?v=1 "),
+	})
+	if err != nil {
+		t.Fatalf("CreateResource() error = %v", err)
+	}
+	if repo.lastInput.URL == nil || *repo.lastInput.URL != "https://example.com:8443/watch?v=1" {
+		t.Fatalf("URL = %#v", repo.lastInput.URL)
+	}
+}
+
+func TestCreateResourceAcceptsLocalUploadedResourcePath(t *testing.T) {
+	repo := &fakeResourceRepo{createResource: Resource{ID: "resource-1"}}
+	service := newTestService(repo, time.Now())
+
+	_, err := service.CreateResource(context.Background(), "teacher-1", ResourceInput{
+		Title:       "讲义",
+		Type:        "document",
+		StorageType: "local",
+		URL:         stringPtr("/uploads/documents/file.pdf"),
+	})
+	if err != nil {
+		t.Fatalf("CreateResource() error = %v", err)
+	}
+	if repo.lastInput.URL == nil || *repo.lastInput.URL != "/uploads/documents/file.pdf" {
+		t.Fatalf("URL = %#v", repo.lastInput.URL)
+	}
+}
+
+func TestCreateResourceRejectsUnsafeURLs(t *testing.T) {
+	cases := []string{
+		"javascript:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+		"mailto:teacher@example.com",
+		"https://user:pass@example.com/resource",
+		"http://127.0.0.1:8080/internal",
+		"/uploads/documents/../secret.pdf",
+		"/uploads/documents/file.pdf?download=1",
+		"/uploads/videos/%2e%2e/file.mp4",
+		`/uploads/documents\file.pdf`,
+		"/uploads/images/file.png",
+		"//example.com/resource",
+	}
+	service := newTestService(&fakeResourceRepo{}, time.Now())
+
+	for _, rawURL := range cases {
+		t.Run(rawURL, func(t *testing.T) {
+			_, err := service.CreateResource(context.Background(), "teacher-1", ResourceInput{
+				Title: "导数",
+				Type:  "document",
+				URL:   stringPtr(rawURL),
+			})
+			if !errors.Is(err, ErrBadRequest) {
+				t.Fatalf("CreateResource(%q) error = %v, want ErrBadRequest", rawURL, err)
+			}
+		})
+	}
+}
+
+func TestUpdateResourceNormalizesURLAndStorageType(t *testing.T) {
+	repo := &fakeResourceRepo{updateResource: Resource{ID: "resource-1"}, updateFound: true}
+	service := newTestService(repo, time.Now())
+
+	_, err := service.UpdateResource(context.Background(), "resource-1", "teacher-1", ResourceUpdate{
+		StorageType: stringPtr(" LOCAL "),
+		URL:         stringPtr(" /uploads/videos/file.mp4 "),
+	})
+	if err != nil {
+		t.Fatalf("UpdateResource() error = %v", err)
+	}
+	if repo.lastUpdate.StorageType == nil || *repo.lastUpdate.StorageType != "local" {
+		t.Fatalf("StorageType = %#v", repo.lastUpdate.StorageType)
+	}
+	if repo.lastUpdate.URL == nil || *repo.lastUpdate.URL != "/uploads/videos/file.mp4" {
+		t.Fatalf("URL = %#v", repo.lastUpdate.URL)
+	}
+}
+
+func TestCreateResourceURLRejectsControlWhitespace(t *testing.T) {
+	service := newTestService(&fakeResourceRepo{}, time.Now())
+
+	_, err := service.CreateResource(context.Background(), "teacher-1", ResourceInput{
+		Title: "导数",
+		Type:  "document",
+		URL:   stringPtr("https://example.com/\nnext"),
+	})
+	if !errors.Is(err, ErrBadRequest) || !strings.Contains(err.Error(), "资源链接格式无效") {
+		t.Fatalf("CreateResource() error = %v, want URL format ErrBadRequest", err)
 	}
 }
 
@@ -169,4 +267,8 @@ func (r *fakeResourceRepo) ToggleFavorite(_ context.Context, userID string, reso
 func (r *fakeResourceRepo) GetStats(_ context.Context, userID string) (Stats, error) {
 	r.lastUserID = userID
 	return r.stats, nil
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

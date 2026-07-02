@@ -3,10 +3,13 @@ package knowledgehttp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
@@ -118,6 +121,91 @@ func TestRelationRoutesForwardIDs(t *testing.T) {
 	}
 }
 
+func TestJSONRoutesRejectTrailingJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		assert func(*testing.T, *fakeKnowledgeService)
+	}{
+		{
+			name:   "create node",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/knowledge/nodes",
+			body:   `{"name":"极限","node_type":"concept","difficulty":0.4} {"name":"extra"}`,
+			assert: func(t *testing.T, service *fakeKnowledgeService) {
+				t.Helper()
+				if service.lastNodeInput.Name != "" {
+					t.Fatalf("service was called for create node trailing JSON: %#v", service.lastNodeInput)
+				}
+			},
+		},
+		{
+			name:   "update node",
+			method: http.MethodPut,
+			path:   "/api/v1/admin/knowledge/nodes/node-1",
+			body:   `{"name":"极限"} {"name":"extra"}`,
+			assert: func(t *testing.T, service *fakeKnowledgeService) {
+				t.Helper()
+				if service.lastNodeID != "" {
+					t.Fatalf("service was called for update node trailing JSON: id=%q update=%#v", service.lastNodeID, service.lastNodeUpdate)
+				}
+			},
+		},
+		{
+			name:   "create relation",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/knowledge/relations",
+			body:   `{"source_id":"node-1","target_id":"node-2","relation_type":"used_in"} {"source_id":"extra"}`,
+			assert: func(t *testing.T, service *fakeKnowledgeService) {
+				t.Helper()
+				if service.lastRelationInput.SourceID != "" {
+					t.Fatalf("service was called for create relation trailing JSON: %#v", service.lastRelationInput)
+				}
+			},
+		},
+		{
+			name:   "update relation",
+			method: http.MethodPut,
+			path:   "/api/v1/admin/knowledge/relations/relation-1",
+			body:   `{"relation_type":"used_in"} {"relation_type":"related_to"}`,
+			assert: func(t *testing.T, service *fakeKnowledgeService) {
+				t.Helper()
+				if service.lastRelationID != "" {
+					t.Fatalf("service was called for update relation trailing JSON: id=%q update=%#v", service.lastRelationID, service.lastRelationUpdate)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeKnowledgeService{}
+			handler := newKnowledgeTestHandler(t, service, adminAuthenticator())
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/admin/knowledge")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			var body map[string]string
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			if body["detail"] != "请求体格式错误" || body["code"] != "VALIDATION_ERROR" {
+				t.Fatalf("body = %#v", body)
+			}
+			tt.assert(t, service)
+		})
+	}
+}
+
 func TestDeleteNodeMapsBadRequest(t *testing.T) {
 	service := &fakeKnowledgeService{err: knowledgeapp.ErrBadRequest}
 	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "admin-1", Role: user.RoleAdmin}}
@@ -133,6 +221,76 @@ func TestDeleteNodeMapsBadRequest(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest || service.lastNodeID != "node-1" {
 		t.Fatalf("status=%d node=%q body=%s", recorder.Code, service.lastNodeID, recorder.Body.String())
 	}
+}
+
+func TestServiceErrorsRedactPublicMessages(t *testing.T) {
+	badRequestErr := knowledgeapp.Error{Kind: knowledgeapp.ErrBadRequest, Message: "bad input Authorization: Bearer knowledge-secret token=query-token api_key=plain password=letmein"}
+	notFoundErr := knowledgeapp.Error{Kind: knowledgeapp.ErrNotFound, Message: "missing Authorization: Bearer knowledge-secret token=query-token api_key=plain password=letmein"}
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		err        error
+		wantStatus int
+	}{
+		{name: "list nodes bad request", method: http.MethodGet, path: "/api/v1/admin/knowledge/nodes", err: badRequestErr, wantStatus: http.StatusBadRequest},
+		{name: "get node not found", method: http.MethodGet, path: "/api/v1/admin/knowledge/nodes/node-1", err: notFoundErr, wantStatus: http.StatusNotFound},
+		{name: "create node bad request", method: http.MethodPost, path: "/api/v1/admin/knowledge/nodes", body: `{"name":"极限","node_type":"concept"}`, err: badRequestErr, wantStatus: http.StatusBadRequest},
+		{name: "update node bad request", method: http.MethodPut, path: "/api/v1/admin/knowledge/nodes/node-1", body: `{"name":"极限"}`, err: badRequestErr, wantStatus: http.StatusBadRequest},
+		{name: "update node not found", method: http.MethodPut, path: "/api/v1/admin/knowledge/nodes/node-1", body: `{"name":"极限"}`, err: notFoundErr, wantStatus: http.StatusBadRequest},
+		{name: "delete node bad request", method: http.MethodDelete, path: "/api/v1/admin/knowledge/nodes/node-1", err: badRequestErr, wantStatus: http.StatusBadRequest},
+		{name: "delete node not found", method: http.MethodDelete, path: "/api/v1/admin/knowledge/nodes/node-1", err: notFoundErr, wantStatus: http.StatusNotFound},
+		{name: "create relation bad request", method: http.MethodPost, path: "/api/v1/admin/knowledge/relations", body: `{"source_id":"node-1","target_id":"node-2","relation_type":"used_in"}`, err: badRequestErr, wantStatus: http.StatusBadRequest},
+		{name: "update relation bad request", method: http.MethodPut, path: "/api/v1/admin/knowledge/relations/relation-1", body: `{"relation_type":"used_in"}`, err: badRequestErr, wantStatus: http.StatusBadRequest},
+		{name: "update relation not found", method: http.MethodPut, path: "/api/v1/admin/knowledge/relations/relation-1", body: `{"relation_type":"used_in"}`, err: notFoundErr, wantStatus: http.StatusBadRequest},
+		{name: "delete relation not found", method: http.MethodDelete, path: "/api/v1/admin/knowledge/relations/relation-1", err: notFoundErr, wantStatus: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeKnowledgeService{err: tt.err}
+			handler := newKnowledgeTestHandler(t, service, adminAuthenticator())
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/admin/knowledge")
+
+			var body *bytes.Reader
+			if tt.body == "" {
+				body = bytes.NewReader(nil)
+			} else {
+				body = bytes.NewReader([]byte(tt.body))
+			}
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, body)
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			assertNoKnowledgeCredentialLeak(t, recorder.Body.String())
+		})
+	}
+}
+
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	var logBuffer bytes.Buffer
+	service := &fakeKnowledgeService{err: errors.New("knowledge repo failed Authorization: Bearer knowledge-secret token=query-token api_key=plain password=letmein")}
+	handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), service, adminAuthenticator())
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/knowledge")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/knowledge/stats", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoKnowledgeCredentialLeak(t, recorder.Body.String())
+	assertNoKnowledgeCredentialLeak(t, logBuffer.String())
 }
 
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
@@ -151,6 +309,19 @@ func newKnowledgeTestHandler(t *testing.T, service Service, auth Authenticator) 
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func adminAuthenticator() *fakeAuthenticator {
+	return &fakeAuthenticator{principal: authapp.Principal{UserID: "admin-1", Role: user.RoleAdmin}}
+}
+
+func assertNoKnowledgeCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"knowledge-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer knowledge-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 type fakeAuthenticator struct {

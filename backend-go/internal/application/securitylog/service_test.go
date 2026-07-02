@@ -3,10 +3,13 @@ package securitylog
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 func TestNewServiceRejectsNilRepository(t *testing.T) {
@@ -37,14 +40,21 @@ func TestListLogsNormalizesAndGroups(t *testing.T) {
 }
 
 func TestExportLogsBuildsJSONAndCSV(t *testing.T) {
+	ipAddress := "203.0.113.10"
 	repo := &fakeRepository{logs: []LogItem{{
 		ID:          "log-1",
 		EventType:   EventDailyReport,
 		Severity:    SeverityInfo,
-		Title:       "每日安全报告",
-		Description: "正常",
-		ExtraData:   map[string]any{"date": "2026-05-03"},
-		CreatedAt:   time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC),
+		Title:       "=每日安全报告",
+		Description: "@正常 Authorization: Bearer secret-token callback=/done?token=abc",
+		IPAddress:   &ipAddress,
+		Username:    stringPtr("+admin api_key=plain"),
+		ExtraData: map[string]any{
+			"date":    "2026-05-03",
+			"api_key": "secret",
+			"nested":  map[string]any{"refresh_token": "rt", "safe": "ok"},
+		},
+		CreatedAt: time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC),
 	}}}
 	service := newTestService(t, repo)
 
@@ -59,14 +69,39 @@ func TestExportLogsBuildsJSONAndCSV(t *testing.T) {
 	if !strings.Contains(string(decoded), "每日安全报告") {
 		t.Fatalf("decoded = %s", decoded)
 	}
+	for _, leaked := range []string{"secret-token", "token=abc", "plain", "203.0.113.10", "\"rt\""} {
+		if strings.Contains(string(decoded), leaked) {
+			t.Fatalf("json export leaked %q in %s", leaked, decoded)
+		}
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(decoded, &rows); err != nil {
+		t.Fatalf("json export invalid: %v", err)
+	}
+	if rows[0]["ip_address"] != redact.Marker {
+		t.Fatalf("ip_address = %#v, want redacted", rows[0]["ip_address"])
+	}
+	extra := rows[0]["extra_data"].(map[string]any)
+	if extra["date"] != "2026-05-03" || extra["api_key"] != redact.Marker {
+		t.Fatalf("extra_data = %#v", extra)
+	}
+	nested := extra["nested"].(map[string]any)
+	if nested["refresh_token"] != redact.Marker || nested["safe"] != "ok" {
+		t.Fatalf("nested = %#v", nested)
+	}
 
 	response, err = service.ExportLogs(context.Background(), ExportRequest{Format: "csv"})
 	if err != nil {
 		t.Fatalf("ExportLogs(csv) error = %v", err)
 	}
 	decoded, _ = base64.StdEncoding.DecodeString(response.Content)
-	if response.ContentType != "text/csv" || !strings.Contains(string(decoded), "每日报告") {
+	if response.ContentType != "text/csv" || !strings.Contains(string(decoded), "'=每日安全报告") || !strings.Contains(string(decoded), "'@正常") || !strings.Contains(string(decoded), "'+admin") {
 		t.Fatalf("response=%#v decoded=%s", response, decoded)
+	}
+	for _, leaked := range []string{"secret-token", "token=abc", "api_key=plain", "203.0.113.10"} {
+		if strings.Contains(string(decoded), leaked) {
+			t.Fatalf("csv export leaked %q in %s", leaked, decoded)
+		}
 	}
 }
 
@@ -117,6 +152,10 @@ func newTestService(t *testing.T, repo *fakeRepository) *Service {
 	}
 	service.now = func() time.Time { return time.Date(2026, 5, 3, 12, 0, 0, 0, time.UTC) }
 	return service
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
 
 type fakeRepository struct {

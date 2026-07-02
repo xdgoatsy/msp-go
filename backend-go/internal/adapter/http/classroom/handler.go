@@ -10,6 +10,8 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	classroomapp "mathstudy/backend-go/internal/application/classroom"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the classroom application surface used by HTTP handlers.
@@ -73,6 +75,8 @@ type joinRequest struct {
 	Code string `json:"code"`
 }
 
+const maxJSONBodyBytes = 1 << 20
+
 type errorResponse struct {
 	Detail  string `json:"detail"`
 	Code    string `json:"code,omitempty"`
@@ -101,7 +105,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 			writeClassError(w, http.StatusConflict, "CONFLICT", "班级号生成冲突，请稍后重试")
 			return
 		}
-		h.logger.Error("create class failed", "error", err)
+		h.logClassroomError("create class failed", err)
 		writeClassError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "创建班级失败")
 		return
 	}
@@ -115,7 +119,7 @@ func (h *Handler) listTeacherClasses(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.ListTeacherClasses(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("list teacher classes failed", "error", err)
+		h.logClassroomError("list teacher classes failed", err)
 		writeClassError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取班级列表失败")
 		return
 	}
@@ -133,7 +137,7 @@ func (h *Handler) teacherClassDetail(w http.ResponseWriter, r *http.Request) {
 			writeClassError(w, http.StatusNotFound, "NOT_FOUND", "班级不存在或无权限访问")
 			return
 		}
-		h.logger.Error("get teacher class detail failed", "error", err)
+		h.logClassroomError("get teacher class detail failed", err)
 		writeClassError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取班级详情失败")
 		return
 	}
@@ -151,7 +155,7 @@ func (h *Handler) removeStudent(w http.ResponseWriter, r *http.Request) {
 			writeClassError(w, http.StatusNotFound, "NOT_FOUND", "班级或学生不存在")
 			return
 		}
-		h.logger.Error("remove class student failed", "error", err)
+		h.logClassroomError("remove class student failed", err)
 		writeClassError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "移除学生失败")
 		return
 	}
@@ -169,7 +173,7 @@ func (h *Handler) disbandClass(w http.ResponseWriter, r *http.Request) {
 			writeClassError(w, http.StatusNotFound, "NOT_FOUND", "班级不存在或无权限操作")
 			return
 		}
-		h.logger.Error("disband class failed", "error", err)
+		h.logClassroomError("disband class failed", err)
 		writeClassError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "解散班级失败")
 		return
 	}
@@ -186,7 +190,7 @@ func (h *Handler) lookupClass(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.LookupClass(r.Context(), code)
 	if err != nil {
-		h.logger.Error("lookup class failed", "error", err)
+		h.logClassroomError("lookup class failed", err)
 		writeClassError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "查询班级失败")
 		return
 	}
@@ -216,7 +220,7 @@ func (h *Handler) joinClass(w http.ResponseWriter, r *http.Request) {
 			writeClassError(w, http.StatusConflict, "CONFLICT", "当前已加入班级，请先退出后再加入")
 			return
 		}
-		h.logger.Error("join class failed", "error", err)
+		h.logClassroomError("join class failed", err)
 		writeClassError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "加入班级失败")
 		return
 	}
@@ -234,7 +238,7 @@ func (h *Handler) leaveClass(w http.ResponseWriter, r *http.Request) {
 			writeClassError(w, http.StatusNotFound, "NOT_FOUND", "未加入任何班级")
 			return
 		}
-		h.logger.Error("leave class failed", "error", err)
+		h.logClassroomError("leave class failed", err)
 		writeClassError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "退出班级失败")
 		return
 	}
@@ -248,7 +252,7 @@ func (h *Handler) myClass(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetStudentClass(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get student class failed", "error", err)
+		h.logClassroomError("get student class failed", err)
 		writeClassError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取当前班级失败")
 		return
 	}
@@ -296,6 +300,10 @@ func (h *Handler) requireStudent(w http.ResponseWriter, r *http.Request) (authap
 	return principal, true
 }
 
+func (h *Handler) logClassroomError(message string, err error) {
+	h.logger.Error(message, "error", redact.String(err.Error()))
+}
+
 func validateClassName(w http.ResponseWriter, value string) bool {
 	length := len(strings.TrimSpace(value))
 	if length >= 2 && length <= 200 {
@@ -323,8 +331,7 @@ func validateOptionalLength(w http.ResponseWriter, value *string, max int, name 
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	defer r.Body.Close()
-	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, maxJSONBodyBytes, target); err != nil {
 		writeClassError(w, http.StatusBadRequest, "BAD_REQUEST", "请求体不是有效 JSON")
 		return false
 	}

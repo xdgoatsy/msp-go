@@ -170,7 +170,7 @@ func TestSubmitAnswerRecordsBasicDiagnosisForImageOnlyAnswer(t *testing.T) {
 
 	response, err := service.SubmitAnswer(context.Background(), "student-1", SubmitRequest{
 		ExerciseID:     "exercise-1",
-		AnswerImageURL: "/uploads/answer.png",
+		AnswerImageURL: "/uploads/images/answer.png",
 	})
 	if err != nil {
 		t.Fatalf("SubmitAnswer() error = %v", err)
@@ -262,15 +262,26 @@ func TestSubmitAnswerFallsBackWhenDiagnosticianFails(t *testing.T) {
 }
 
 func TestSubmitAnswerRejectsUnsafeImageURL(t *testing.T) {
-	repo := &fakeExerciseRepo{}
-	service := newTestService(repo)
+	cases := []string{
+		"https://example.com/answer.png",
+		"/uploads/documents/answer.pdf",
+		"/uploads/images/../documents/answer.pdf",
+		"/uploads/images/answer.png?token=1",
+		"/uploads/images/%2e%2e/answer.png",
+	}
+	for _, imageURL := range cases {
+		t.Run(imageURL, func(t *testing.T) {
+			repo := &fakeExerciseRepo{}
+			service := newTestService(repo)
 
-	_, err := service.SubmitAnswer(context.Background(), "student-1", SubmitRequest{
-		ExerciseID:     "exercise-1",
-		AnswerImageURL: "https://example.com/answer.png",
-	})
-	if !errors.Is(err, ErrBadRequest) {
-		t.Fatalf("SubmitAnswer() error = %v, want ErrBadRequest", err)
+			_, err := service.SubmitAnswer(context.Background(), "student-1", SubmitRequest{
+				ExerciseID:     "exercise-1",
+				AnswerImageURL: imageURL,
+			})
+			if !errors.Is(err, ErrBadRequest) {
+				t.Fatalf("SubmitAnswer() error = %v, want ErrBadRequest", err)
+			}
+		})
 	}
 }
 

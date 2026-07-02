@@ -3,10 +3,12 @@ package admininboxhttp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	admininboxapp "mathstudy/backend-go/internal/application/admininbox"
@@ -109,6 +111,28 @@ func TestReviewRequestForwardsAdminAndBody(t *testing.T) {
 	}
 }
 
+func TestReviewRequestRejectsTrailingJSON(t *testing.T) {
+	service := &fakeInboxService{}
+	handler := newAdminInboxTestHandler(t, service, adminAuthenticator())
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/inbox")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/inbox/reset-1/review", bytes.NewBufferString(`{"action":"reject","reject_reason":"信息不匹配"} {"action":"approve"}`))
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.lastRequestID != "" || service.lastAdminID != "" || service.lastAction != "" {
+		t.Fatalf("service was called for trailing JSON: request=%q admin=%q action=%q", service.lastRequestID, service.lastAdminID, service.lastAction)
+	}
+	if !strings.Contains(recorder.Body.String(), "请求体格式错误") || !strings.Contains(recorder.Body.String(), "VALIDATION_ERROR") {
+		t.Fatalf("body=%s", recorder.Body.String())
+	}
+}
+
 func TestAdminInboxServiceErrorsMapToStatusCodes(t *testing.T) {
 	service := &fakeInboxService{err: admininboxapp.Error{Kind: admininboxapp.ErrBadRequest, Message: "status 必须是 pending、approved 或 rejected"}}
 	handler := newAdminInboxTestHandler(t, service, adminAuthenticator())
@@ -122,6 +146,43 @@ func TestAdminInboxServiceErrorsMapToStatusCodes(t *testing.T) {
 	if recorder.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d", recorder.Code)
 	}
+}
+
+func TestServiceErrorsRedactPublicMessages(t *testing.T) {
+	service := &fakeInboxService{err: admininboxapp.Error{Kind: admininboxapp.ErrBadRequest, Message: "status invalid Authorization: Bearer ops-secret token=query-token api_key=plain password=letmein"}}
+	handler := newAdminInboxTestHandler(t, service, adminAuthenticator())
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/inbox")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/inbox?status=done", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoAdminInboxCredentialLeak(t, recorder.Body.String())
+}
+
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	var logBuffer bytes.Buffer
+	service := &fakeInboxService{err: errors.New("inbox repo failed Authorization: Bearer ops-secret token=query-token api_key=plain password=letmein")}
+	handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), service, adminAuthenticator())
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/inbox")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/inbox/pending-count", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoAdminInboxCredentialLeak(t, recorder.Body.String())
+	assertNoAdminInboxCredentialLeak(t, logBuffer.String())
 }
 
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
@@ -140,6 +201,15 @@ func newAdminInboxTestHandler(t *testing.T, service Service, auth Authenticator)
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoAdminInboxCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"ops-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer ops-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 func adminAuthenticator() *fakeAuthenticator {

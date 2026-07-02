@@ -42,7 +42,7 @@ func TestProcessChatUsesConfiguredAgentAndReturnsSSEData(t *testing.T) {
 	service := newTestService(repo, now, "user-msg", "ai-msg", "task-1")
 	service.agent = fakeChatAgent{output: ChatAgentOutput{Agent: "tutor", Content: "Eino 回复"}}
 
-	result, err := service.ProcessChat(context.Background(), "session-1", "student-1", "你好", []string{"/uploads/a.png"})
+	result, err := service.ProcessChat(context.Background(), "session-1", "student-1", "你好", []string{"/uploads/images/a.png"})
 	if err != nil {
 		t.Fatalf("ProcessChat() error = %v", err)
 	}
@@ -52,11 +52,49 @@ func TestProcessChatUsesConfiguredAgentAndReturnsSSEData(t *testing.T) {
 	if len(repo.insertedMessages) != 2 {
 		t.Fatalf("messages = %#v", repo.insertedMessages)
 	}
-	if repo.insertedMessages[0].Role != "user" || repo.insertedMessages[0].Attachments[0] != "/uploads/a.png" {
+	if repo.insertedMessages[0].Role != "user" || repo.insertedMessages[0].Attachments[0] != "/uploads/images/a.png" {
 		t.Fatalf("user message = %#v", repo.insertedMessages[0])
 	}
 	if repo.insertedMessages[1].Role != "assistant" || repo.insertedMessages[1].Content != "Eino 回复" {
 		t.Fatalf("assistant message = %#v", repo.insertedMessages[1])
+	}
+}
+
+func TestProcessChatRejectsUnsafeAttachments(t *testing.T) {
+	cases := []struct {
+		name        string
+		attachments []string
+	}{
+		{name: "external url", attachments: []string{"https://example.com/a.png"}},
+		{name: "document path", attachments: []string{"/uploads/documents/a.pdf"}},
+		{name: "path traversal", attachments: []string{"/uploads/images/../documents/a.pdf"}},
+		{name: "query string", attachments: []string{"/uploads/images/a.png?download=1"}},
+		{name: "encoded traversal", attachments: []string{"/uploads/images/%2e%2e/a.png"}},
+		{name: "too many", attachments: []string{
+			"/uploads/images/1.png",
+			"/uploads/images/2.png",
+			"/uploads/images/3.png",
+			"/uploads/images/4.png",
+			"/uploads/images/5.png",
+			"/uploads/images/6.png",
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeSessionRepo{
+				session:    LearningSession{ID: "session-1", StudentID: "student-1", IsActive: true},
+				hasSession: true,
+			}
+			service := newTestService(repo, time.Date(2026, time.April, 26, 9, 0, 0, 0, time.UTC), "user-msg", "ai-msg", "task-1")
+
+			_, err := service.ProcessChat(context.Background(), "session-1", "student-1", "你好", tc.attachments)
+			if !errors.Is(err, ErrInvalidAttachment) {
+				t.Fatalf("ProcessChat() error = %v, want ErrInvalidAttachment", err)
+			}
+			if len(repo.insertedMessages) != 0 {
+				t.Fatalf("inserted messages = %#v, want none", repo.insertedMessages)
+			}
+		})
 	}
 }
 

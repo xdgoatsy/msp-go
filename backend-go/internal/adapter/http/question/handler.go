@@ -11,6 +11,9 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	questionapp "mathstudy/backend-go/internal/application/question"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the question application surface used by HTTP handlers.
@@ -141,7 +144,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.ListQuestions(r.Context(), principal.UserID, filter)
 	if err != nil {
-		h.logger.Error("list questions failed", "error", err)
+		h.logQuestionError("list questions failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取题目列表失败")
 		return
 	}
@@ -155,7 +158,7 @@ func (h *Handler) groups(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetGroups(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get question groups failed", "error", err)
+		h.logQuestionError("get question groups failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取题目分组失败")
 		return
 	}
@@ -169,7 +172,7 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetStats(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get question stats failed", "error", err)
+		h.logQuestionError("get question stats failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取题目统计失败")
 		return
 	}
@@ -195,7 +198,7 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 			writeQuestionError(w, http.StatusNotFound, "NOT_FOUND", "题目不存在或无权访问")
 			return
 		}
-		h.logger.Error("get question failed", "error", err)
+		h.logQuestionError("get question failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取题目详情失败")
 		return
 	}
@@ -217,7 +220,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.CreateQuestion(r.Context(), principal.UserID, input)
 	if err != nil {
-		h.logger.Error("create question failed", "error", err)
+		h.logQuestionError("create question failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "创建题目失败")
 		return
 	}
@@ -251,7 +254,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 			writeQuestionError(w, http.StatusNotFound, "NOT_FOUND", "题目不存在或无权访问")
 			return
 		}
-		h.logger.Error("update question failed", "error", err)
+		h.logQuestionError("update question failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "更新失败")
 		return
 	}
@@ -277,7 +280,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 			writeQuestionError(w, http.StatusNotFound, "NOT_FOUND", "题目不存在或无权删除")
 			return
 		}
-		h.logger.Error("delete question failed", "error", err)
+		h.logQuestionError("delete question failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "删除题目失败")
 		return
 	}
@@ -311,7 +314,7 @@ func (h *Handler) batchOperation(w http.ResponseWriter, r *http.Request, fn func
 			writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "question_ids 长度必须在 1 到 100 之间")
 			return
 		}
-		h.logger.Error("question batch operation failed", "error", err)
+		h.logQuestionError("question batch operation failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 		return
 	}
@@ -345,7 +348,7 @@ func (h *Handler) batchImport(w http.ResponseWriter, r *http.Request) {
 			writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "questions 长度必须在 1 到 200 之间")
 			return
 		}
-		h.logger.Error("batch import questions failed", "error", err)
+		h.logQuestionError("batch import questions failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "批量导入失败")
 		return
 	}
@@ -378,7 +381,7 @@ func (h *Handler) aiParse(w http.ResponseWriter, r *http.Request) {
 			writeQuestionError(w, http.StatusBadRequest, "BAD_REQUEST", "AI 题目识别输入不合法")
 			return
 		}
-		h.logger.Error("parse questions failed", "error", err)
+		h.logQuestionError("parse questions failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "AI 题目识别失败")
 		return
 	}
@@ -416,7 +419,7 @@ func (h *Handler) generateIsomorphic(w http.ResponseWriter, r *http.Request) {
 			writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "不支持的题目模板")
 			return
 		}
-		h.logger.Error("generate isomorphic question failed", "error", err)
+		h.logQuestionError("generate isomorphic question failed", err)
 		writeQuestionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "生成变式题失败")
 		return
 	}
@@ -442,6 +445,10 @@ func (h *Handler) requireTeacher(w http.ResponseWriter, r *http.Request) (authap
 		return authapp.Principal{}, false
 	}
 	return principal, true
+}
+
+func (h *Handler) logQuestionError(message string, err error) {
+	h.logger.Error(message, "error", redact.String(err.Error()))
 }
 
 func parseListFilter(w http.ResponseWriter, r *http.Request) (questionapp.ListFilter, bool) {
@@ -477,10 +484,7 @@ func parseListFilter(w http.ResponseWriter, r *http.Request) (questionapp.ListFi
 }
 
 func parseIntQuery(w http.ResponseWriter, value string, fallback int, name string) (int, bool) {
-	if value == "" {
-		return fallback, true
-	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := httpquery.Int(value, fallback)
 	if err != nil {
 		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
 		return 0, false
@@ -624,8 +628,7 @@ func validStatus(value string) bool {
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 2<<20, target); err != nil {
 		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}

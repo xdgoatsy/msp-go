@@ -11,6 +11,8 @@ import (
 
 	adminsettingsapp "mathstudy/backend-go/internal/application/adminsettings"
 	authapp "mathstudy/backend-go/internal/application/auth"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 const maxImportBytes = 100 << 20
@@ -181,7 +183,7 @@ func (h *Handler) importDatabase(w http.ResponseWriter, r *http.Request) {
 			writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件大小不能超过 100MB")
 			return
 		}
-		writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+err.Error())
+		writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+redact.String(err.Error()))
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -200,7 +202,7 @@ func (h *Handler) importDatabase(w http.ResponseWriter, r *http.Request) {
 			writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件大小不能超过 100MB")
 			return
 		}
-		writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+err.Error())
+		writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+redact.String(err.Error()))
 		return
 	}
 	response, err := h.service.ImportData(r.Context(), content, principal.UserID)
@@ -252,17 +254,15 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (authapp.
 func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback string) {
 	switch {
 	case errors.Is(err, adminsettingsapp.ErrBadRequest):
-		writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		writeAdminSettingsError(w, http.StatusBadRequest, "BAD_REQUEST", redact.String(err.Error()))
 	default:
-		h.logger.Error("admin settings request failed", "error", err)
+		h.logger.Error("admin settings request failed", "error", redact.String(err.Error()))
 		writeAdminSettingsError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 	}
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	defer r.Body.Close()
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
 		writeAdminSettingsError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}

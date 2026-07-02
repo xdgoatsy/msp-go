@@ -6,11 +6,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	admininboxapp "mathstudy/backend-go/internal/application/admininbox"
 	authapp "mathstudy/backend-go/internal/application/auth"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the admin inbox application surface used by HTTP handlers.
@@ -142,9 +144,9 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (authapp.
 func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback string) {
 	switch {
 	case errors.Is(err, admininboxapp.ErrBadRequest):
-		writeAdminInboxError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
+		writeAdminInboxError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", redact.String(err.Error()))
 	default:
-		h.logger.Error("admin inbox request failed", "error", err)
+		h.logger.Error("admin inbox request failed", "error", redact.String(err.Error()))
 		writeAdminInboxError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 	}
 }
@@ -175,10 +177,7 @@ func parseListFilter(w http.ResponseWriter, r *http.Request) (admininboxapp.List
 }
 
 func parseIntQuery(w http.ResponseWriter, value string, fallback int, name string) (int, bool) {
-	if value == "" {
-		return fallback, true
-	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := httpquery.Int(value, fallback)
 	if err != nil {
 		writeAdminInboxError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
 		return 0, false
@@ -187,9 +186,7 @@ func parseIntQuery(w http.ResponseWriter, value string, fallback int, name strin
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	defer r.Body.Close()
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
 		writeAdminInboxError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}

@@ -3,6 +3,7 @@ package adminuser
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,6 +115,34 @@ func TestImportUsersRecordsCreatedSkippedAndFailedRows(t *testing.T) {
 	}
 }
 
+func TestImportUsersRedactsCreateErrors(t *testing.T) {
+	repo := &fakeRepository{createErr: errors.New("insert failed Authorization: Bearer import-token api_key=plain password=Strong1!")}
+	service := newTestService(t, repo)
+
+	response, err := service.ImportUsers(context.Background(), []ImportUser{
+		{Username: "new", Email: "new@example.com", Password: "Strong1!", Role: "student"},
+	})
+	if err != nil {
+		t.Fatalf("ImportUsers() error = %v", err)
+	}
+	if response.Failed != 1 || len(response.Details) != 1 {
+		t.Fatalf("response = %#v", response)
+	}
+	assertNoAdminUserCredentialLeak(t, response.Details[0].Message)
+}
+
+func assertNoAdminUserCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"import-token", "api_key=plain", "password=Strong1", "Bearer import-token"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
+	if !strings.Contains(value, "[REDACTED]") {
+		t.Fatalf("value = %q, want redaction marker", value)
+	}
+}
+
 func newTestService(t *testing.T, repo *fakeRepository) *Service {
 	t.Helper()
 	if repo.usersByUsername == nil {
@@ -145,6 +174,7 @@ type fakeRepository struct {
 	lastStatus        user.Status
 	deleted           bool
 	exportUsers       []ExportUser
+	createErr         error
 }
 
 func (r *fakeRepository) AccountStats(context.Context) (AccountStats, error) {
@@ -167,6 +197,9 @@ func (r *fakeRepository) GetByEmail(_ context.Context, email string) (user.User,
 }
 
 func (r *fakeRepository) Create(_ context.Context, input user.CreateUser) (user.User, error) {
+	if r.createErr != nil {
+		return user.User{}, r.createErr
+	}
 	r.created = append(r.created, input)
 	account := user.User{
 		ID:             input.Username + "-id",

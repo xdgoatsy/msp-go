@@ -10,6 +10,8 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	xidianapp "mathstudy/backend-go/internal/application/xidian"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the Xidian application surface used by HTTP handlers.
@@ -66,6 +68,8 @@ type errorResponse struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 }
+
+const maxJSONBodyBytes = 1 << 20
 
 func (h *Handler) bindingStatus(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.requirePrincipal(w, r)
@@ -183,16 +187,15 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback s
 		if status == 0 {
 			status = http.StatusBadRequest
 		}
-		writeXidianError(w, status, serviceErr.Code, serviceErr.Message)
+		writeXidianError(w, status, redact.String(serviceErr.Code), redact.String(serviceErr.Message))
 		return
 	}
-	h.logger.Error("xidian request failed", "error", err)
+	h.logger.Error("xidian request failed", "error", redact.String(err.Error()))
 	writeXidianError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	defer r.Body.Close()
-	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, maxJSONBodyBytes, target); err != nil {
 		writeXidianError(w, http.StatusBadRequest, "BAD_REQUEST", "请求体不是有效 JSON")
 		return false
 	}

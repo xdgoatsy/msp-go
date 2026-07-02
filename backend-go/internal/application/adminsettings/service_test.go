@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -115,6 +116,86 @@ func TestImportDataOrdersKnownTablesAndSkipsUnknown(t *testing.T) {
 	_, err = service.ImportData(context.Background(), []byte(`{"bad":true}`), "admin-1")
 	if !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("ImportData(invalid) error = %v, want ErrBadRequest", err)
+	}
+}
+
+func TestImportDataRejectsOversizedTableSet(t *testing.T) {
+	repo := &fakeRepository{}
+	service := newTestService(t, repo, nil)
+	tables := map[string][]map[string]any{}
+	for i := 0; i <= maxImportTableCount; i++ {
+		tables[("unknown_" + strings.Repeat("x", i+1))] = []map[string]any{}
+	}
+	content, err := json.Marshal(map[string]any{"tables": tables})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	_, err = service.ImportData(context.Background(), content, "admin-1")
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("ImportData(too many tables) error = %v, want ErrBadRequest", err)
+	}
+	if len(repo.importOrder) != 0 {
+		t.Fatalf("ImportRows called for oversized payload: %#v", repo.importOrder)
+	}
+}
+
+func TestImportDataRejectsOversizedKnownRows(t *testing.T) {
+	repo := &fakeRepository{}
+	service := newTestService(t, repo, nil)
+	rows := make([]map[string]any, maxImportRowsPerTable+1)
+	for i := range rows {
+		rows[i] = map[string]any{"key": "setting"}
+	}
+	content, err := json.Marshal(map[string]any{"tables": map[string]any{"system_settings": rows}})
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	_, err = service.ImportData(context.Background(), content, "admin-1")
+	if !errors.Is(err, ErrBadRequest) {
+		t.Fatalf("ImportData(too many rows) error = %v, want ErrBadRequest", err)
+	}
+	if len(repo.importOrder) != 0 {
+		t.Fatalf("ImportRows called for oversized rows: %#v", repo.importOrder)
+	}
+}
+
+func TestImportDataRejectsWideAndLargeValues(t *testing.T) {
+	tests := map[string]map[string]any{
+		"wide row": func() map[string]any {
+			row := map[string]any{}
+			for i := 0; i <= maxImportFieldsPerRow; i++ {
+				row["field_"+strings.Repeat("x", i+1)] = "value"
+			}
+			return row
+		}(),
+		"large string": {"key": strings.Repeat("x", maxImportStringBytes+1)},
+		"deep value": func() map[string]any {
+			var value any = "leaf"
+			for i := 0; i <= maxImportValueDepth; i++ {
+				value = []any{value}
+			}
+			return map[string]any{"key": value}
+		}(),
+	}
+	for name, row := range tests {
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeRepository{}
+			service := newTestService(t, repo, nil)
+			content, err := json.Marshal(map[string]any{"tables": map[string]any{"system_settings": []map[string]any{row}}})
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+
+			_, err = service.ImportData(context.Background(), content, "admin-1")
+			if !errors.Is(err, ErrBadRequest) {
+				t.Fatalf("ImportData(%s) error = %v, want ErrBadRequest", name, err)
+			}
+			if len(repo.importOrder) != 0 {
+				t.Fatalf("ImportRows called for invalid row: %#v", repo.importOrder)
+			}
+		})
 	}
 }
 

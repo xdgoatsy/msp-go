@@ -1,8 +1,10 @@
 package sessionhttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -64,7 +66,7 @@ func TestChatWritesSSEEvents(t *testing.T) {
 	handler.Register(mux, "/api/v1/session")
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/session/session-1/chat", strings.NewReader(`{"message":"你好","attachments":["/uploads/a.png"]}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/session/session-1/chat", strings.NewReader(`{"message":"你好","attachments":["/uploads/images/a.png"]}`))
 	request.Header.Set("Authorization", "Bearer token")
 	mux.ServeHTTP(recorder, request)
 
@@ -80,6 +82,27 @@ func TestChatWritesSSEEvents(t *testing.T) {
 	}
 	if service.lastSessionID != "session-1" || service.lastChatMessage != "你好" || len(service.lastAttachments) != 1 {
 		t.Fatalf("service = %#v", service)
+	}
+}
+
+func TestChatRejectsUnsafeAttachments(t *testing.T) {
+	service := &fakeSessionService{chatErr: sessionapp.ErrInvalidAttachment}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}}
+	handler := newTestHandler(t, service, auth)
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/session")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/session/session-1/chat", strings.NewReader(`{"message":"你好","attachments":["https://example.com/a.png"]}`))
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := decodeJSONBody(t, recorder.Body.String())
+	if body["code"] != "VALIDATION_ERROR" {
+		t.Fatalf("body = %#v", body)
 	}
 }
 
@@ -139,6 +162,28 @@ func TestHistoryListAndCancelTaskForwardInputs(t *testing.T) {
 	}
 }
 
+func TestHistoryRejectsOutOfRangeLimit(t *testing.T) {
+	service := &fakeSessionService{
+		historyResponse: sessionapp.HistoryResponse{Messages: []sessionapp.MessageResponse{}, Total: 0, HasMore: false},
+	}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}}
+	handler := newTestHandler(t, service, auth)
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/session")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/session/session-1/history?limit=101", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.lastLimit != 0 {
+		t.Fatalf("service was called for invalid limit: %#v", service)
+	}
+}
+
 func TestEndModeDeleteAndBatchDelete(t *testing.T) {
 	service := &fakeSessionService{
 		endResponse:         sessionapp.EndResponse{Status: "ended", Message: "会话已成功结束"},
@@ -184,6 +229,119 @@ func TestEndModeDeleteAndBatchDelete(t *testing.T) {
 	}
 }
 
+func TestJSONRoutesRejectTrailingJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "start",
+			method: http.MethodPost,
+			path:   "/api/v1/session/start",
+			body:   `{"topic":"极限","mode":"study"} {"mode":"extra"}`,
+		},
+		{
+			name:   "chat",
+			method: http.MethodPost,
+			path:   "/api/v1/session/session-1/chat",
+			body:   `{"message":"你好","attachments":["/uploads/images/a.png"]} {"message":"extra"}`,
+		},
+		{
+			name:   "mode",
+			method: http.MethodPatch,
+			path:   "/api/v1/session/session-1/mode",
+			body:   `{"mode":"explain"} {"mode":"extra"}`,
+		},
+		{
+			name:   "batch delete",
+			method: http.MethodPost,
+			path:   "/api/v1/session/batch-delete",
+			body:   `{"session_ids":["a","b"]} {"session_ids":["c"]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeSessionService{}
+			handler := newTestHandler(t, service, &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}})
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/session")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if service.lastUserID != "" {
+				t.Fatalf("service was called for trailing JSON body: %#v", service)
+			}
+			body := decodeJSONBody(t, recorder.Body.String())
+			if body["detail"] != "请求体格式错误" || body["code"] != "VALIDATION_ERROR" {
+				t.Fatalf("body = %#v", body)
+			}
+		})
+	}
+}
+
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	credentialErr := errors.New("session repo failed Authorization: Bearer session-secret token=query-token api_key=plain password=letmein")
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		service  fakeSessionService
+		wantCode int
+	}{
+		{name: "start", method: http.MethodPost, path: "/api/v1/session/start", body: `{}`, service: fakeSessionService{createErr: credentialErr}, wantCode: http.StatusInternalServerError},
+		{name: "chat", method: http.MethodPost, path: "/api/v1/session/session-1/chat", body: `{"message":"你好"}`, service: fakeSessionService{chatErr: credentialErr}, wantCode: http.StatusOK},
+		{name: "history", method: http.MethodGet, path: "/api/v1/session/session-1/history", service: fakeSessionService{historyErr: credentialErr}, wantCode: http.StatusInternalServerError},
+		{name: "list", method: http.MethodGet, path: "/api/v1/session/list", service: fakeSessionService{listErr: credentialErr}, wantCode: http.StatusInternalServerError},
+		{name: "end", method: http.MethodPost, path: "/api/v1/session/session-1/end", service: fakeSessionService{endErr: credentialErr}, wantCode: http.StatusInternalServerError},
+		{name: "mode", method: http.MethodPatch, path: "/api/v1/session/session-1/mode", body: `{"mode":"study"}`, service: fakeSessionService{modeErr: credentialErr}, wantCode: http.StatusInternalServerError},
+		{name: "delete", method: http.MethodDelete, path: "/api/v1/session/session-1", service: fakeSessionService{deleteErr: credentialErr}, wantCode: http.StatusInternalServerError},
+		{name: "batch delete", method: http.MethodPost, path: "/api/v1/session/batch-delete", body: `{"session_ids":["session-1"]}`, service: fakeSessionService{batchErr: credentialErr}, wantCode: http.StatusInternalServerError},
+		{name: "cancel task", method: http.MethodPost, path: "/api/v1/session/task/task-1/cancel", service: fakeSessionService{cancelErr: credentialErr}, wantCode: http.StatusInternalServerError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuffer bytes.Buffer
+			service := tt.service
+			handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), &service, &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}})
+			if err != nil {
+				t.Fatalf("NewHandler() error = %v", err)
+			}
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/session")
+
+			var body *strings.Reader
+			if tt.body == "" {
+				body = strings.NewReader("")
+			} else {
+				body = strings.NewReader(tt.body)
+			}
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, body)
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+			if recorder.Code != tt.wantCode {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if logBuffer.Len() == 0 {
+				t.Fatal("expected internal error log")
+			}
+			assertNoSessionCredentialLeak(t, recorder.Body.String())
+			assertNoSessionCredentialLeak(t, logBuffer.String())
+		})
+	}
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -200,6 +358,15 @@ func newTestHandler(t *testing.T, service Service, auth Authenticator) *Handler 
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoSessionCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"session-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer session-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 type fakeAuthenticator struct {

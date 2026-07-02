@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	xidianapp "mathstudy/backend-go/internal/application/xidian"
+	"mathstudy/backend-go/internal/platform/outbound"
 )
 
 const (
@@ -40,7 +42,7 @@ type Client struct {
 }
 
 // NewClient creates a Xidian integration client.
-func NewClient(config Config) (*Client, error) {
+func NewClient(config Config, clients ...*http.Client) (*Client, error) {
 	if strings.TrimSpace(config.IDsBase) == "" || strings.TrimSpace(config.EhallBase) == "" || strings.TrimSpace(config.YjsptBase) == "" {
 		return nil, errors.New("xidian base urls must not be empty")
 	}
@@ -56,16 +58,46 @@ func NewClient(config Config) (*Client, error) {
 	if config.CaptchaWidth <= 0 {
 		config.CaptchaWidth = 280
 	}
+	var err error
+	if config.IDsBase, err = normalizeXidianBaseURL("XIDIAN_IDS_BASE", config.IDsBase); err != nil {
+		return nil, err
+	}
+	if config.EhallBase, err = normalizeXidianBaseURL("XIDIAN_EHALL_BASE", config.EhallBase); err != nil {
+		return nil, err
+	}
+	if config.YjsptBase, err = normalizeXidianBaseURL("XIDIAN_YJSPT_BASE", config.YjsptBase); err != nil {
+		return nil, err
+	}
 	return &Client{
 		config: config,
-		client: &http.Client{
-			Timeout: config.ConnectTimeout + config.ReadTimeout,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
-		now: func() time.Time { return time.Now().UTC() },
+		client: xidianHTTPClient(config.ConnectTimeout+config.ReadTimeout, clients...),
+		now:    func() time.Time { return time.Now().UTC() },
 	}, nil
+}
+
+func normalizeXidianBaseURL(name string, value string) (string, error) {
+	baseURL, err := outbound.NormalizePublicHTTPSBaseURL(value)
+	if err != nil {
+		return "", fmt.Errorf("%s %w", name, err)
+	}
+	return baseURL, nil
+}
+
+func xidianHTTPClient(timeout time.Duration, clients ...*http.Client) *http.Client {
+	if timeout <= 0 {
+		timeout = 40 * time.Second
+	}
+	if len(clients) > 0 && clients[0] != nil {
+		copy := *clients[0]
+		if copy.Timeout == 0 {
+			copy.Timeout = timeout
+		}
+		copy.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		return &copy
+	}
+	return outbound.NewPublicHTTPSClient(timeout)
 }
 
 // StartBinding fetches IDS login state and opens a slider captcha.

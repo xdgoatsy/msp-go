@@ -10,6 +10,7 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	progressapp "mathstudy/backend-go/internal/application/progress"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the progress application surface used by HTTP handlers.
@@ -77,7 +78,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetOverview(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get progress overview failed", "error", err)
+		h.logProgressError("get progress overview failed", err)
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学习进度失败")
 		return
 	}
@@ -91,7 +92,7 @@ func (h *Handler) mastery(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetMasteryVector(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get mastery vector failed", "error", err)
+		h.logProgressError("get mastery vector failed", err)
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取知识点掌握度失败")
 		return
 	}
@@ -105,7 +106,7 @@ func (h *Handler) path(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetLearningPath(r.Context(), principal.UserID, r.URL.Query().Get("target"))
 	if err != nil {
-		h.logger.Error("get learning path failed", "error", err)
+		h.logProgressError("get learning path failed", err)
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学习路径失败")
 		return
 	}
@@ -124,7 +125,7 @@ func (h *Handler) knowledgeGraph(w http.ResponseWriter, r *http.Request) {
 		Search:   query.Get("search"),
 	})
 	if err != nil {
-		h.logger.Error("get knowledge graph failed", "error", err)
+		h.logProgressError("get knowledge graph failed", err)
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取知识图谱失败")
 		return
 	}
@@ -142,7 +143,7 @@ func (h *Handler) statistics(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetStatistics(r.Context(), principal.UserID, rangeType)
 	if err != nil {
-		h.logger.Error("get learning statistics failed", "error", err)
+		h.logProgressError("get learning statistics failed", err)
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学习统计失败")
 		return
 	}
@@ -156,7 +157,7 @@ func (h *Handler) classRanking(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetClassRanking(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get class ranking failed", "error", err)
+		h.logProgressError("get class ranking failed", err)
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取班级排名失败")
 		return
 	}
@@ -169,7 +170,7 @@ func (h *Handler) chapters(w http.ResponseWriter, r *http.Request) {
 	}
 	chapters, err := h.service.GetChapters(r.Context())
 	if err != nil {
-		h.logger.Error("get chapters failed", "error", err)
+		h.logProgressError("get chapters failed", err)
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取章节列表失败")
 		return
 	}
@@ -191,6 +192,10 @@ func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (auth
 		return authapp.Principal{}, false
 	}
 	return principal, true
+}
+
+func (h *Handler) logProgressError(message string, err error) {
+	h.logger.Error(message, "error", redact.String(err.Error()))
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

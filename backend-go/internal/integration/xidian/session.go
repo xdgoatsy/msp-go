@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -35,6 +36,9 @@ func newSession(client *http.Client, config Config, cookies []xidianapp.Cookie) 
 func (s *session) request(ctx context.Context, method string, rawURL string, params url.Values, form url.Values, headers map[string]string) (*http.Response, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateXidianRequestURL(parsed, s.config); err != nil {
 		return nil, err
 	}
 	if len(params) > 0 {
@@ -77,15 +81,11 @@ func (s *session) request(ctx context.Context, method string, rawURL string, par
 }
 
 func (s *session) followRedirects(ctx context.Context, base *url.URL, location string, headers map[string]string) (*http.Response, error) {
-	current := location
-	if base != nil {
-		current = base.ResolveReference(&url.URL{Path: location}).String()
-		if parsed, err := url.Parse(location); err == nil && parsed.IsAbs() {
-			current = parsed.String()
-		}
+	current, err := resolveXidianLocation(base, location)
+	if err != nil {
+		return nil, err
 	}
 	var response *http.Response
-	var err error
 	for range 10 {
 		response, err = s.request(ctx, http.MethodGet, current, nil, nil, headers)
 		if err != nil {
@@ -100,9 +100,9 @@ func (s *session) followRedirects(ctx context.Context, base *url.URL, location s
 			return response, nil
 		}
 		parsedCurrent, _ := url.Parse(current)
-		current = parsedCurrent.ResolveReference(&url.URL{Path: next}).String()
-		if parsedNext, err := url.Parse(next); err == nil && parsedNext.IsAbs() {
-			current = parsedNext.String()
+		current, err = resolveXidianLocation(parsedCurrent, next)
+		if err != nil {
+			return nil, err
 		}
 	}
 	return response, nil
@@ -207,4 +207,31 @@ func isRetryable(err error) bool {
 		return true
 	}
 	return false
+}
+
+func resolveXidianLocation(base *url.URL, location string) (string, error) {
+	parsed, err := url.Parse(location)
+	if err != nil {
+		return "", err
+	}
+	if base != nil {
+		parsed = base.ResolveReference(parsed)
+	}
+	return parsed.String(), nil
+}
+
+func validateXidianRequestURL(parsed *url.URL, config Config) error {
+	if parsed == nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return errors.New("xidian request URL must be absolute HTTPS")
+	}
+	if parsed.User != nil {
+		return errors.New("xidian request URL must not include userinfo")
+	}
+	for _, baseURL := range []string{config.IDsBase, config.EhallBase, config.YjsptBase} {
+		base, err := url.Parse(baseURL)
+		if err == nil && strings.EqualFold(parsed.Host, base.Host) {
+			return nil
+		}
+	}
+	return fmt.Errorf("xidian request host %q is not configured", parsed.Host)
 }

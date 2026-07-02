@@ -16,6 +16,15 @@ const (
 	allowTeacherRegistration = "allow_teacher_registration"
 	systemNameKey            = "system_name"
 	systemDescriptionKey     = "system_description"
+
+	maxImportTableCount   = 32
+	maxImportRowsPerTable = 50000
+	maxImportTotalRows    = 100000
+	maxImportFieldsPerRow = 128
+	maxImportKeyBytes     = 256
+	maxImportStringBytes  = 1 << 20
+	maxImportValueDepth   = 16
+	maxImportArrayItems   = 4096
 )
 
 var (
@@ -356,6 +365,9 @@ func (s *Service) ImportData(ctx context.Context, content []byte, adminID string
 	if payload.Tables == nil {
 		return DataImportResponse{}, badRequest("无效的备份文件格式")
 	}
+	if len(payload.Tables) > maxImportTableCount {
+		return DataImportResponse{}, badRequest(fmt.Sprintf("导入表数量不能超过 %d", maxImportTableCount))
+	}
 
 	response := DataImportResponse{
 		Success:      true,
@@ -363,6 +375,7 @@ func (s *Service) ImportData(ctx context.Context, content []byte, adminID string
 		TableResults: map[string]TableImportResult{},
 		Errors:       []string{},
 	}
+	totalRows := 0
 	for _, table := range s.orderedImportTables(payload.Tables) {
 		if !s.isExportableTable(table) {
 			response.Errors = append(response.Errors, "跳过未知表: "+table)
@@ -373,6 +386,13 @@ func (s *Service) ImportData(ctx context.Context, content []byte, adminID string
 			response.Errors = append(response.Errors, table+": 数据格式无效")
 			response.TotalFailed++
 			continue
+		}
+		totalRows += len(rows)
+		if totalRows > maxImportTotalRows {
+			return DataImportResponse{}, badRequest(fmt.Sprintf("导入总行数不能超过 %d", maxImportTotalRows))
+		}
+		if err := validateImportRows(table, rows); err != nil {
+			return DataImportResponse{}, err
 		}
 		result, err := s.repo.ImportRows(ctx, table, rows)
 		if err != nil {
@@ -385,6 +405,60 @@ func (s *Service) ImportData(ctx context.Context, content []byte, adminID string
 	}
 	response.Success = response.TotalFailed == 0
 	return response, nil
+}
+
+func validateImportRows(table string, rows []map[string]any) error {
+	if len(rows) > maxImportRowsPerTable {
+		return badRequest(fmt.Sprintf("%s: 单表导入行数不能超过 %d", table, maxImportRowsPerTable))
+	}
+	for rowIndex, row := range rows {
+		if len(row) > maxImportFieldsPerRow {
+			return badRequest(fmt.Sprintf("%s: 第 %d 行字段数量不能超过 %d", table, rowIndex+1, maxImportFieldsPerRow))
+		}
+		for column, value := range row {
+			if len(column) > maxImportKeyBytes {
+				return badRequest(fmt.Sprintf("%s: 第 %d 行字段名长度不能超过 %d 字节", table, rowIndex+1, maxImportKeyBytes))
+			}
+			if err := validateImportValue(value, 0); err != nil {
+				return badRequest(fmt.Sprintf("%s: 第 %d 行字段 %q %s", table, rowIndex+1, column, err.Error()))
+			}
+		}
+	}
+	return nil
+}
+
+func validateImportValue(value any, depth int) error {
+	if depth > maxImportValueDepth {
+		return fmt.Errorf("嵌套深度不能超过 %d", maxImportValueDepth)
+	}
+	switch typed := value.(type) {
+	case string:
+		if len(typed) > maxImportStringBytes {
+			return fmt.Errorf("字符串长度不能超过 %d 字节", maxImportStringBytes)
+		}
+	case []any:
+		if len(typed) > maxImportArrayItems {
+			return fmt.Errorf("数组长度不能超过 %d", maxImportArrayItems)
+		}
+		for _, item := range typed {
+			if err := validateImportValue(item, depth+1); err != nil {
+				return err
+			}
+		}
+	case map[string]any:
+		if len(typed) > maxImportFieldsPerRow {
+			return fmt.Errorf("对象字段数量不能超过 %d", maxImportFieldsPerRow)
+		}
+		for key, nested := range typed {
+			if len(key) > maxImportKeyBytes {
+				return fmt.Errorf("对象字段名长度不能超过 %d 字节", maxImportKeyBytes)
+			}
+			if err := validateImportValue(nested, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // DatabaseMonitor returns database overview, pool usage, and table statistics.

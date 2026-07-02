@@ -41,12 +41,69 @@ func TestSaveResourceFileUsesVideoAndDocumentPrefixes(t *testing.T) {
 
 	storage.object = StoredObject{URL: "/uploads/documents/id-3.pdf", Size: 3, ContentType: "application/pdf"}
 	service.newID = func() (string, error) { return "id-3", nil }
-	response, err = service.SaveResourceFile(context.Background(), strings.NewReader("pdf"), FileMeta{ContentType: "application/pdf", Size: 3})
+	response, err = service.SaveResourceFile(context.Background(), strings.NewReader("%PDF-1.7\nbody"), FileMeta{ContentType: "application/pdf", Size: 13})
 	if err != nil {
 		t.Fatalf("SaveResourceFile(document) error = %v", err)
 	}
 	if storage.key != "documents/id-3.pdf" || response.Filename != "id-3.pdf" {
 		t.Fatalf("document upload = key %q response %#v", storage.key, response)
+	}
+}
+
+func TestSaveResourceFileRejectsSpoofedDocumentContent(t *testing.T) {
+	service := newTestService(&fakeStorage{}, "id-1")
+	if _, err := service.SaveResourceFile(context.Background(), strings.NewReader("not a pdf"), FileMeta{ContentType: "application/pdf", Size: 9}); !errors.Is(err, ErrInvalidContentType) {
+		t.Fatalf("spoofed pdf error = %v, want ErrInvalidContentType", err)
+	}
+	if _, err := service.SaveResourceFile(context.Background(), strings.NewReader("hello\x00world"), FileMeta{ContentType: "text/plain", Size: 11}); !errors.Is(err, ErrInvalidContentType) {
+		t.Fatalf("text with nul error = %v, want ErrInvalidContentType", err)
+	}
+}
+
+func TestSaveResourceFilePreservesPrefixBytesAfterValidation(t *testing.T) {
+	storage := &fakeStorage{object: StoredObject{URL: "/uploads/documents/id-1.pdf", ContentType: "application/pdf"}}
+	service := newTestService(storage, "id-1")
+	content := "%PDF-1.7\nbody"
+
+	_, err := service.SaveResourceFile(context.Background(), strings.NewReader(content), FileMeta{ContentType: "application/pdf", Size: int64(len(content))})
+	if err != nil {
+		t.Fatalf("SaveResourceFile() error = %v", err)
+	}
+	if string(storage.data) != content {
+		t.Fatalf("stored data = %q, want %q", string(storage.data), content)
+	}
+}
+
+func TestIsSafeImagePath(t *testing.T) {
+	valid := []string{
+		"/uploads/images/file.png",
+		" /uploads/images/nested/file.webp ",
+	}
+	for _, value := range valid {
+		t.Run("valid "+value, func(t *testing.T) {
+			if !IsSafeImagePath(value) {
+				t.Fatalf("IsSafeImagePath(%q) = false, want true", value)
+			}
+		})
+	}
+
+	invalid := []string{
+		"",
+		"https://example.com/file.png",
+		"/uploads/file.png",
+		"/uploads/documents/file.pdf",
+		"/uploads/images/../documents/file.pdf",
+		"/uploads/images/file.png?download=1",
+		"/uploads/images/file.png#fragment",
+		`/uploads/images\file.png`,
+		"/uploads/images/%2e%2e/file.png",
+	}
+	for _, value := range invalid {
+		t.Run("invalid "+value, func(t *testing.T) {
+			if IsSafeImagePath(value) {
+				t.Fatalf("IsSafeImagePath(%q) = true, want false", value)
+			}
+		})
 	}
 }
 

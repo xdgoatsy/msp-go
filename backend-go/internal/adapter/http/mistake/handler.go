@@ -12,6 +12,8 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	mistakeapp "mathstudy/backend-go/internal/application/mistake"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the mistake application surface used by HTTP handlers.
@@ -77,7 +79,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetMistakes(r.Context(), principal.UserID, query)
 	if err != nil {
-		h.logger.Error("get mistake list failed", "error", err)
+		h.logMistakeError("get mistake list failed", err)
 		writeMistakeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "查询错题列表失败")
 		return
 	}
@@ -95,7 +97,7 @@ func (h *Handler) statistics(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetStatistics(r.Context(), principal.UserID, timeRange)
 	if err != nil {
-		h.logger.Error("get mistake statistics failed", "error", err)
+		h.logMistakeError("get mistake statistics failed", err)
 		writeMistakeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "查询错题统计失败")
 		return
 	}
@@ -113,7 +115,7 @@ func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
 			writeMistakeError(w, http.StatusNotFound, "NOT_FOUND", "错题记录不存在")
 			return
 		}
-		h.logger.Error("get mistake detail failed", "error", err)
+		h.logMistakeError("get mistake detail failed", err)
 		writeMistakeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "查询错题详情失败")
 		return
 	}
@@ -135,7 +137,7 @@ func (h *Handler) markAsMastered(w http.ResponseWriter, r *http.Request) {
 			writeMistakeError(w, http.StatusNotFound, "NOT_FOUND", "学生画像不存在")
 			return
 		}
-		h.logger.Error("mark mistake as mastered failed", "error", err)
+		h.logMistakeError("mark mistake as mastered failed", err)
 		writeMistakeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "标记已掌握失败")
 		return
 	}
@@ -153,7 +155,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 			writeMistakeError(w, http.StatusNotFound, "NOT_FOUND", "错题记录不存在")
 			return
 		}
-		h.logger.Error("delete mistake failed", "error", err)
+		h.logMistakeError("delete mistake failed", err)
 		writeMistakeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "删除错题失败")
 		return
 	}
@@ -172,7 +174,7 @@ func (h *Handler) reviewNext(w http.ResponseWriter, r *http.Request) {
 			writeMistakeError(w, http.StatusNotFound, "NOT_FOUND", "没有可复习的错题")
 			return
 		}
-		h.logger.Error("get review exercise failed", "error", err)
+		h.logMistakeError("get review exercise failed", err)
 		writeMistakeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取复习题目失败")
 		return
 	}
@@ -194,6 +196,10 @@ func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (auth
 		return authapp.Principal{}, false
 	}
 	return principal, true
+}
+
+func (h *Handler) logMistakeError(message string, err error) {
+	h.logger.Error(message, "error", redact.String(err.Error()))
 }
 
 func parseListQuery(w http.ResponseWriter, r *http.Request) (mistakeapp.ListQuery, bool) {
@@ -262,10 +268,7 @@ func parseListQuery(w http.ResponseWriter, r *http.Request) (mistakeapp.ListQuer
 }
 
 func parseIntQuery(w http.ResponseWriter, value string, fallback int, name string) (int, bool) {
-	if value == "" {
-		return fallback, true
-	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := httpquery.Int(value, fallback)
 	if err != nil {
 		writeMistakeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
 		return 0, false

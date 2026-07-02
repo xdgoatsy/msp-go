@@ -144,6 +144,36 @@ func TestServiceRefreshTokensRotatesServerSession(t *testing.T) {
 	}
 }
 
+func TestServiceRefreshTokensRotateWithDefaultLocalStore(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRepository(t)
+	service := newTestService(t, repo)
+
+	result, err := service.Authenticate(ctx, "teacher", "Strong1!")
+	if err != nil {
+		t.Fatalf("Authenticate() error = %v", err)
+	}
+	principal, message, ok := service.DecodeRefreshToken(result.RefreshToken)
+	if !ok {
+		t.Fatalf("DecodeRefreshToken() failed: %s", message)
+	}
+
+	_, refreshToken, ok, err := service.RefreshTokens(ctx, principal)
+	if err != nil {
+		t.Fatalf("RefreshTokens() error = %v", err)
+	}
+	if !ok || refreshToken == "" {
+		t.Fatalf("RefreshTokens() refresh:%q ok:%t", refreshToken, ok)
+	}
+	_, _, ok, err = service.RefreshTokens(ctx, principal)
+	if err != nil {
+		t.Fatalf("RefreshTokens(reuse) error = %v", err)
+	}
+	if ok {
+		t.Fatal("RefreshTokens(reuse) ok = true, want false")
+	}
+}
+
 func TestServiceRevokeRefreshTokenInvalidatesSession(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepository(t)
@@ -289,6 +319,7 @@ func newTestService(t *testing.T, repo *fakeRepository) *Service {
 		t.Fatalf("NewService() error = %v", err)
 	}
 	service.now = func() time.Time { return now }
+	service.refreshSessions.now = func() time.Time { return now }
 	return service
 }
 

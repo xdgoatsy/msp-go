@@ -3,11 +3,17 @@ package session
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
+
+	uploadapp "mathstudy/backend-go/internal/application/upload"
 )
 
 // ErrNotFound is returned when the session is absent or not owned by the user.
 var ErrNotFound = errors.New("session not found")
+
+// ErrInvalidAttachment is returned when a chat attachment URL is outside the upload image boundary.
+var ErrInvalidAttachment = errors.New("invalid attachment")
 
 // Repository is the persistence surface required by session use cases.
 type Repository interface {
@@ -247,6 +253,10 @@ func (s *Service) CreateSession(ctx context.Context, userID string, topic *strin
 
 // ProcessChat stores the user message and generates a compatible assistant SSE payload.
 func (s *Service) ProcessChat(ctx context.Context, sessionID string, userID string, message string, attachments []string) (ChatResult, error) {
+	attachments, err := normalizeChatAttachments(attachments)
+	if err != nil {
+		return ChatResult{}, err
+	}
 	current, ok, err := s.repo.GetSession(ctx, sessionID, userID)
 	if err != nil {
 		return ChatResult{}, err
@@ -306,6 +316,24 @@ func (s *Service) ProcessChat(ctx context.Context, sessionID string, userID stri
 		return ChatResult{}, err
 	}
 	return ChatResult{TaskID: taskID, MessageID: assistantMessageID, Agent: agent, Content: output.Content}, nil
+}
+
+func normalizeChatAttachments(attachments []string) ([]string, error) {
+	if len(attachments) == 0 {
+		return []string{}, nil
+	}
+	if len(attachments) > 5 {
+		return nil, ErrInvalidAttachment
+	}
+	normalized := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		value := strings.TrimSpace(attachment)
+		if !uploadapp.IsSafeImagePath(value) {
+			return nil, ErrInvalidAttachment
+		}
+		normalized = append(normalized, value)
+	}
+	return normalized, nil
 }
 
 func (s *Service) recentHistory(ctx context.Context, sessionID string) ([]Message, error) {

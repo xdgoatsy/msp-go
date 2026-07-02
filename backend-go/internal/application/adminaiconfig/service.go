@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
+
+	"mathstudy/backend-go/internal/platform/outbound"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 const (
@@ -90,7 +92,7 @@ func NewService(repo Repository, cipher Cipher, clients ...HTTPDoer) (*Service, 
 		client = clients[0]
 	}
 	if client == nil {
-		client = &http.Client{Timeout: 20 * time.Second}
+		client = outbound.NewPublicHTTPSClient(20 * time.Second)
 	}
 	return &Service{
 		repo:       repo,
@@ -697,11 +699,15 @@ func (s *Service) TestProvider(ctx context.Context, providerID string, requested
 	if modelID == "" {
 		return ProviderTestResult{Success: false, Message: "请先配置至少一个模型", LatencyMS: 0}, nil
 	}
+	baseURL, err := normalizeBaseURL(provider.BaseURL)
+	if err != nil {
+		return ProviderTestResult{}, err
+	}
 	start := time.Now()
-	err = s.chatCompletionProbe(ctx, provider.BaseURL, apiKey, modelID)
+	err = s.chatCompletionProbe(ctx, baseURL, apiKey, modelID)
 	latency := float64(time.Since(start).Microseconds()) / 1000
 	if err != nil {
-		return ProviderTestResult{Success: false, Message: "连接失败: " + err.Error(), LatencyMS: latency, ModelID: &modelID}, nil
+		return ProviderTestResult{Success: false, Message: "连接失败: " + redact.String(err.Error()), LatencyMS: latency, ModelID: &modelID}, nil
 	}
 	return ProviderTestResult{Success: true, Message: "连接成功", LatencyMS: latency, ModelID: &modelID}, nil
 }
@@ -718,7 +724,11 @@ func (s *Service) FetchAvailableModels(ctx context.Context, providerID string) (
 	if err != nil {
 		return FetchModelsResponse{Success: false, Models: []string{}, Message: "API 密钥不可用"}, nil
 	}
-	return s.fetchModels(ctx, provider.BaseURL, apiKey)
+	baseURL, err := normalizeBaseURL(provider.BaseURL)
+	if err != nil {
+		return FetchModelsResponse{}, err
+	}
+	return s.fetchModels(ctx, baseURL, apiKey)
 }
 
 func (s *Service) FetchModelsByCredentials(ctx context.Context, request FetchModelsByCredentialsRequest) (FetchModelsResponse, error) {
@@ -759,6 +769,10 @@ func (s *Service) RuntimeConfig(ctx context.Context, agentType string) (RuntimeC
 	if !ok || !provider.IsActive {
 		return RuntimeConfig{}, false, nil
 	}
+	baseURL, err := normalizeBaseURL(provider.BaseURL)
+	if err != nil {
+		return RuntimeConfig{}, false, err
+	}
 	apiKey, err := s.cipher.Decrypt(provider.EncryptedAPIKey)
 	if err != nil || strings.TrimSpace(apiKey) == "" {
 		return RuntimeConfig{}, false, nil
@@ -789,7 +803,7 @@ func (s *Service) RuntimeConfig(ctx context.Context, agentType string) (RuntimeC
 	return RuntimeConfig{
 		ProviderCode:  provider.Code,
 		ProviderName:  provider.Name,
-		BaseURL:       provider.BaseURL,
+		BaseURL:       baseURL,
 		APIKey:        apiKey,
 		Model:         model.ModelID,
 		Temperature:   temperature,
@@ -952,7 +966,7 @@ func (s *Service) fetchModels(ctx context.Context, baseURL string, apiKey string
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return FetchModelsResponse{Success: false, Models: []string{}, Message: "获取模型列表失败: " + err.Error()}, nil
+		return FetchModelsResponse{Success: false, Models: []string{}, Message: "获取模型列表失败: " + redact.String(err.Error())}, nil
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
@@ -1005,18 +1019,11 @@ func (s *Service) chatCompletionProbe(ctx context.Context, baseURL string, apiKe
 }
 
 func normalizeBaseURL(value string) (string, error) {
-	trimmed := strings.TrimRight(strings.TrimSpace(value), "/")
-	if trimmed == "" || len([]rune(trimmed)) > 500 {
-		return "", badRequest("base_url 长度必须在 1 到 500 之间")
+	baseURL, err := outbound.NormalizePublicHTTPSBaseURL(value)
+	if err != nil {
+		return "", badRequest("base_url " + err.Error())
 	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", badRequest("base_url 必须是有效 URL")
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", badRequest("base_url 仅支持 http 或 https")
-	}
-	return trimmed, nil
+	return baseURL, nil
 }
 
 func normalizeProviderCode(value string) string {

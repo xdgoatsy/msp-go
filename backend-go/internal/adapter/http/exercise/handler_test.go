@@ -1,8 +1,10 @@
 package exercisehttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -112,6 +114,53 @@ func TestSubmitForwardsPayloadAndMapsBadRequest(t *testing.T) {
 	}
 }
 
+func TestSubmitForwardsImageAnswerURL(t *testing.T) {
+	service := &fakeExerciseService{submitResponse: exerciseapp.SubmitResponse{Score: 0}}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}}
+	handler := newTestHandler(t, service, auth)
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/exercise")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/exercise/submit", strings.NewReader(`{"exercise_id":"exercise-1","answer_image_url":"/uploads/images/answer.png"}`))
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !service.submitCalled || service.lastSubmitRequest.AnswerImageURL != "/uploads/images/answer.png" {
+		t.Fatalf("request = %#v", service.lastSubmitRequest)
+	}
+}
+
+func TestSubmitRejectsTrailingJSON(t *testing.T) {
+	service := &fakeExerciseService{}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}}
+	handler := newTestHandler(t, service, auth)
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/exercise")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/exercise/submit", strings.NewReader(`{"exercise_id":"exercise-1","answer_text":"42"} {"answer_text":"extra"}`))
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if service.submitCalled {
+		t.Fatalf("service was called for trailing JSON body: %#v", service.lastSubmitRequest)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if body["detail"] != "请求体格式错误" || body["code"] != "VALIDATION_ERROR" {
+		t.Fatalf("body = %#v", body)
+	}
+}
+
 func TestSolutionRouteDoesNotHitDetailRoute(t *testing.T) {
 	service := &fakeExerciseService{
 		solutionResponse: exerciseapp.SolutionResponse{ExerciseID: "exercise-1", Answer: "42", Steps: []string{"step"}, Source: "cached"},
@@ -151,6 +200,28 @@ func TestDetailMapsNotFound(t *testing.T) {
 	}
 }
 
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	var logBuffer bytes.Buffer
+	service := &fakeExerciseService{nextErr: errors.New("exercise repo failed Authorization: Bearer exercise-secret token=query-token api_key=plain password=letmein")}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}}
+	handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), service, auth)
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/exercise")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/exercise/next", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	assertNoExerciseCredentialLeak(t, recorder.Body.String())
+	assertNoExerciseCredentialLeak(t, logBuffer.String())
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -167,6 +238,15 @@ func newTestHandler(t *testing.T, service Service, auth Authenticator) *Handler 
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoExerciseCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"exercise-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer exercise-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 type fakeAuthenticator struct {

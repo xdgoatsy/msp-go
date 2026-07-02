@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	adminsettingsapp "mathstudy/backend-go/internal/application/adminsettings"
@@ -104,6 +105,75 @@ func TestDatabaseRoutes(t *testing.T) {
 	}
 }
 
+func TestJSONRoutesRejectTrailingJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		assert func(*testing.T, *fakeSettingsService)
+	}{
+		{
+			name:   "registration",
+			method: http.MethodPut,
+			path:   "/api/v1/admin/settings/registration",
+			body:   `{"allow_student":true,"allow_teacher":true} {"allow_teacher":false}`,
+			assert: func(t *testing.T, service *fakeSettingsService) {
+				t.Helper()
+				if service.lastAllowStudent || service.lastAllowTeacher {
+					t.Fatalf("service was called for registration trailing JSON: student=%v teacher=%v", service.lastAllowStudent, service.lastAllowTeacher)
+				}
+			},
+		},
+		{
+			name:   "general",
+			method: http.MethodPut,
+			path:   "/api/v1/admin/settings/general",
+			body:   `{"system_name":"新系统","system_description":"描述"} {"system_name":"extra"}`,
+			assert: func(t *testing.T, service *fakeSettingsService) {
+				t.Helper()
+				if service.lastSystemName != "" || service.lastSystemDescription != "" {
+					t.Fatalf("service was called for general trailing JSON: name=%q desc=%q", service.lastSystemName, service.lastSystemDescription)
+				}
+			},
+		},
+		{
+			name:   "database export",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/settings/database/export",
+			body:   `{"tables":["users"]} {"tables":["secrets"]}`,
+			assert: func(t *testing.T, service *fakeSettingsService) {
+				t.Helper()
+				if service.lastAdminID != "" || len(service.lastTables) != 0 {
+					t.Fatalf("service was called for export trailing JSON: admin=%q tables=%#v", service.lastAdminID, service.lastTables)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeSettingsService{}
+			handler := newAdminSettingsTestHandler(t, service, adminAuthenticator())
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/admin/settings")
+
+			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+			request.Header.Set("Authorization", "Bearer token")
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "请求体格式错误") || !strings.Contains(recorder.Body.String(), "VALIDATION_ERROR") {
+				t.Fatalf("body=%s", recorder.Body.String())
+			}
+			tt.assert(t, service)
+		})
+	}
+}
+
 func TestValidationAndServiceErrors(t *testing.T) {
 	service := &fakeSettingsService{err: adminsettingsapp.Error{Kind: adminsettingsapp.ErrBadRequest, Message: "不支持导出的表: bad"}}
 	handler := newAdminSettingsTestHandler(t, service, adminAuthenticator())
@@ -130,6 +200,43 @@ func TestValidationAndServiceErrors(t *testing.T) {
 	}
 }
 
+func TestServiceErrorsRedactPublicMessages(t *testing.T) {
+	service := &fakeSettingsService{err: adminsettingsapp.Error{Kind: adminsettingsapp.ErrBadRequest, Message: "导入失败 Authorization: Bearer settings-secret token=query-token api_key=plain password=letmein"}}
+	handler := newAdminSettingsTestHandler(t, service, adminAuthenticator())
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/settings")
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/settings/database/export", bytes.NewBufferString(`{"tables":["users"]}`))
+	request.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoAdminSettingsCredentialLeak(t, recorder.Body.String())
+}
+
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	var logBuffer bytes.Buffer
+	service := &fakeSettingsService{err: errors.New("repo failed Authorization: Bearer settings-secret token=query-token api_key=plain password=letmein")}
+	handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), service, adminAuthenticator())
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/settings")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/settings/database/monitor", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoAdminSettingsCredentialLeak(t, recorder.Body.String())
+	assertNoAdminSettingsCredentialLeak(t, logBuffer.String())
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -146,6 +253,15 @@ func newAdminSettingsTestHandler(t *testing.T, service Service, auth Authenticat
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoAdminSettingsCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"settings-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer settings-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 func multipartBody(t *testing.T, filename string, content string) (*bytes.Buffer, string) {

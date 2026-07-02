@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,6 +155,28 @@ func TestUploadMapsServiceErrors(t *testing.T) {
 	}
 }
 
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	var logBuffer bytes.Buffer
+	service := &fakeUploadService{imageErr: errors.New("store failed Authorization: Bearer upload-secret token=query-token api_key=plain password=letmein")}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}}
+	handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), service, auth)
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/upload")
+
+	recorder := httptest.NewRecorder()
+	request := multipartRequest(t, "/api/v1/upload/image", "image.png", "image/png", "data")
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	assertNoUploadCredentialLeak(t, recorder.Body.String())
+	assertNoUploadCredentialLeak(t, logBuffer.String())
+}
+
 func TestUploadRejectsMissingMultipartFile(t *testing.T) {
 	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}}
 	handler := newTestHandler(t, &fakeUploadService{}, auth)
@@ -216,6 +239,15 @@ func newTestHandler(t *testing.T, service Service, auth Authenticator) *Handler 
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoUploadCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"upload-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer upload-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 func multipartRequest(t *testing.T, target string, filename string, contentType string, content string) *http.Request {

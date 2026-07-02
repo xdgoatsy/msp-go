@@ -104,7 +104,9 @@ type ServiceOption func(*Service)
 // WithRefreshSessionStore enables server-side refresh token rotation and revocation.
 func WithRefreshSessionStore(store *RefreshSessionStore) ServiceOption {
 	return func(s *Service) {
-		s.refreshSessions = store
+		if store != nil {
+			s.refreshSessions = store
+		}
 	}
 }
 
@@ -131,13 +133,14 @@ func NewService(
 		logger = slog.Default()
 	}
 	service := &Service{
-		users:    users,
-		settings: settings,
-		resets:   resets,
-		tokens:   tokens,
-		limiter:  limiter,
-		logger:   logger,
-		now:      func() time.Time { return time.Now().UTC() },
+		users:           users,
+		settings:        settings,
+		resets:          resets,
+		tokens:          tokens,
+		limiter:         limiter,
+		refreshSessions: NewRefreshSessionStore(nil, logger),
+		logger:          logger,
+		now:             func() time.Time { return time.Now().UTC() },
 	}
 	for _, option := range options {
 		if option != nil {

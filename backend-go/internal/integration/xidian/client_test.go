@@ -13,7 +13,7 @@ import (
 )
 
 func TestStartBindingParsesLoginPageAndCaptcha(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/authserver/login":
 			_, _ = w.Write([]byte(`<form><input type="hidden" name="lt" value="token"><input id="pwdEncryptSalt" value="1234567890abcdef"></form>`))
@@ -23,8 +23,6 @@ func TestStartBindingParsesLoginPageAndCaptcha(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer server.Close()
-	client := newTestClient(t, server.URL)
 
 	challenge, err := client.StartBinding(context.Background())
 	if err != nil {
@@ -40,7 +38,7 @@ func TestStartBindingParsesLoginPageAndCaptcha(t *testing.T) {
 
 func TestCompleteBindingSubmitsEncryptedPassword(t *testing.T) {
 	var loginBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/authserver/common/verifySliderCaptcha.htl":
 			_ = json.NewEncoder(w).Encode(map[string]any{"errorCode": 1})
@@ -62,8 +60,6 @@ func TestCompleteBindingSubmitsEncryptedPassword(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer server.Close()
-	client := newTestClient(t, server.URL)
 
 	result, err := client.CompleteBinding(context.Background(), xidianapp.ChallengeState{
 		PasswordSalt: "1234567890abcdef",
@@ -80,25 +76,78 @@ func TestCompleteBindingSubmitsEncryptedPassword(t *testing.T) {
 	}
 }
 
+func TestCompleteBindingRejectsRedirectOutsideConfiguredHosts(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/authserver/common/verifySliderCaptcha.htl":
+			_ = json.NewEncoder(w).Encode(map[string]any{"errorCode": 1})
+		case "/authserver/login":
+			http.Redirect(w, r, "https://evil.example.com/new/index.html", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+
+	_, err := client.CompleteBinding(context.Background(), xidianapp.ChallengeState{
+		PasswordSalt: "1234567890abcdef",
+		HiddenInputs: map[string]string{"lt": "token"},
+		ServiceURL:   "https://ehall.example.com/login",
+		Cookies:      nil,
+		CreatedAt:    time.Now(),
+	}, xidianapp.LoginInput{Username: "student", Password: "plain", SliderPosition: 0.5})
+	if err == nil {
+		t.Fatal("CompleteBinding() error = nil, want redirect host error")
+	}
+}
+
 func TestNewClientRejectsMissingBaseURLs(t *testing.T) {
 	if _, err := NewClient(Config{}); err == nil {
 		t.Fatal("NewClient(empty) error = nil, want error")
 	}
 }
 
-func newTestClient(t *testing.T, baseURL string) *Client {
+func TestNewClientRejectsUnsafeBaseURLs(t *testing.T) {
+	cases := []Config{
+		{IDsBase: "http://ids.example.com", EhallBase: "https://ehall.example.com", YjsptBase: "https://yjspt.example.com"},
+		{IDsBase: "https://127.0.0.1:8443", EhallBase: "https://ehall.example.com", YjsptBase: "https://yjspt.example.com"},
+		{IDsBase: "https://ids.example.com", EhallBase: "https://10.0.0.1", YjsptBase: "https://yjspt.example.com"},
+		{IDsBase: "https://ids.example.com", EhallBase: "https://ehall.example.com?target=internal", YjsptBase: "https://yjspt.example.com"},
+	}
+	for _, cfg := range cases {
+		t.Run(cfg.IDsBase+"|"+cfg.EhallBase+"|"+cfg.YjsptBase, func(t *testing.T) {
+			if _, err := NewClient(cfg); err == nil {
+				t.Fatal("NewClient() error = nil, want unsafe base URL error")
+			}
+		})
+	}
+}
+
+func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
+	httpClient := &http.Client{Transport: roundTripHandler{handler: handler}}
 	client, err := NewClient(Config{
-		IDsBase:        baseURL,
-		EhallBase:      baseURL,
-		YjsptBase:      baseURL,
+		IDsBase:        "https://ids.example.com",
+		EhallBase:      "https://ehall.example.com",
+		YjsptBase:      "https://yjspt.example.com",
 		UserAgent:      "test-agent",
 		ConnectTimeout: time.Second,
 		ReadTimeout:    time.Second,
 		CaptchaWidth:   280,
-	})
+	}, httpClient)
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
 	return client
+}
+
+type roundTripHandler struct {
+	handler http.Handler
+}
+
+func (h roundTripHandler) RoundTrip(r *http.Request) (*http.Response, error) {
+	recorder := httptest.NewRecorder()
+	h.handler.ServeHTTP(recorder, r)
+	response := recorder.Result()
+	response.Request = r
+	return response, nil
 }

@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -18,6 +17,10 @@ import (
 
 	adminuserapp "mathstudy/backend-go/internal/application/adminuser"
 	authapp "mathstudy/backend-go/internal/application/auth"
+	"mathstudy/backend-go/internal/platform/csvsafe"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 const maxImportBytes = 5 << 20
@@ -101,7 +104,7 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.AccountStats(r.Context())
 	if err != nil {
-		h.logger.Error("get admin user stats failed", "error", err)
+		h.logger.Error("get admin user stats failed", "error", redact.String(err.Error()))
 		writeAdminUserError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取账户统计失败")
 		return
 	}
@@ -214,14 +217,14 @@ func (h *Handler) exportUsers(w http.ResponseWriter, r *http.Request) {
 	writer := csv.NewWriter(w)
 	_ = writer.Write([]string{"用户名", "邮箱", "显示名称", "角色", "状态", "创建时间"})
 	for _, account := range users {
-		_ = writer.Write([]string{
+		_ = writer.Write(csvsafe.Row(
 			account.Username,
 			account.Email,
 			account.DisplayName,
 			account.Role,
 			account.Status,
 			account.CreatedAt.Format("2006-01-02 15:04:05"),
-		})
+		))
 	}
 	writer.Flush()
 }
@@ -232,7 +235,7 @@ func (h *Handler) importUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes)
 	if err := r.ParseMultipartForm(maxImportBytes); err != nil {
-		writeAdminUserError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+err.Error())
+		writeAdminUserError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+redact.String(err.Error()))
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -247,17 +250,17 @@ func (h *Handler) importUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	content, err := io.ReadAll(file)
 	if err != nil {
-		writeAdminUserError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+err.Error())
+		writeAdminUserError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+redact.String(err.Error()))
 		return
 	}
 	text, err := decodeCSVContent(content)
 	if err != nil {
-		writeAdminUserError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+err.Error())
+		writeAdminUserError(w, http.StatusBadRequest, "BAD_REQUEST", "文件读取失败: "+redact.String(err.Error()))
 		return
 	}
 	users, err := parseImportCSV(text)
 	if err != nil {
-		writeAdminUserError(w, http.StatusBadRequest, "BAD_REQUEST", "CSV 解析失败: "+err.Error())
+		writeAdminUserError(w, http.StatusBadRequest, "BAD_REQUEST", "CSV 解析失败: "+redact.String(err.Error()))
 		return
 	}
 	if len(users) == 0 {
@@ -296,11 +299,11 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (authapp.
 func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback string) {
 	switch {
 	case errors.Is(err, adminuserapp.ErrBadRequest):
-		writeAdminUserError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
+		writeAdminUserError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", redact.String(err.Error()))
 	case errors.Is(err, adminuserapp.ErrNotFound):
-		writeAdminUserError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+		writeAdminUserError(w, http.StatusNotFound, "NOT_FOUND", redact.String(err.Error()))
 	default:
-		h.logger.Error("admin user request failed", "error", err)
+		h.logger.Error("admin user request failed", "error", redact.String(err.Error()))
 		writeAdminUserError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 	}
 }
@@ -342,10 +345,7 @@ func parseExportFilter(w http.ResponseWriter, r *http.Request) (adminuserapp.Lis
 }
 
 func parseIntQuery(w http.ResponseWriter, value string, fallback int, name string) (int, bool) {
-	if value == "" {
-		return fallback, true
-	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := httpquery.Int(value, fallback)
 	if err != nil {
 		writeAdminUserError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
 		return 0, false
@@ -354,9 +354,7 @@ func parseIntQuery(w http.ResponseWriter, value string, fallback int, name strin
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	defer r.Body.Close()
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
 		writeAdminUserError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	portraitapp "mathstudy/backend-go/internal/application/portrait"
 	questionapp "mathstudy/backend-go/internal/application/question"
 	sessionapp "mathstudy/backend-go/internal/application/session"
+	"mathstudy/backend-go/internal/platform/outbound"
 )
 
 const tutorInstruction = `你是高等数学智能学习平台的导师智能体。
@@ -76,6 +78,7 @@ type Config struct {
 	MaxTokens     int
 	TopP          *float64
 	MaxIterations int
+	HTTPClient    *http.Client
 }
 
 // Agent adapts Eino ADK to the session ChatAgent interface.
@@ -277,6 +280,7 @@ func newChatModelAgent(ctx context.Context, cfg Config, spec chatAgentSpec) (*Ag
 		BaseURL:     strings.TrimSpace(cfg.BaseURL),
 		Model:       strings.TrimSpace(cfg.Model),
 		Timeout:     cfg.Timeout,
+		HTTPClient:  modelHTTPClient(cfg),
 		Temperature: &temperature,
 	}
 	if cfg.MaxTokens > 0 {
@@ -577,6 +581,13 @@ func configFromRuntime(runtime adminaiconfigapp.RuntimeConfig) Config {
 	}
 }
 
+func modelHTTPClient(cfg Config) *http.Client {
+	if cfg.HTTPClient != nil {
+		return cfg.HTTPClient
+	}
+	return outbound.NewPublicHTTPSClient(cfg.Timeout)
+}
+
 func validateConfig(cfg Config) error {
 	if !cfg.Enabled {
 		return errors.New("Eino agent is disabled")
@@ -586,6 +597,11 @@ func validateConfig(cfg Config) error {
 	}
 	if strings.TrimSpace(cfg.Model) == "" {
 		return errors.New("Eino model is required")
+	}
+	if strings.TrimSpace(cfg.BaseURL) != "" {
+		if _, err := outbound.NormalizePublicHTTPSBaseURL(cfg.BaseURL); err != nil {
+			return fmt.Errorf("Eino base URL %w", err)
+		}
 	}
 	if cfg.Timeout <= 0 {
 		return errors.New("Eino timeout must be greater than zero")

@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	sessionapp "mathstudy/backend-go/internal/application/session"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the session application surface used by HTTP handlers.
@@ -106,7 +108,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.CreateSession(r.Context(), principal.UserID, request.Topic, request.Mode)
 	if err != nil {
-		h.logger.Error("create session failed", "error", err)
+		h.logSessionError("create session failed", err)
 		writeSessionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "创建会话失败")
 		return
 	}
@@ -128,11 +130,15 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.ProcessChat(r.Context(), r.PathValue("session_id"), principal.UserID, request.Message, request.Attachments)
 	if err != nil {
+		if errors.Is(err, sessionapp.ErrInvalidAttachment) {
+			writeSessionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "附件必须是已上传的图片")
+			return
+		}
 		if errors.Is(err, sessionapp.ErrNotFound) {
 			writeSessionSSEError(w, "SESSION_NOT_FOUND", "会话不存在或无权访问")
 			return
 		}
-		h.logger.Error("process chat fallback failed", "error", err)
+		h.logSessionError("process chat fallback failed", err)
 		writeSessionSSEError(w, "PROCESSING_ERROR", "处理消息时发生错误，请稍后重试")
 		return
 	}
@@ -154,7 +160,7 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetHistory(r.Context(), r.PathValue("session_id"), principal.UserID, limit, offset)
 	if err != nil {
-		h.logger.Error("get session history failed", "error", err)
+		h.logSessionError("get session history failed", err)
 		writeSessionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取会话历史失败")
 		return
 	}
@@ -176,7 +182,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetSessions(r.Context(), principal.UserID, limit, offset)
 	if err != nil {
-		h.logger.Error("get session list failed", "error", err)
+		h.logSessionError("get session list failed", err)
 		writeSessionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取会话列表失败")
 		return
 	}
@@ -194,7 +200,7 @@ func (h *Handler) end(w http.ResponseWriter, r *http.Request) {
 			writeSessionError(w, http.StatusNotFound, "NOT_FOUND", "会话不存在或无权访问")
 			return
 		}
-		h.logger.Error("end session failed", "error", err)
+		h.logSessionError("end session failed", err)
 		writeSessionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "结束会话失败")
 		return
 	}
@@ -216,7 +222,7 @@ func (h *Handler) updateMode(w http.ResponseWriter, r *http.Request) {
 			writeSessionError(w, http.StatusNotFound, "NOT_FOUND", "会话不存在或无权访问")
 			return
 		}
-		h.logger.Error("update session mode failed", "error", err)
+		h.logSessionError("update session mode failed", err)
 		writeSessionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "更新会话模式失败")
 		return
 	}
@@ -230,7 +236,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.DeleteSession(r.Context(), r.PathValue("session_id"), principal.UserID)
 	if err != nil {
-		h.logger.Error("delete session failed", "error", err)
+		h.logSessionError("delete session failed", err)
 		writeSessionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "删除会话失败")
 		return
 	}
@@ -248,7 +254,7 @@ func (h *Handler) batchDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.BatchDeleteSessions(r.Context(), request.SessionIDs, principal.UserID)
 	if err != nil {
-		h.logger.Error("batch delete sessions failed", "error", err)
+		h.logSessionError("batch delete sessions failed", err)
 		writeSessionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "批量删除会话失败")
 		return
 	}
@@ -262,7 +268,7 @@ func (h *Handler) cancelTask(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.CancelTask(r.Context(), r.PathValue("task_id"), principal.UserID)
 	if err != nil {
-		h.logger.Error("cancel task failed", "error", err)
+		h.logSessionError("cancel task failed", err)
 		writeSessionError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "任务取消失败")
 		return
 	}
@@ -286,12 +292,13 @@ func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (auth
 	return principal, true
 }
 
+func (h *Handler) logSessionError(message string, err error) {
+	h.logger.Error(message, "error", redact.String(err.Error()))
+}
+
 func parseIntQuery(w http.ResponseWriter, value string, fallback int, minValue int, maxValue int, name string) (int, bool) {
-	if value == "" {
-		return fallback, true
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil || parsed < minValue || parsed > maxValue {
+	parsed, err := httpquery.BoundedInt(value, fallback, minValue, maxValue)
+	if err != nil {
 		writeSessionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 参数超出范围")
 		return 0, false
 	}
@@ -299,8 +306,7 @@ func parseIntQuery(w http.ResponseWriter, value string, fallback int, minValue i
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
 		writeSessionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}

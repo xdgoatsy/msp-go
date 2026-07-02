@@ -3,6 +3,8 @@ package xidian
 import (
 	"context"
 	"errors"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -136,6 +138,37 @@ func TestSyncFallsBackToSnapshot(t *testing.T) {
 	}
 }
 
+func TestPortalServiceErrorsAreRedacted(t *testing.T) {
+	portal := &fakePortal{
+		loginErr: ServiceError{
+			Code:    "PASSWORD_WRONG",
+			Message: "登录失败 Authorization: Bearer portal-token url=https://ids.example.com/authserver/login?token=query-token",
+			Status:  http.StatusUnauthorized,
+			Err:     errors.New("api_key=plain cookie=sid-secret"),
+		},
+	}
+	service := newTestService(&fakeRepo{}, portal, &fakeCipher{})
+	service.newID = func() string { return "challenge-1" }
+	_, err := service.StartBinding(context.Background())
+	if err != nil {
+		t.Fatalf("StartBinding() error = %v", err)
+	}
+	username := "student"
+	password := "password"
+	_, err = service.CompleteBinding(context.Background(), "user-1", CompleteBindingInput{
+		ChallengeID:    "challenge-1",
+		SliderPosition: 0.5,
+		Username:       &username,
+		Password:       &password,
+	})
+	var serviceErr ServiceError
+	if !errors.As(err, &serviceErr) {
+		t.Fatalf("CompleteBinding() error = %v, want ServiceError", err)
+	}
+	assertNoXidianCredentialLeak(t, serviceErr.Message)
+	assertNoXidianCredentialLeak(t, serviceErr.Error())
+}
+
 func TestServiceErrors(t *testing.T) {
 	service := newTestService(&fakeRepo{}, &fakePortal{}, &fakeCipher{})
 	var serviceErr ServiceError
@@ -147,6 +180,18 @@ func TestServiceErrors(t *testing.T) {
 	}
 	if _, err := NewService(nil, &fakePortal{}, &fakeCipher{}, NewMemoryChallengeStore(), Config{ChallengeTTL: time.Minute, CaptchaWidth: 1, CaptchaHeight: 1, PieceWidth: 1, PieceHeight: 1}); err == nil {
 		t.Fatal("NewService(nil repo) error = nil, want error")
+	}
+}
+
+func assertNoXidianCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"portal-token", "token=query-token", "api_key=plain", "sid-secret", "Bearer portal-token"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
+	if !strings.Contains(value, "[REDACTED]") {
+		t.Fatalf("value = %q, want redaction marker", value)
 	}
 }
 
@@ -209,6 +254,7 @@ func (r *fakeRepo) UpdateCookies(_ context.Context, _ string, cookies []Cookie, 
 type fakePortal struct {
 	challenge  Challenge
 	login      LoginResult
+	loginErr   error
 	loginInput LoginInput
 	syncResult SyncResult
 	syncErr    error
@@ -223,6 +269,9 @@ func (p *fakePortal) StartBinding(context.Context) (Challenge, error) {
 
 func (p *fakePortal) CompleteBinding(_ context.Context, _ ChallengeState, input LoginInput) (LoginResult, error) {
 	p.loginInput = input
+	if p.loginErr != nil {
+		return LoginResult{}, p.loginErr
+	}
 	return p.login, nil
 }
 

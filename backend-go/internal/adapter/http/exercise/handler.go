@@ -11,6 +11,8 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	exerciseapp "mathstudy/backend-go/internal/application/exercise"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the exercise application surface used by HTTP handlers.
@@ -179,7 +181,7 @@ func (h *Handler) writeExerciseError(w http.ResponseWriter, err error, fallback 
 		writeExerciseError(w, http.StatusBadRequest, "BAD_REQUEST", fallback)
 		return
 	}
-	h.logger.Error("exercise request failed", "error", err)
+	h.logger.Error("exercise request failed", "error", redact.String(err.Error()))
 	writeExerciseError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 }
 
@@ -198,8 +200,7 @@ func parseNextQuery(w http.ResponseWriter, r *http.Request) (exerciseapp.NextQue
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
 		writeExerciseError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}

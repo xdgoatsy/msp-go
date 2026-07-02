@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
@@ -107,6 +110,187 @@ func TestCreateValidatesDefaultsAndReturnsCreated(t *testing.T) {
 	}
 }
 
+func TestCreateAndUpdateRejectOversizedBodies(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantCalled func(fakeResourceService) bool
+	}{
+		{
+			name:   "create",
+			method: http.MethodPost,
+			path:   "/api/v1/resources",
+			wantCalled: func(service fakeResourceService) bool {
+				return service.lastOwnerID != ""
+			},
+		},
+		{
+			name:   "update",
+			method: http.MethodPut,
+			path:   "/api/v1/resources/resource-1",
+			wantCalled: func(service fakeResourceService) bool {
+				return service.lastResourceID != ""
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeResourceService{}
+			auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}}
+			handler := newTestHandler(t, service, auth)
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/resources")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(`{"title":"资源","type":"document","body":"`+strings.Repeat("a", maxJSONBodyBytes)+`"}`))
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if tt.wantCalled(*service) {
+				t.Fatalf("service was called for oversized body: %#v", service)
+			}
+			var body map[string]string
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			if body["message"] != "请求体不是有效 JSON" || body["code"] != "BAD_REQUEST" {
+				t.Fatalf("body = %#v", body)
+			}
+		})
+	}
+}
+
+func TestCreateAndUpdateRejectTrailingJSON(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		wantCalled func(fakeResourceService) bool
+	}{
+		{
+			name:   "create",
+			method: http.MethodPost,
+			path:   "/api/v1/resources",
+			body:   `{"title":"资源","type":"document"} {"title":"extra"}`,
+			wantCalled: func(service fakeResourceService) bool {
+				return service.lastOwnerID != ""
+			},
+		},
+		{
+			name:   "update",
+			method: http.MethodPut,
+			path:   "/api/v1/resources/resource-1",
+			body:   `{"title":"资源"} {"title":"extra"}`,
+			wantCalled: func(service fakeResourceService) bool {
+				return service.lastResourceID != ""
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeResourceService{}
+			auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}}
+			handler := newTestHandler(t, service, auth)
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/resources")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if tt.wantCalled(*service) {
+				t.Fatalf("service was called for trailing JSON body: %#v", service)
+			}
+			var body map[string]string
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			if body["message"] != "请求体不是有效 JSON" || body["code"] != "BAD_REQUEST" {
+				t.Fatalf("body = %#v", body)
+			}
+		})
+	}
+}
+
+func TestCreateMapsApplicationValidationError(t *testing.T) {
+	service := &fakeResourceService{createErr: resourceapp.ErrBadRequest}
+	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}}
+	handler := newTestHandler(t, service, auth)
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/resources")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/resources", bytes.NewBufferString(`{"title":"资源","type":"document","url":"javascript:alert(1)"}`))
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if body["code"] != "VALIDATION_ERROR" {
+		t.Fatalf("body = %#v", body)
+	}
+}
+
+func TestValidationErrorsRedactPublicMessages(t *testing.T) {
+	credentialErr := fmt.Errorf("%w: bad url Authorization: Bearer resource-secret token=query-token api_key=plain", resourceapp.ErrBadRequest)
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    string
+		service fakeResourceService
+	}{
+		{
+			name:    "create",
+			method:  http.MethodPost,
+			path:    "/api/v1/resources",
+			body:    `{"title":"资源","type":"document","url":"https://example.com"}`,
+			service: fakeResourceService{createErr: credentialErr},
+		},
+		{
+			name:    "update",
+			method:  http.MethodPut,
+			path:    "/api/v1/resources/resource-1",
+			body:    `{"url":"https://example.com"}`,
+			service: fakeResourceService{updateErr: credentialErr},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}}
+			handler := newTestHandler(t, &tt.service, auth)
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/resources")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			assertNoResourceCredentialLeak(t, recorder.Body.String())
+		})
+	}
+}
+
 func TestStatsAndFavoritesUseLiteralRoutes(t *testing.T) {
 	service := &fakeResourceService{
 		statsResponse:     resourceapp.Stats{Total: 3, Videos: 1, Documents: 2, Favorites: 1},
@@ -189,6 +373,118 @@ func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	}
 }
 
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	credentialErr := errors.New("repo failed Authorization: Bearer resource-secret token=query-token api_key=plain password=letmein")
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		service    fakeResourceService
+		principal  authapp.Principal
+		wantStatus int
+	}{
+		{
+			name:       "list",
+			method:     http.MethodGet,
+			path:       "/api/v1/resources",
+			service:    fakeResourceService{listErr: credentialErr},
+			principal:  authapp.Principal{UserID: "student-1", Role: user.RoleStudent},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "stats",
+			method:     http.MethodGet,
+			path:       "/api/v1/resources/stats",
+			service:    fakeResourceService{statsErr: credentialErr},
+			principal:  authapp.Principal{UserID: "student-1", Role: user.RoleStudent},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "favorites",
+			method:     http.MethodGet,
+			path:       "/api/v1/resources/favorites",
+			service:    fakeResourceService{favoritesErr: credentialErr},
+			principal:  authapp.Principal{UserID: "student-1", Role: user.RoleStudent},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "detail",
+			method:     http.MethodGet,
+			path:       "/api/v1/resources/resource-1",
+			service:    fakeResourceService{detailErr: credentialErr},
+			principal:  authapp.Principal{UserID: "student-1", Role: user.RoleStudent},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "create",
+			method:     http.MethodPost,
+			path:       "/api/v1/resources",
+			body:       `{"title":"资源","type":"document"}`,
+			service:    fakeResourceService{createErr: credentialErr},
+			principal:  authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "update",
+			method:     http.MethodPut,
+			path:       "/api/v1/resources/resource-1",
+			body:       `{"title":"资源"}`,
+			service:    fakeResourceService{updateErr: credentialErr},
+			principal:  authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "delete",
+			method:     http.MethodDelete,
+			path:       "/api/v1/resources/resource-1",
+			service:    fakeResourceService{deleteErr: credentialErr},
+			principal:  authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "favorite",
+			method:     http.MethodPost,
+			path:       "/api/v1/resources/resource-1/favorite",
+			service:    fakeResourceService{favoriteErr: credentialErr},
+			principal:  authapp.Principal{UserID: "student-1", Role: user.RoleStudent},
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuffer bytes.Buffer
+			service := tt.service
+			handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), &service, &fakeAuthenticator{principal: tt.principal})
+			if err != nil {
+				t.Fatalf("NewHandler() error = %v", err)
+			}
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/resources")
+
+			var body *bytes.Reader
+			if tt.body == "" {
+				body = bytes.NewReader(nil)
+			} else {
+				body = bytes.NewReader([]byte(tt.body))
+			}
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, body)
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if logBuffer.Len() == 0 {
+				t.Fatal("expected internal error log")
+			}
+			assertNoResourceCredentialLeak(t, recorder.Body.String())
+			assertNoResourceCredentialLeak(t, logBuffer.String())
+		})
+	}
+}
+
 func newTestHandler(t *testing.T, service Service, auth Authenticator) *Handler {
 	t.Helper()
 	handler, err := NewHandler(slog.New(slog.NewTextHandler(os.Stdout, nil)), service, auth)
@@ -196,6 +492,15 @@ func newTestHandler(t *testing.T, service Service, auth Authenticator) *Handler 
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoResourceCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"resource-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer resource-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 type fakeAuthenticator struct {

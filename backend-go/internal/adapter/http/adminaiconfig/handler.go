@@ -10,6 +10,8 @@ import (
 
 	adminaiconfigapp "mathstudy/backend-go/internal/application/adminaiconfig"
 	authapp "mathstudy/backend-go/internal/application/auth"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the admin AI config application surface used by HTTP handlers.
@@ -402,21 +404,19 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (authapp.
 func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback string) {
 	switch {
 	case errors.Is(err, adminaiconfigapp.ErrBadRequest):
-		writeAIConfigError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+		writeAIConfigError(w, http.StatusBadRequest, "BAD_REQUEST", redact.String(err.Error()))
 	case errors.Is(err, adminaiconfigapp.ErrNotFound):
 		writeAIConfigError(w, http.StatusNotFound, "NOT_FOUND", "AI 配置不存在")
 	case errors.Is(err, adminaiconfigapp.ErrConflict):
-		writeAIConfigError(w, http.StatusConflict, "CONFLICT", err.Error())
+		writeAIConfigError(w, http.StatusConflict, "CONFLICT", redact.String(err.Error()))
 	default:
-		h.logger.Error("admin ai config request failed", "error", err)
+		h.logger.Error("admin ai config request failed", "error", redact.String(err.Error()))
 		writeAIConfigError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 	}
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	defer r.Body.Close()
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
 		writeAIConfigError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}

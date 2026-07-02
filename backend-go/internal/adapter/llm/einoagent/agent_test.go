@@ -362,7 +362,7 @@ func TestParseDiagnosisJSONRejectsMismatchedTaxonomy(t *testing.T) {
 func TestToMessagesKeepsHistoryAndAttachmentContext(t *testing.T) {
 	messages := toMessages(sessionapp.ChatAgentInput{
 		Message:     "讲一下洛必达法则",
-		Attachments: []string{"/uploads/a.png"},
+		Attachments: []string{"/uploads/images/a.png"},
 		History: []sessionapp.Message{
 			{Role: "assistant", Content: "先看极限定义"},
 			{Role: "user", Content: "我不理解"},
@@ -375,7 +375,7 @@ func TestToMessagesKeepsHistoryAndAttachmentContext(t *testing.T) {
 	if messages[0].Content != "先看极限定义" || messages[1].Content != "我不理解" {
 		t.Fatalf("history messages = %#v", messages)
 	}
-	if !strings.Contains(messages[2].Content, "洛必达法则") || !strings.Contains(messages[2].Content, "/uploads/a.png") {
+	if !strings.Contains(messages[2].Content, "洛必达法则") || !strings.Contains(messages[2].Content, "/uploads/images/a.png") {
 		t.Fatalf("user message = %q", messages[2].Content)
 	}
 }

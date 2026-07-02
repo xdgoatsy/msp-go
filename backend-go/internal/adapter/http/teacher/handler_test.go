@@ -1,12 +1,15 @@
 package teacherhttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
@@ -141,6 +144,73 @@ func TestStudentDetailMapsMissingStudentAccount(t *testing.T) {
 	}
 }
 
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	credentialErr := errors.New("teacher repo failed Authorization: Bearer teacher-secret token=query-token api_key=plain password=letmein")
+	tests := []struct {
+		name    string
+		path    string
+		service fakeTeacherService
+	}{
+		{
+			name:    "dashboard stats",
+			path:    "/api/v1/teacher/dashboard/stats",
+			service: fakeTeacherService{dashboardErr: credentialErr},
+		},
+		{
+			name:    "students stats",
+			path:    "/api/v1/teacher/students/stats",
+			service: fakeTeacherService{studentsErr: credentialErr},
+		},
+		{
+			name:    "students list",
+			path:    "/api/v1/teacher/students",
+			service: fakeTeacherService{studentsErr: credentialErr},
+		},
+		{
+			name:    "analytics",
+			path:    "/api/v1/teacher/analytics",
+			service: fakeTeacherService{analyticsErr: credentialErr},
+		},
+		{
+			name:    "class analytics",
+			path:    "/api/v1/teacher/classes/class-1/analytics",
+			service: fakeTeacherService{classErr: credentialErr},
+		},
+		{
+			name:    "student detail",
+			path:    "/api/v1/teacher/students/student-1/detail",
+			service: fakeTeacherService{studentErr: credentialErr},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuffer bytes.Buffer
+			service := tt.service
+			handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), &service, &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}})
+			if err != nil {
+				t.Fatalf("NewHandler() error = %v", err)
+			}
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/teacher")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if logBuffer.Len() == 0 {
+				t.Fatal("expected internal error log")
+			}
+			assertNoTeacherCredentialLeak(t, recorder.Body.String())
+			assertNoTeacherCredentialLeak(t, logBuffer.String())
+		})
+	}
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -157,6 +227,15 @@ func newTeacherTestHandler(t *testing.T, service Service, auth Authenticator) *H
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoTeacherCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"teacher-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer teacher-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 type fakeAuthenticator struct {

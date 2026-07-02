@@ -6,11 +6,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	adminstatsapp "mathstudy/backend-go/internal/application/adminstats"
 	authapp "mathstudy/backend-go/internal/application/auth"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the admin stats application surface used by HTTP handlers.
@@ -141,18 +142,15 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (authapp.
 func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback string) {
 	switch {
 	case errors.Is(err, adminstatsapp.ErrBadRequest):
-		writeAdminStatsError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
+		writeAdminStatsError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", redact.String(err.Error()))
 	default:
-		h.logger.Error("admin stats request failed", "error", err)
+		h.logger.Error("admin stats request failed", "error", redact.String(err.Error()))
 		writeAdminStatsError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 	}
 }
 
 func parseIntQuery(w http.ResponseWriter, value string, fallback int, name string) (int, bool) {
-	if value == "" {
-		return fallback, true
-	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := httpquery.Int(value, fallback)
 	if err != nil {
 		writeAdminStatsError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
 		return 0, false

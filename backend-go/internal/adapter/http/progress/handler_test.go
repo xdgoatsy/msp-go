@@ -1,12 +1,15 @@
 package progresshttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
@@ -130,6 +133,78 @@ func TestChaptersWrapsListInPythonCompatibleObject(t *testing.T) {
 	}
 }
 
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	credentialErr := errors.New("progress repo failed Authorization: Bearer progress-secret token=query-token api_key=plain password=letmein")
+	tests := []struct {
+		name    string
+		path    string
+		service fakeProgressService
+	}{
+		{
+			name:    "overview",
+			path:    "/api/v1/progress/overview",
+			service: fakeProgressService{overviewErr: credentialErr},
+		},
+		{
+			name:    "mastery",
+			path:    "/api/v1/progress/mastery",
+			service: fakeProgressService{masteryErr: credentialErr},
+		},
+		{
+			name:    "path",
+			path:    "/api/v1/progress/path?target=node-1",
+			service: fakeProgressService{pathErr: credentialErr},
+		},
+		{
+			name:    "knowledge graph",
+			path:    "/api/v1/progress/knowledge-graph?chapter=第一章&type=concept&search=极限",
+			service: fakeProgressService{graphErr: credentialErr},
+		},
+		{
+			name:    "statistics",
+			path:    "/api/v1/progress/statistics",
+			service: fakeProgressService{statisticsErr: credentialErr},
+		},
+		{
+			name:    "class ranking",
+			path:    "/api/v1/progress/class-ranking",
+			service: fakeProgressService{rankingErr: credentialErr},
+		},
+		{
+			name:    "chapters",
+			path:    "/api/v1/progress/chapters",
+			service: fakeProgressService{chaptersErr: credentialErr},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuffer bytes.Buffer
+			service := tt.service
+			handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), &service, &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}})
+			if err != nil {
+				t.Fatalf("NewHandler() error = %v", err)
+			}
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/progress")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if logBuffer.Len() == 0 {
+				t.Fatal("expected internal error log")
+			}
+			assertNoProgressCredentialLeak(t, recorder.Body.String())
+			assertNoProgressCredentialLeak(t, logBuffer.String())
+		})
+	}
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -148,6 +223,15 @@ func newTestHandler(t *testing.T, service Service, auth Authenticator) *Handler 
 	return handler
 }
 
+func assertNoProgressCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"progress-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer progress-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
+}
+
 type fakeAuthenticator struct {
 	principal authapp.Principal
 }
@@ -160,47 +244,54 @@ func (a *fakeAuthenticator) DecodeAccessToken(string) (authapp.Principal, bool) 
 }
 
 type fakeProgressService struct {
-	overview   progressapp.Overview
-	chapters   []string
-	lastUserID string
-	lastTarget string
-	lastFilter progressapp.KnowledgeNodeFilter
-	lastRange  string
+	overview      progressapp.Overview
+	chapters      []string
+	overviewErr   error
+	masteryErr    error
+	pathErr       error
+	graphErr      error
+	statisticsErr error
+	rankingErr    error
+	chaptersErr   error
+	lastUserID    string
+	lastTarget    string
+	lastFilter    progressapp.KnowledgeNodeFilter
+	lastRange     string
 }
 
 func (s *fakeProgressService) GetOverview(_ context.Context, userID string) (progressapp.Overview, error) {
 	s.lastUserID = userID
-	return s.overview, nil
+	return s.overview, s.overviewErr
 }
 
 func (s *fakeProgressService) GetMasteryVector(_ context.Context, userID string) (progressapp.MasteryResponse, error) {
 	s.lastUserID = userID
-	return progressapp.MasteryResponse{Topics: []progressapp.MasteryTopic{}, Model: "dkt-sakt-lite"}, nil
+	return progressapp.MasteryResponse{Topics: []progressapp.MasteryTopic{}, Model: "dkt-sakt-lite"}, s.masteryErr
 }
 
 func (s *fakeProgressService) GetLearningPath(_ context.Context, userID string, target string) (progressapp.PathResponse, error) {
 	s.lastUserID = userID
 	s.lastTarget = target
-	return progressapp.PathResponse{Path: []progressapp.PathItem{}}, nil
+	return progressapp.PathResponse{Path: []progressapp.PathItem{}}, s.pathErr
 }
 
 func (s *fakeProgressService) GetKnowledgeGraphView(_ context.Context, userID string, filter progressapp.KnowledgeNodeFilter) (progressapp.GraphResponse, error) {
 	s.lastUserID = userID
 	s.lastFilter = filter
-	return progressapp.GraphResponse{Nodes: []progressapp.GraphNode{}, Edges: []progressapp.GraphEdge{}}, nil
+	return progressapp.GraphResponse{Nodes: []progressapp.GraphNode{}, Edges: []progressapp.GraphEdge{}}, s.graphErr
 }
 
 func (s *fakeProgressService) GetStatistics(_ context.Context, userID string, rangeType string) (progressapp.StatisticsResponse, error) {
 	s.lastUserID = userID
 	s.lastRange = rangeType
-	return progressapp.StatisticsResponse{Daily: []progressapp.DailyStat{}, ErrorTypeDistribution: map[string]progressapp.ErrorTypeDistribution{}}, nil
+	return progressapp.StatisticsResponse{Daily: []progressapp.DailyStat{}, ErrorTypeDistribution: map[string]progressapp.ErrorTypeDistribution{}}, s.statisticsErr
 }
 
 func (s *fakeProgressService) GetClassRanking(_ context.Context, userID string) (progressapp.ClassRankingResponse, error) {
 	s.lastUserID = userID
-	return progressapp.ClassRankingResponse{InClass: false}, nil
+	return progressapp.ClassRankingResponse{InClass: false}, s.rankingErr
 }
 
 func (s *fakeProgressService) GetChapters(context.Context) ([]string, error) {
-	return s.chapters, nil
+	return s.chapters, s.chaptersErr
 }

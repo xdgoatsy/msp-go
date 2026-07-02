@@ -3,6 +3,7 @@ package adminuserhttp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -97,6 +98,75 @@ func TestCreateUpdateStatusAndDeleteForwardToService(t *testing.T) {
 	}
 }
 
+func TestJSONRoutesRejectTrailingJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		assert func(*testing.T, *fakeAdminUserService)
+	}{
+		{
+			name:   "create user",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/users",
+			body:   `{"username":"new","email":"new@example.com","password":"Strong1!","role":"student"} {"role":"admin"}`,
+			assert: func(t *testing.T, service *fakeAdminUserService) {
+				t.Helper()
+				if service.lastCreate.Username != "" {
+					t.Fatalf("service was called for create trailing JSON: %#v", service.lastCreate)
+				}
+			},
+		},
+		{
+			name:   "update status",
+			method: http.MethodPatch,
+			path:   "/api/v1/admin/users/user-1/status",
+			body:   `{"status":"suspended"} {"status":"active"}`,
+			assert: func(t *testing.T, service *fakeAdminUserService) {
+				t.Helper()
+				if service.lastUserID != "" || service.lastStatus != "" {
+					t.Fatalf("service was called for status trailing JSON: user=%q status=%q", service.lastUserID, service.lastStatus)
+				}
+			},
+		},
+		{
+			name:   "update user",
+			method: http.MethodPut,
+			path:   "/api/v1/admin/users/user-1",
+			body:   `{"display_name":"Alice","password":"Strong1!"} {"password":"extra"}`,
+			assert: func(t *testing.T, service *fakeAdminUserService) {
+				t.Helper()
+				if service.lastUserID != "" {
+					t.Fatalf("service was called for update trailing JSON: user=%q update=%#v", service.lastUserID, service.lastUpdate)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeAdminUserService{}
+			handler := newAdminUserTestHandler(t, service, adminAuthenticator())
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/admin/users")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "请求体格式错误") || !strings.Contains(recorder.Body.String(), "VALIDATION_ERROR") {
+				t.Fatalf("body=%s", recorder.Body.String())
+			}
+			tt.assert(t, service)
+		})
+	}
+}
+
 func TestImportUsersParsesMultipartCSV(t *testing.T) {
 	service := &fakeAdminUserService{importResponse: adminuserapp.ImportResponse{Success: true, Total: 1, Created: 1, Details: []adminuserapp.ImportResult{{Row: 1, Username: "alice", Success: true}}}}
 	handler := newAdminUserTestHandler(t, service, adminAuthenticator())
@@ -129,9 +199,9 @@ func TestImportUsersParsesMultipartCSV(t *testing.T) {
 
 func TestExportUsersWritesCSV(t *testing.T) {
 	service := &fakeAdminUserService{exportUsers: []adminuserapp.ExportUser{{
-		Username:    "student",
+		Username:    "=cmd|'/C calc'!A0",
 		Email:       "student@example.com",
-		DisplayName: "Student",
+		DisplayName: "+Student",
 		Role:        "student",
 		Status:      "active",
 		CreatedAt:   time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
@@ -154,6 +224,9 @@ func TestExportUsersWritesCSV(t *testing.T) {
 	if !strings.Contains(body, "用户名") || !strings.Contains(body, "student@example.com") {
 		t.Fatalf("csv body = %q", body)
 	}
+	if !strings.Contains(body, "'=cmd|'/C calc'!A0") || !strings.Contains(body, "'+Student") {
+		t.Fatalf("csv formula fields were not escaped: %q", body)
+	}
 	if service.lastFilter.Role != "student" {
 		t.Fatalf("filter = %#v", service.lastFilter)
 	}
@@ -174,6 +247,43 @@ func TestServiceErrorsMapToStatusCodes(t *testing.T) {
 	}
 }
 
+func TestServiceErrorsRedactPublicMessages(t *testing.T) {
+	service := &fakeAdminUserService{err: adminuserapp.Error{Kind: adminuserapp.ErrBadRequest, Message: "无效输入 Authorization: Bearer import-token api_key=plain"}}
+	handler := newAdminUserTestHandler(t, service, adminAuthenticator())
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/users")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoAdminUserCredentialLeak(t, recorder.Body.String())
+}
+
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	var logBuffer bytes.Buffer
+	service := &fakeAdminUserService{err: errors.New("db failed Authorization: Bearer import-token token=query-token api_key=plain")}
+	handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), service, adminAuthenticator())
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/users")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users/stats", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoAdminUserCredentialLeak(t, recorder.Body.String())
+	assertNoAdminUserCredentialLeak(t, logBuffer.String())
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -190,6 +300,15 @@ func newAdminUserTestHandler(t *testing.T, service Service, auth Authenticator) 
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoAdminUserCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"import-token", "token=query-token", "api_key=plain", "Bearer import-token"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 func adminAuthenticator() *fakeAuthenticator {

@@ -3,12 +3,22 @@ package resource
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
+
+	"mathstudy/backend-go/internal/platform/outbound"
+	"mathstudy/backend-go/internal/platform/uploadpath"
 )
 
 // ErrNotFound is returned when a resource does not exist or is not accessible.
 var ErrNotFound = errors.New("resource not found")
+
+// ErrBadRequest is returned when resource input fails application-level validation.
+var ErrBadRequest = errors.New("bad resource request")
 
 // Repository is the persistence surface required by resource center use cases.
 type Repository interface {
@@ -162,12 +172,20 @@ func (s *Service) GetResource(ctx context.Context, userID string, resourceID str
 
 // CreateResource creates a teacher-owned published resource.
 func (s *Service) CreateResource(ctx context.Context, ownerID string, input ResourceInput) (Resource, error) {
-	input = normalizeResourceInput(input)
+	input, err := normalizeResourceInput(input)
+	if err != nil {
+		return Resource{}, err
+	}
 	return s.repo.CreateResource(ctx, ownerID, input, s.now())
 }
 
 // UpdateResource updates a teacher-owned resource.
 func (s *Service) UpdateResource(ctx context.Context, resourceID string, ownerID string, input ResourceUpdate) (Resource, error) {
+	var err error
+	input, err = normalizeResourceUpdate(input)
+	if err != nil {
+		return Resource{}, err
+	}
 	resource, ok, err := s.repo.UpdateResource(ctx, resourceID, ownerID, input, s.now())
 	if err != nil {
 		return Resource{}, err
@@ -228,7 +246,7 @@ func normalizeListFilter(filter ListFilter) ListFilter {
 	return filter
 }
 
-func normalizeResourceInput(input ResourceInput) ResourceInput {
+func normalizeResourceInput(input ResourceInput) (ResourceInput, error) {
 	input.Type = strings.ToLower(strings.TrimSpace(input.Type))
 	input.StorageType = strings.ToLower(strings.TrimSpace(input.StorageType))
 	if input.StorageType == "" {
@@ -237,5 +255,157 @@ func normalizeResourceInput(input ResourceInput) ResourceInput {
 	if input.Tags == nil {
 		input.Tags = []string{}
 	}
-	return input
+	normalizedURL, err := normalizeOptionalResourceURL(input.URL, input.StorageType, false)
+	if err != nil {
+		return ResourceInput{}, err
+	}
+	input.URL = normalizedURL
+	return input, nil
+}
+
+func normalizeResourceUpdate(input ResourceUpdate) (ResourceUpdate, error) {
+	storageType := "external"
+	if input.Type != nil {
+		value := strings.ToLower(strings.TrimSpace(*input.Type))
+		input.Type = &value
+	}
+	if input.StorageType != nil {
+		value := strings.ToLower(strings.TrimSpace(*input.StorageType))
+		input.StorageType = &value
+		if value != "" {
+			storageType = value
+		}
+	}
+	normalizedURL, err := normalizeOptionalResourceURL(input.URL, storageType, true)
+	if err != nil {
+		return ResourceUpdate{}, err
+	}
+	input.URL = normalizedURL
+	return input, nil
+}
+
+func normalizeOptionalResourceURL(value *string, storageType string, preserveEmpty bool) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	normalized, err := normalizeResourceURL(*value, storageType)
+	if err != nil {
+		return nil, err
+	}
+	if normalized == "" && !preserveEmpty {
+		return nil, nil
+	}
+	return &normalized, nil
+}
+
+func normalizeResourceURL(value string, storageType string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	if len([]rune(trimmed)) > 1000 {
+		return "", resourceValidationError("资源链接长度超出限制")
+	}
+	if strings.Contains(trimmed, "\\") || strings.IndexFunc(trimmed, unicode.IsSpace) >= 0 || strings.IndexFunc(trimmed, unicode.IsControl) >= 0 {
+		return "", resourceValidationError("资源链接格式无效")
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		if uploadpath.IsResourcePath(trimmed) {
+			return trimmed, nil
+		}
+		return "", resourceValidationError("本地资源链接必须是已上传的文档或视频")
+	}
+	if strings.HasPrefix(trimmed, "//") {
+		return "", resourceValidationError("资源链接必须包含 http 或 https 协议")
+	}
+	if !hasURLScheme(trimmed) && hasNonPortColonBeforePath(trimmed) {
+		return "", resourceValidationError("资源链接仅支持 http 或 https")
+	}
+
+	parsed, err := parseResourceURL(trimmed)
+	if err != nil {
+		return "", resourceValidationError("资源链接格式无效")
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", resourceValidationError("资源链接仅支持 http 或 https")
+	}
+	if parsed.User != nil {
+		return "", resourceValidationError("资源链接不允许包含用户名或密码")
+	}
+	if parsed.Host == "" || parsed.Hostname() == "" {
+		return "", resourceValidationError("资源链接必须包含主机名")
+	}
+	if err := validateResourceURLPort(parsed.Port()); err != nil {
+		return "", err
+	}
+	if strings.ToLower(strings.TrimSpace(storageType)) == "external" && outbound.IsBlockedPublicProviderHost(parsed.Hostname()) {
+		return "", resourceValidationError("外部资源链接不允许指向本机、内网或保留地址")
+	}
+	return parsed.String(), nil
+}
+
+func parseResourceURL(value string) (*url.URL, error) {
+	if !hasURLScheme(value) {
+		return url.Parse("https://" + value)
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return nil, err
+	}
+	return parsed, nil
+}
+
+func hasURLScheme(value string) bool {
+	scheme, _, found := strings.Cut(value, "://")
+	if !found || scheme == "" {
+		return false
+	}
+	for i := 0; i < len(scheme); i++ {
+		c := scheme[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (i > 0 && ((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.')) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func hasNonPortColonBeforePath(value string) bool {
+	index := strings.IndexAny(value, ":/?#")
+	if index < 0 || value[index] != ':' {
+		return false
+	}
+	portStart := index + 1
+	portEnd := portStart
+	for portEnd < len(value) && value[portEnd] >= '0' && value[portEnd] <= '9' {
+		portEnd++
+	}
+	if portEnd == portStart {
+		return true
+	}
+	if portEnd == len(value) {
+		return false
+	}
+	switch value[portEnd] {
+	case '/', '?', '#':
+		return false
+	default:
+		return true
+	}
+}
+
+func validateResourceURLPort(port string) error {
+	if port == "" {
+		return nil
+	}
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed < 1 || parsed > 65535 {
+		return resourceValidationError("资源链接端口无效")
+	}
+	return nil
+}
+
+func resourceValidationError(message string) error {
+	return fmt.Errorf("%w: %s", ErrBadRequest, message)
 }

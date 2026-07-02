@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
@@ -260,6 +262,226 @@ func TestGenerateIsomorphicProblemForwardsRequest(t *testing.T) {
 	}
 }
 
+func TestJSONRoutesRejectTrailingJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		assert func(*testing.T, *fakeQuestionService)
+	}{
+		{
+			name:   "create",
+			method: http.MethodPost,
+			path:   "/api/v1/questions",
+			body:   `{"title":"导数","body":"题目","answer":"1"} {"title":"extra"}`,
+			assert: func(t *testing.T, service *fakeQuestionService) {
+				t.Helper()
+				if service.lastOwnerID != "" {
+					t.Fatalf("service was called for create trailing JSON: %#v", service.lastInput)
+				}
+			},
+		},
+		{
+			name:   "update",
+			method: http.MethodPut,
+			path:   "/api/v1/questions/question-1",
+			body:   `{"title":"导数"} {"title":"extra"}`,
+			assert: func(t *testing.T, service *fakeQuestionService) {
+				t.Helper()
+				if service.lastOwnerID != "" {
+					t.Fatalf("service was called for update trailing JSON: %#v", service.lastUpdate)
+				}
+			},
+		},
+		{
+			name:   "batch publish",
+			method: http.MethodPost,
+			path:   "/api/v1/questions/batch/publish",
+			body:   `{"question_ids":["q1"]} {"question_ids":["q2"]}`,
+			assert: func(t *testing.T, service *fakeQuestionService) {
+				t.Helper()
+				if service.lastOwnerID != "" || len(service.lastIDs) != 0 {
+					t.Fatalf("service was called for batch trailing JSON: owner=%q ids=%#v", service.lastOwnerID, service.lastIDs)
+				}
+			},
+		},
+		{
+			name:   "batch import",
+			method: http.MethodPost,
+			path:   "/api/v1/questions/batch/import",
+			body:   `{"questions":[{"title":"导数","body":"题目","answer":"1"}]} {"questions":[]}`,
+			assert: func(t *testing.T, service *fakeQuestionService) {
+				t.Helper()
+				if service.lastOwnerID != "" || len(service.lastInputs) != 0 {
+					t.Fatalf("service was called for import trailing JSON: owner=%q inputs=%#v", service.lastOwnerID, service.lastInputs)
+				}
+			},
+		},
+		{
+			name:   "ai parse",
+			method: http.MethodPost,
+			path:   "/api/v1/questions/ai-parse",
+			body:   `{"raw_texts":["导数题"]} {"raw_texts":["extra"]}`,
+			assert: func(t *testing.T, service *fakeQuestionService) {
+				t.Helper()
+				if len(service.lastRawTexts) != 0 {
+					t.Fatalf("service was called for ai parse trailing JSON: %#v", service.lastRawTexts)
+				}
+			},
+		},
+		{
+			name:   "generate isomorphic",
+			method: http.MethodPost,
+			path:   "/api/v1/questions/generate-isomorphic",
+			body:   `{"template":"integral_power_exp","ability":0.7,"concept_ids":["integral"]} {"template":"extra"}`,
+			assert: func(t *testing.T, service *fakeQuestionService) {
+				t.Helper()
+				if service.lastGenerate.Template != "" {
+					t.Fatalf("service was called for generate trailing JSON: %#v", service.lastGenerate)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeQuestionService{}
+			handler := newTestHandler(t, service, &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}})
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/questions")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			var body map[string]string
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+			if body["detail"] != "请求体格式错误" || body["code"] != "VALIDATION_ERROR" {
+				t.Fatalf("body = %#v", body)
+			}
+			tt.assert(t, service)
+		})
+	}
+}
+
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	credentialErr := errors.New("question repo failed Authorization: Bearer question-secret token=query-token api_key=plain password=letmein")
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		body    string
+		service fakeQuestionService
+	}{
+		{
+			name:    "list",
+			method:  http.MethodGet,
+			path:    "/api/v1/questions",
+			service: fakeQuestionService{listErr: credentialErr},
+		},
+		{
+			name:    "groups",
+			method:  http.MethodGet,
+			path:    "/api/v1/questions/groups",
+			service: fakeQuestionService{groupsErr: credentialErr},
+		},
+		{
+			name:    "stats",
+			method:  http.MethodGet,
+			path:    "/api/v1/questions/stats",
+			service: fakeQuestionService{statsErr: credentialErr},
+		},
+		{
+			name:    "detail",
+			method:  http.MethodGet,
+			path:    "/api/v1/questions/question-1",
+			service: fakeQuestionService{detailErr: credentialErr},
+		},
+		{
+			name:    "create",
+			method:  http.MethodPost,
+			path:    "/api/v1/questions",
+			body:    `{"title":"导数","body":"题目","answer":"1"}`,
+			service: fakeQuestionService{createErr: credentialErr},
+		},
+		{
+			name:    "update",
+			method:  http.MethodPut,
+			path:    "/api/v1/questions/question-1",
+			body:    `{"title":"导数"}`,
+			service: fakeQuestionService{updateErr: credentialErr},
+		},
+		{
+			name:    "delete",
+			method:  http.MethodDelete,
+			path:    "/api/v1/questions/question-1",
+			service: fakeQuestionService{deleteErr: credentialErr},
+		},
+		{
+			name:    "batch publish",
+			method:  http.MethodPost,
+			path:    "/api/v1/questions/batch/publish",
+			body:    `{"question_ids":["q1"]}`,
+			service: fakeQuestionService{batchErr: credentialErr},
+		},
+		{
+			name:    "batch import",
+			method:  http.MethodPost,
+			path:    "/api/v1/questions/batch/import",
+			body:    `{"questions":[{"title":"导数","body":"题目","answer":"1"}]}`,
+			service: fakeQuestionService{importErr: credentialErr},
+		},
+		{
+			name:    "ai parse",
+			method:  http.MethodPost,
+			path:    "/api/v1/questions/ai-parse",
+			body:    `{"raw_texts":["导数题"]}`,
+			service: fakeQuestionService{parseErr: credentialErr},
+		},
+		{
+			name:    "generate isomorphic",
+			method:  http.MethodPost,
+			path:    "/api/v1/questions/generate-isomorphic",
+			body:    `{"template":"integral_power_exp","ability":0.7,"concept_ids":["integral"]}`,
+			service: fakeQuestionService{generateErr: credentialErr},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logBuffer bytes.Buffer
+			service := tt.service
+			handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), &service, &fakeAuthenticator{principal: authapp.Principal{UserID: "teacher-1", Role: user.RoleTeacher}})
+			if err != nil {
+				t.Fatalf("NewHandler() error = %v", err)
+			}
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/questions")
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+			request.Header.Set("Authorization", "Bearer token")
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			if logBuffer.Len() == 0 {
+				t.Fatal("expected internal error log")
+			}
+			assertNoQuestionCredentialLeak(t, recorder.Body.String())
+			assertNoQuestionCredentialLeak(t, logBuffer.String())
+		})
+	}
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -276,6 +498,15 @@ func newTestHandler(t *testing.T, service Service, auth Authenticator) *Handler 
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoQuestionCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"question-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer question-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 type fakeAuthenticator struct {

@@ -14,6 +14,7 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	uploadapp "mathstudy/backend-go/internal/application/upload"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 const (
@@ -164,7 +165,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback s
 	case errors.Is(err, uploadapp.ErrFileTooLarge):
 		writeUploadError(w, http.StatusRequestEntityTooLarge, "FILE_TOO_LARGE", "文件大小超过限制")
 	default:
-		h.logger.Error("upload failed", "error", err)
+		h.logger.Error("upload failed", "error", redact.String(err.Error()))
 		writeUploadError(w, http.StatusInternalServerError, "INTERNAL_ERROR", fallback)
 	}
 }

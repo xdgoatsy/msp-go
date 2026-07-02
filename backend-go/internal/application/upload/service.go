@@ -13,6 +13,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"unicode/utf8"
+
+	"mathstudy/backend-go/internal/platform/uploadpath"
 )
 
 const (
@@ -86,7 +89,7 @@ func (s *Service) SaveResourceFile(ctx context.Context, reader io.Reader, meta F
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(meta.ContentType)), "video/") {
 		prefix = "videos"
 	}
-	return s.save(ctx, reader, meta, allowedResourceTypes(), MaxResourceSize, prefix)
+	return s.saveResource(ctx, reader, meta, MaxResourceSize, prefix)
 }
 
 func (s *Service) save(ctx context.Context, reader io.Reader, meta FileMeta, allowed map[string]string, maxSize int64, prefix string) (Response, error) {
@@ -102,6 +105,25 @@ func (s *Service) save(ctx context.Context, reader io.Reader, meta FileMeta, all
 		return Response{}, errors.New("upload reader is nil")
 	}
 	return s.store(ctx, reader, contentType, meta.Size, maxSize, extension, prefix)
+}
+
+func (s *Service) saveResource(ctx context.Context, reader io.Reader, meta FileMeta, maxSize int64, prefix string) (Response, error) {
+	contentType := strings.ToLower(strings.TrimSpace(meta.ContentType))
+	extension, ok := allowedResourceTypes()[contentType]
+	if !ok {
+		return Response{}, ErrInvalidContentType
+	}
+	if meta.Size > maxSize {
+		return Response{}, ErrFileTooLarge
+	}
+	if reader == nil {
+		return Response{}, errors.New("upload reader is nil")
+	}
+	checkedReader, err := validateResourceContent(reader, contentType)
+	if err != nil {
+		return Response{}, err
+	}
+	return s.store(ctx, checkedReader, contentType, meta.Size, maxSize, extension, prefix)
 }
 
 func (s *Service) store(ctx context.Context, reader io.Reader, contentType string, sizeHint int64, maxSize int64, extension string, prefix string) (Response, error) {
@@ -167,6 +189,47 @@ func isWebP(content []byte) bool {
 	return len(content) >= 12 &&
 		string(content[0:4]) == "RIFF" &&
 		string(content[8:12]) == "WEBP"
+}
+
+func validateResourceContent(reader io.Reader, contentType string) (io.Reader, error) {
+	prefix, err := readPrefix(reader, 512)
+	if err != nil {
+		return nil, err
+	}
+	if !resourceContentMatches(contentType, prefix) {
+		return nil, ErrInvalidContentType
+	}
+	return io.MultiReader(bytes.NewReader(prefix), reader), nil
+}
+
+func readPrefix(reader io.Reader, limit int) ([]byte, error) {
+	buffer := make([]byte, limit)
+	n, err := io.ReadFull(reader, buffer)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, err
+	}
+	return buffer[:n], nil
+}
+
+func resourceContentMatches(contentType string, prefix []byte) bool {
+	switch contentType {
+	case "application/pdf":
+		return bytes.HasPrefix(prefix, []byte("%PDF-"))
+	case "application/msword", "application/vnd.ms-powerpoint":
+		return bytes.HasPrefix(prefix, []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1})
+	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation":
+		return bytes.HasPrefix(prefix, []byte("PK\x03\x04")) || bytes.HasPrefix(prefix, []byte("PK\x05\x06")) || bytes.HasPrefix(prefix, []byte("PK\x07\x08"))
+	case "text/plain", "text/markdown":
+		return utf8.Valid(prefix) && !bytes.Contains(prefix, []byte{0})
+	default:
+		return len(prefix) > 0
+	}
+}
+
+// IsSafeImagePath reports whether value is a local URL path produced by SaveImage.
+func IsSafeImagePath(value string) bool {
+	return uploadpath.IsImagePath(value)
 }
 
 type maxBytesReader struct {

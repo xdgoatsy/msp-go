@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +57,25 @@ func TestListLogsParsesFilters(t *testing.T) {
 	}
 	if service.lastFilter.Page != 2 || service.lastFilter.PageSize != 25 || len(service.lastFilter.EventTypes) != 2 || !service.lastFilter.IncludeArchived || service.lastFilter.StartDate == nil {
 		t.Fatalf("filter = %#v", service.lastFilter)
+	}
+}
+
+func TestListLogsRejectsOutOfRangePagination(t *testing.T) {
+	service := &fakeSecurityLogService{listResponse: securitylogapp.ListResponse{Total: 1}}
+	handler := newSecurityLogTestHandler(t, service, adminAuthenticator())
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/security-logs")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/security-logs?page_size=101", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if service.lastFilter.PageSize != 0 {
+		t.Fatalf("service was called for invalid page_size: %#v", service.lastFilter)
 	}
 }
 
@@ -114,6 +134,75 @@ func TestMutationRoutesForwardBodies(t *testing.T) {
 	}
 }
 
+func TestJSONRoutesRejectTrailingJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		assert func(*testing.T, *fakeSecurityLogService)
+	}{
+		{
+			name:   "delete",
+			method: http.MethodDelete,
+			path:   "/api/v1/admin/security-logs",
+			body:   `{"log_ids":["log-1"]} {"log_ids":["log-2"]}`,
+			assert: func(t *testing.T, service *fakeSecurityLogService) {
+				t.Helper()
+				if len(service.lastDelete.LogIDs) != 0 {
+					t.Fatalf("service was called for delete trailing JSON: %#v", service.lastDelete)
+				}
+			},
+		},
+		{
+			name:   "export",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/security-logs/export",
+			body:   `{"format":"csv","severities":["error"]} {"format":"json"}`,
+			assert: func(t *testing.T, service *fakeSecurityLogService) {
+				t.Helper()
+				if service.lastExport.Format != "" {
+					t.Fatalf("service was called for export trailing JSON: %#v", service.lastExport)
+				}
+			},
+		},
+		{
+			name:   "archive",
+			method: http.MethodPost,
+			path:   "/api/v1/admin/security-logs/archive",
+			body:   `{"before_date":"2026-05-01T00:00:00Z"} {"before_date":"2026-06-01T00:00:00Z"}`,
+			assert: func(t *testing.T, service *fakeSecurityLogService) {
+				t.Helper()
+				if !service.lastArchive.IsZero() {
+					t.Fatalf("service was called for archive trailing JSON: %s", service.lastArchive)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &fakeSecurityLogService{}
+			handler := newSecurityLogTestHandler(t, service, adminAuthenticator())
+			mux := http.NewServeMux()
+			handler.Register(mux, "/api/v1/admin/security-logs")
+
+			request := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body))
+			request.Header.Set("Authorization", "Bearer token")
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "请求体格式错误") || !strings.Contains(recorder.Body.String(), "VALIDATION_ERROR") {
+				t.Fatalf("body=%s", recorder.Body.String())
+			}
+			tt.assert(t, service)
+		})
+	}
+}
+
 func TestValidationAndServiceErrors(t *testing.T) {
 	service := &fakeSecurityLogService{err: securitylogapp.Error{Kind: securitylogapp.ErrBadRequest, Message: "format 必须是 json 或 csv"}}
 	handler := newSecurityLogTestHandler(t, service, adminAuthenticator())
@@ -138,6 +227,43 @@ func TestValidationAndServiceErrors(t *testing.T) {
 	}
 }
 
+func TestServiceErrorsRedactPublicMessages(t *testing.T) {
+	service := &fakeSecurityLogService{err: securitylogapp.Error{Kind: securitylogapp.ErrBadRequest, Message: "format invalid Authorization: Bearer ops-secret token=query-token api_key=plain password=letmein"}}
+	handler := newSecurityLogTestHandler(t, service, adminAuthenticator())
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/security-logs")
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/security-logs/export", bytes.NewBufferString(`{"format":"xml"}`))
+	request.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoSecurityLogCredentialLeak(t, recorder.Body.String())
+}
+
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	var logBuffer bytes.Buffer
+	service := &fakeSecurityLogService{err: errors.New("security log repo failed Authorization: Bearer ops-secret token=query-token api_key=plain password=letmein")}
+	handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), service, adminAuthenticator())
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/security-logs")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/security-logs/stats", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoSecurityLogCredentialLeak(t, recorder.Body.String())
+	assertNoSecurityLogCredentialLeak(t, logBuffer.String())
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -154,6 +280,15 @@ func newSecurityLogTestHandler(t *testing.T, service Service, auth Authenticator
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoSecurityLogCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"ops-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer ops-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 func adminAuthenticator() *fakeAuthenticator {

@@ -10,6 +10,7 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	portraitapp "mathstudy/backend-go/internal/application/portrait"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the portrait application surface used by HTTP handlers.
@@ -65,7 +66,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetPortrait(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("get portrait failed", "error", err)
+		h.logPortraitError("get portrait failed", err)
 		writePortraitError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生画像失败")
 		return
 	}
@@ -79,7 +80,7 @@ func (h *Handler) generate(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GeneratePortrait(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("generate portrait failed", "error", err)
+		h.logPortraitError("generate portrait failed", err)
 		writePortraitError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "画像生成失败，请稍后重试")
 		return
 	}
@@ -93,7 +94,7 @@ func (h *Handler) clear(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.ClearPortrait(r.Context(), principal.UserID)
 	if err != nil {
-		h.logger.Error("clear portrait failed", "error", err)
+		h.logPortraitError("clear portrait failed", err)
 		writePortraitError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "清除学生画像失败")
 		return
 	}
@@ -115,6 +116,10 @@ func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (auth
 		return authapp.Principal{}, false
 	}
 	return principal, true
+}
+
+func (h *Handler) logPortraitError(message string, err error) {
+	h.logger.Error(message, "error", redact.String(err.Error()))
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

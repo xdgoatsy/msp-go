@@ -1,6 +1,7 @@
 package adminstatshttp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	adminstatsapp "mathstudy/backend-go/internal/application/adminstats"
@@ -106,6 +108,43 @@ func TestValidationAndServiceErrors(t *testing.T) {
 	}
 }
 
+func TestServiceErrorsRedactPublicMessages(t *testing.T) {
+	service := &fakeStatsService{err: adminstatsapp.Error{Kind: adminstatsapp.ErrBadRequest, Message: "period invalid Authorization: Bearer ops-secret token=query-token api_key=plain password=letmein"}}
+	handler := newAdminStatsTestHandler(t, service, adminAuthenticator())
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/stats")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/stats/user-growth?period=bad", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoAdminStatsCredentialLeak(t, recorder.Body.String())
+}
+
+func TestInternalErrorsRedactLogs(t *testing.T) {
+	var logBuffer bytes.Buffer
+	service := &fakeStatsService{err: errors.New("stats repo failed Authorization: Bearer ops-secret token=query-token api_key=plain password=letmein")}
+	handler, err := NewHandler(slog.New(slog.NewTextHandler(&logBuffer, nil)), service, adminAuthenticator())
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	handler.Register(mux, "/api/v1/admin/stats")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/stats/overview", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	assertNoAdminStatsCredentialLeak(t, recorder.Body.String())
+	assertNoAdminStatsCredentialLeak(t, logBuffer.String())
+}
+
 func TestNewHandlerRejectsMissingDependencies(t *testing.T) {
 	if _, err := NewHandler(nil, nil, &fakeAuthenticator{}); err == nil {
 		t.Fatal("NewHandler(nil service) error = nil, want error")
@@ -122,6 +161,15 @@ func newAdminStatsTestHandler(t *testing.T, service Service, auth Authenticator)
 		t.Fatalf("NewHandler() error = %v", err)
 	}
 	return handler
+}
+
+func assertNoAdminStatsCredentialLeak(t *testing.T, value string) {
+	t.Helper()
+	for _, leaked := range []string{"ops-secret", "token=query-token", "api_key=plain", "password=letmein", "Bearer ops-secret"} {
+		if strings.Contains(value, leaked) {
+			t.Fatalf("value leaked %q in %q", leaked, value)
+		}
+	}
 }
 
 func adminAuthenticator() *fakeAuthenticator {

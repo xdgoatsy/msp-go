@@ -9,6 +9,7 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	"mathstudy/backend-go/internal/domain/user"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 var (
@@ -349,7 +350,7 @@ func (s *Service) ImportUsers(ctx context.Context, rows []ImportUser) (ImportRes
 		hash, err := authapp.HashPassword(normalized.Password)
 		if err != nil {
 			response.Failed++
-			response.Details = append(response.Details, ImportResult{Row: rowNumber, Username: normalized.Username, Message: "创建失败: " + err.Error()})
+			response.Details = append(response.Details, ImportResult{Row: rowNumber, Username: normalized.Username, Message: "创建失败: " + redact.String(err.Error())})
 			continue
 		}
 		now := s.now()
@@ -365,7 +366,7 @@ func (s *Service) ImportUsers(ctx context.Context, rows []ImportUser) (ImportRes
 			UpdatedAt:      now,
 		}); err != nil {
 			response.Failed++
-			response.Details = append(response.Details, ImportResult{Row: rowNumber, Username: normalized.Username, Message: "创建失败: " + err.Error()})
+			response.Details = append(response.Details, ImportResult{Row: rowNumber, Username: normalized.Username, Message: "创建失败: " + redact.String(err.Error())})
 			continue
 		}
 		response.Created++

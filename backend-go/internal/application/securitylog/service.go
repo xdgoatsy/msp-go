@@ -9,6 +9,9 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"mathstudy/backend-go/internal/platform/csvsafe"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 var (
@@ -478,12 +481,12 @@ func exportJSONRows(logs []LogItem) []map[string]any {
 			"event_type":         log.EventType,
 			"event_type_display": eventDisplay[log.EventType],
 			"severity":           log.Severity,
-			"title":              log.Title,
-			"description":        log.Description,
-			"ip_address":         log.IPAddress,
+			"title":              redact.String(log.Title),
+			"description":        redact.String(log.Description),
+			"ip_address":         redactedPointer(log.IPAddress),
 			"user_id":            log.UserID,
-			"username":           log.Username,
-			"extra_data":         log.ExtraData,
+			"username":           redactedStringPointer(log.Username),
+			"extra_data":         redact.Value("extra_data", log.ExtraData),
 			"archived":           log.Archived,
 			"created_at":         log.CreatedAt.Format(time.RFC3339),
 		})
@@ -496,18 +499,18 @@ func exportCSV(logs []LogItem) string {
 	writer := csv.NewWriter(&buffer)
 	_ = writer.Write([]string{"ID", "事件类型", "严重程度", "标题", "描述", "IP 地址", "用户 ID", "用户名", "创建时间", "已归档"})
 	for _, log := range logs {
-		_ = writer.Write([]string{
+		_ = writer.Write(csvsafe.Row(
 			log.ID,
 			eventDisplay[log.EventType],
 			string(log.Severity),
-			log.Title,
-			log.Description,
-			stringValue(log.IPAddress),
+			redact.String(log.Title),
+			redact.String(log.Description),
+			redactedFieldString(log.IPAddress),
 			stringValue(log.UserID),
-			stringValue(log.Username),
+			redactedString(log.Username),
 			log.CreatedAt.Format(time.RFC3339),
 			yesNo(log.Archived),
-		})
+		))
 	}
 	writer.Flush()
 	return buffer.String()
@@ -523,6 +526,36 @@ func stringValue(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func redactedPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	redacted := redact.Marker
+	return &redacted
+}
+
+func redactedStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	redacted := redact.String(*value)
+	return &redacted
+}
+
+func redactedString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return redact.String(*value)
+}
+
+func redactedFieldString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return redact.Marker
 }
 
 func yesNo(value bool) string {

@@ -6,11 +6,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	knowledgeapp "mathstudy/backend-go/internal/application/knowledge"
+	"mathstudy/backend-go/internal/platform/httpjson"
+	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/redact"
 )
 
 // Service is the admin knowledge application surface used by HTTP handlers.
@@ -125,7 +127,7 @@ func (h *Handler) stats(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetStats(r.Context())
 	if err != nil {
-		h.logger.Error("get knowledge stats failed", "error", err)
+		h.logKnowledgeError("get knowledge stats failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取知识点统计失败")
 		return
 	}
@@ -138,7 +140,7 @@ func (h *Handler) chapters(w http.ResponseWriter, r *http.Request) {
 	}
 	chapters, err := h.service.GetChapters(r.Context())
 	if err != nil {
-		h.logger.Error("get knowledge chapters failed", "error", err)
+		h.logKnowledgeError("get knowledge chapters failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取章节列表失败")
 		return
 	}
@@ -156,10 +158,10 @@ func (h *Handler) listNodes(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.ListNodes(r.Context(), filter)
 	if err != nil {
 		if errors.Is(err, knowledgeapp.ErrBadRequest) {
-			writeKnowledgeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			writeKnowledgeAppError(w, http.StatusBadRequest, "BAD_REQUEST", err)
 			return
 		}
-		h.logger.Error("list knowledge nodes failed", "error", err)
+		h.logKnowledgeError("list knowledge nodes failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取知识节点列表失败")
 		return
 	}
@@ -172,7 +174,7 @@ func (h *Handler) allNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.GetAllNodesSimple(r.Context())
 	if err != nil {
-		h.logger.Error("get all simple nodes failed", "error", err)
+		h.logKnowledgeError("get all simple nodes failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取节点简要信息失败")
 		return
 	}
@@ -186,10 +188,10 @@ func (h *Handler) getNode(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.GetNode(r.Context(), r.PathValue("node_id"))
 	if err != nil {
 		if errors.Is(err, knowledgeapp.ErrNotFound) {
-			writeKnowledgeError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+			writeKnowledgeAppError(w, http.StatusNotFound, "NOT_FOUND", err)
 			return
 		}
-		h.logger.Error("get knowledge node failed", "error", err)
+		h.logKnowledgeError("get knowledge node failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取知识节点失败")
 		return
 	}
@@ -211,10 +213,10 @@ func (h *Handler) createNode(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.CreateNode(r.Context(), input)
 	if err != nil {
 		if errors.Is(err, knowledgeapp.ErrBadRequest) {
-			writeKnowledgeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			writeKnowledgeAppError(w, http.StatusBadRequest, "BAD_REQUEST", err)
 			return
 		}
-		h.logger.Error("create knowledge node failed", "error", err)
+		h.logKnowledgeError("create knowledge node failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "创建知识节点失败")
 		return
 	}
@@ -236,10 +238,10 @@ func (h *Handler) updateNode(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.UpdateNode(r.Context(), r.PathValue("node_id"), update)
 	if err != nil {
 		if errors.Is(err, knowledgeapp.ErrBadRequest) || errors.Is(err, knowledgeapp.ErrNotFound) {
-			writeKnowledgeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			writeKnowledgeAppError(w, http.StatusBadRequest, "BAD_REQUEST", err)
 			return
 		}
-		h.logger.Error("update knowledge node failed", "error", err)
+		h.logKnowledgeError("update knowledge node failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "更新知识节点失败")
 		return
 	}
@@ -253,14 +255,14 @@ func (h *Handler) deleteNode(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.DeleteNode(r.Context(), r.PathValue("node_id"))
 	if err != nil {
 		if errors.Is(err, knowledgeapp.ErrBadRequest) {
-			writeKnowledgeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			writeKnowledgeAppError(w, http.StatusBadRequest, "BAD_REQUEST", err)
 			return
 		}
 		if errors.Is(err, knowledgeapp.ErrNotFound) {
-			writeKnowledgeError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+			writeKnowledgeAppError(w, http.StatusNotFound, "NOT_FOUND", err)
 			return
 		}
-		h.logger.Error("delete knowledge node failed", "error", err)
+		h.logKnowledgeError("delete knowledge node failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "删除知识节点失败")
 		return
 	}
@@ -273,7 +275,7 @@ func (h *Handler) listRelations(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.ListRelations(r.Context(), r.URL.Query().Get("node_id"))
 	if err != nil {
-		h.logger.Error("list knowledge relations failed", "error", err)
+		h.logKnowledgeError("list knowledge relations failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取知识关系列表失败")
 		return
 	}
@@ -295,10 +297,10 @@ func (h *Handler) createRelation(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.CreateRelation(r.Context(), input)
 	if err != nil {
 		if errors.Is(err, knowledgeapp.ErrBadRequest) {
-			writeKnowledgeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			writeKnowledgeAppError(w, http.StatusBadRequest, "BAD_REQUEST", err)
 			return
 		}
-		h.logger.Error("create knowledge relation failed", "error", err)
+		h.logKnowledgeError("create knowledge relation failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "创建知识关系失败")
 		return
 	}
@@ -320,10 +322,10 @@ func (h *Handler) updateRelation(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.UpdateRelation(r.Context(), r.PathValue("relation_id"), update)
 	if err != nil {
 		if errors.Is(err, knowledgeapp.ErrBadRequest) || errors.Is(err, knowledgeapp.ErrNotFound) {
-			writeKnowledgeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			writeKnowledgeAppError(w, http.StatusBadRequest, "BAD_REQUEST", err)
 			return
 		}
-		h.logger.Error("update knowledge relation failed", "error", err)
+		h.logKnowledgeError("update knowledge relation failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "更新知识关系失败")
 		return
 	}
@@ -337,10 +339,10 @@ func (h *Handler) deleteRelation(w http.ResponseWriter, r *http.Request) {
 	response, err := h.service.DeleteRelation(r.Context(), r.PathValue("relation_id"))
 	if err != nil {
 		if errors.Is(err, knowledgeapp.ErrNotFound) {
-			writeKnowledgeError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+			writeKnowledgeAppError(w, http.StatusNotFound, "NOT_FOUND", err)
 			return
 		}
-		h.logger.Error("delete knowledge relation failed", "error", err)
+		h.logKnowledgeError("delete knowledge relation failed", err)
 		writeKnowledgeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "删除知识关系失败")
 		return
 	}
@@ -366,6 +368,14 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (authapp.
 		return authapp.Principal{}, false
 	}
 	return principal, true
+}
+
+func (h *Handler) logKnowledgeError(message string, err error) {
+	h.logger.Error(message, "error", redact.String(err.Error()))
+}
+
+func writeKnowledgeAppError(w http.ResponseWriter, status int, code string, err error) {
+	writeKnowledgeError(w, status, code, redact.String(err.Error()))
 }
 
 func parseNodeFilter(w http.ResponseWriter, r *http.Request) (knowledgeapp.NodeFilter, bool) {
@@ -401,10 +411,7 @@ func parseNodeFilter(w http.ResponseWriter, r *http.Request) (knowledgeapp.NodeF
 }
 
 func parseIntQuery(w http.ResponseWriter, value string, fallback int, name string) (int, bool) {
-	if value == "" {
-		return fallback, true
-	}
-	parsed, err := strconv.Atoi(value)
+	parsed, err := httpquery.Int(value, fallback)
 	if err != nil {
 		writeKnowledgeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 必须是整数")
 		return 0, false
@@ -600,9 +607,7 @@ func validRelationType(value string) bool {
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	defer r.Body.Close()
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
-	if err := decoder.Decode(target); err != nil {
+	if err := httpjson.DecodeStrict(w, r, 2<<20, target); err != nil {
 		writeKnowledgeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
 		return false
 	}
