@@ -6,15 +6,46 @@ interface UiState {
   sidebarOpen: boolean;
 }
 
+type Theme = UiState['theme'];
+
+function isTheme(value: unknown): value is Theme {
+  return value === 'light' || value === 'dark';
+}
+
+function clearStoredTheme(): void {
+  try {
+    localStorage.removeItem('theme');
+  } catch {
+    // 存储不可用时忽略
+  }
+}
+
+function persistTheme(theme: Theme): void {
+  try {
+    localStorage.setItem('theme', theme);
+  } catch {
+    // 存储不可用时忽略
+  }
+}
+
 // 从 localStorage 获取保存的主题，默认为 'light'
-const getInitialTheme = (): 'light' | 'dark' => {
+const getInitialTheme = (): Theme => {
   if (typeof window !== 'undefined') {
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    if (savedTheme) {
+    const savedTheme = (() => {
+      try {
+        return localStorage.getItem('theme');
+      } catch {
+        return null;
+      }
+    })();
+    if (isTheme(savedTheme)) {
       return savedTheme;
     }
+    if (savedTheme) {
+      clearStoredTheme();
+    }
     // 检测系统偏好
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
       return 'dark';
     }
   }
@@ -38,13 +69,13 @@ const uiSlice = createSlice({
       state.theme = state.theme === 'light' ? 'dark' : 'light';
       // 持久化到 localStorage
       if (typeof window !== 'undefined') {
-        localStorage.setItem('theme', state.theme);
+        persistTheme(state.theme);
       }
     },
-    setTheme(state, action: PayloadAction<'light' | 'dark'>) {
+    setTheme(state, action: PayloadAction<Theme>) {
       state.theme = action.payload;
       if (typeof window !== 'undefined') {
-        localStorage.setItem('theme', state.theme);
+        persistTheme(state.theme);
       }
     },
     toggleSidebar(state) {

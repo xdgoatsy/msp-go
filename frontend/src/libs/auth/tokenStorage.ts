@@ -2,15 +2,31 @@ const TOKEN_KEY = 'auth_token';
 
 export const authTokenStorage = {
   get(): string | null {
-    return sessionStorage.getItem(TOKEN_KEY);
+    try {
+      return sessionStorage.getItem(TOKEN_KEY);
+    } catch {
+      return null;
+    }
   },
 
   set(token: string): void {
-    sessionStorage.setItem(TOKEN_KEY, token);
+    try {
+      sessionStorage.setItem(TOKEN_KEY, token);
+    } catch {
+      // 存储不可用时仅保留内存态认证
+    }
   },
 
   clear(): void {
-    sessionStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(TOKEN_KEY);
+    try {
+      sessionStorage.removeItem(TOKEN_KEY);
+    } catch {
+      // 存储不可用时忽略
+    }
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+    } catch {
+      // 清理旧 localStorage token 失败时忽略
+    }
   },
 };

@@ -30,7 +30,14 @@ export function loadCredential(): XidianCredential | null {
  * 清除保存的凭证
  */
 export function clearCredential(): void {
-  localStorage.removeItem(CREDENTIAL_KEY);
+  if (typeof localStorage === 'undefined') {
+    return;
+  }
+  try {
+    localStorage.removeItem(CREDENTIAL_KEY);
+  } catch {
+    // Storage may be blocked by browser privacy settings; credential cleanup must stay best-effort.
+  }
 }
 
 /**

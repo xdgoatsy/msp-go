@@ -22,24 +22,72 @@ export interface AuthState {
   error: string | null;
 }
 
+type AuthUser = NonNullable<AuthState['user']>;
+
 const USER_CACHE_KEY = 'auth_user_cache';
+const VALID_ROLES: AuthUser['role'][] = ['student', 'teacher', 'admin'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isAuthRole(value: unknown): value is AuthUser['role'] {
+  return typeof value === 'string' && VALID_ROLES.includes(value as AuthUser['role']);
+}
+
+function normalizeCachedUser(value: unknown): AuthState['user'] {
+  if (!isRecord(value)) return null;
+  if (typeof value.id !== 'string' || value.id.trim() === '') return null;
+  if (typeof value.name !== 'string' || value.name.trim() === '') return null;
+  if (!isAuthRole(value.role)) return null;
+
+  const user: AuthUser = {
+    id: value.id,
+    name: value.name,
+    role: value.role,
+  };
+  if (typeof value.email === 'string') {
+    user.email = value.email;
+  }
+  if (typeof value.email_verified === 'boolean') {
+    user.email_verified = value.email_verified;
+  }
+  if (typeof value.avatar === 'string') {
+    user.avatar = value.avatar;
+  }
+  return user;
+}
+
+function clearUserCache(): void {
+  try {
+    localStorage.removeItem(USER_CACHE_KEY);
+  } catch {
+    // 存储不可用时忽略
+  }
+}
 
 function loadUserFromCache(): AuthState['user'] {
   try {
     const cached = localStorage.getItem(USER_CACHE_KEY);
     if (!cached) return null;
-    return JSON.parse(cached) as AuthState['user'];
+    const user = normalizeCachedUser(JSON.parse(cached));
+    if (!user) {
+      clearUserCache();
+    }
+    return user;
   } catch {
+    clearUserCache();
     return null;
   }
 }
 
 function saveUserToCache(user: AuthState['user']): void {
   try {
-    if (user) {
-      localStorage.setItem(USER_CACHE_KEY, JSON.stringify(user));
+    const normalizedUser = normalizeCachedUser(user);
+    if (normalizedUser) {
+      localStorage.setItem(USER_CACHE_KEY, JSON.stringify(normalizedUser));
     } else {
-      localStorage.removeItem(USER_CACHE_KEY);
+      clearUserCache();
     }
   } catch {
     // 存储失败时静默处理

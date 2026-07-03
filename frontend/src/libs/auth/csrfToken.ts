@@ -1,4 +1,5 @@
 const CSRF_COOKIE_KEY = 'csrf_token';
+const MAX_CSRF_TOKEN_LENGTH = 4096;
 
 export function getCsrfToken(): string | null {
   if (typeof document === 'undefined') {
@@ -8,7 +9,16 @@ export function getCsrfToken(): string | null {
   for (const cookie of cookies) {
     const [rawName, ...rawValue] = cookie.split('=');
     if (rawName.trim() === CSRF_COOKIE_KEY) {
-      return decodeURIComponent(rawValue.join('='));
+      const encodedValue = rawValue.join('=');
+      if (!encodedValue || encodedValue.length > MAX_CSRF_TOKEN_LENGTH) {
+        return null;
+      }
+      try {
+        const token = decodeURIComponent(encodedValue);
+        return token.length <= MAX_CSRF_TOKEN_LENGTH ? token : null;
+      } catch {
+        return null;
+      }
     }
   }
   return null;
