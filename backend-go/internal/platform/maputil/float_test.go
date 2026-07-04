@@ -28,6 +28,22 @@ func TestCloneFloatMapNilBecomesEmptyMap(t *testing.T) {
 	}
 }
 
+func TestAverageFloatValues(t *testing.T) {
+	got := AverageFloatValues(map[string]float64{
+		"alpha": 0.2,
+		"beta":  0.8,
+	})
+	if got != 0.5 {
+		t.Fatalf("AverageFloatValues() = %v, want 0.5", got)
+	}
+}
+
+func TestAverageFloatValuesEmpty(t *testing.T) {
+	if got := AverageFloatValues(nil); got != 0 {
+		t.Fatalf("AverageFloatValues(nil) = %v, want 0", got)
+	}
+}
+
 func TestSortedFloatKeys(t *testing.T) {
 	got := SortedFloatKeys(map[string]float64{
 		"gamma": 0.3,

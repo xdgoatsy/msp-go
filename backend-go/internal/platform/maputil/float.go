@@ -11,6 +11,18 @@ func CloneFloatMap(values map[string]float64) map[string]float64 {
 	return result
 }
 
+// AverageFloatValues returns the average of map values, or 0 when values is empty.
+func AverageFloatValues(values map[string]float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sum := 0.0
+	for _, value := range values {
+		sum += value
+	}
+	return sum / float64(len(values))
+}
+
 // SortedFloatKeys returns the keys of values in ascending lexical order.
 func SortedFloatKeys(values map[string]float64) []string {
 	keys := make([]string, 0, len(values))

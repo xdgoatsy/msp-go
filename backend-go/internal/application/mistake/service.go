@@ -360,7 +360,7 @@ func (s *Service) GetMistakes(ctx context.Context, userID string, query ListQuer
 		Statistics: MistakeStatistics{
 			TotalMistakes: total,
 			WeakConcepts:  countWeakConcepts(mastery),
-			AvgMastery:    averageFloatMap(mastery),
+			AvgMastery:    maputil.AverageFloatValues(mastery),
 		},
 	}, nil
 }
@@ -399,7 +399,7 @@ func (s *Service) GetStatistics(ctx context.Context, userID string, timeRange st
 			TotalMistakes:  totalMistakes,
 			TotalExercises: totalExercises,
 			MistakeRate:    numutil.RoundPlaces(numutil.Percent(totalExercises, totalMistakes), 1),
-			AvgMastery:     numutil.RoundPlaces(averageFloatMap(mastery), 2),
+			AvgMastery:     numutil.RoundPlaces(maputil.AverageFloatValues(mastery), 2),
 		},
 		ErrorTypeDistribution: buildErrorTypeDistribution(errorCounts, totalMistakes),
 		ConceptWeakness:       buildConceptWeakness(conceptMistakes, mastery),
@@ -796,17 +796,6 @@ func countWeakConcepts(mastery map[string]float64) int {
 		}
 	}
 	return total
-}
-
-func averageFloatMap(values map[string]float64) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-	sum := 0.0
-	for _, value := range values {
-		sum += value
-	}
-	return sum / float64(len(values))
 }
 
 func compareOptionalTime(left *time.Time, right *time.Time) int {
