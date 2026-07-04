@@ -469,17 +469,11 @@ func scanMistakeListRow(rows pgx.Rows) (mistakeapp.MistakeListRow, error) {
 	if err != nil {
 		return mistakeapp.MistakeListRow{}, fmt.Errorf("decode related concept ids: %w", err)
 	}
-	if errorType.Valid {
-		value := errorType.String
-		diagnosis.ErrorType = &value
-	}
+	diagnosis.ErrorType = textPtr(errorType)
 	if errorSubtype.Valid {
 		diagnosis.ErrorSubtype = errorSubtype.String
 	}
-	if errorStepIndex.Valid {
-		value := int(errorStepIndex.Int32)
-		diagnosis.ErrorStepIndex = &value
-	}
+	diagnosis.ErrorStepIndex = intPtr(errorStepIndex)
 	attempt.StudentSteps = studentSteps
 	content.ConceptIDs = conceptIDs
 	content.Meta = meta
@@ -547,17 +541,11 @@ func scanMistake(scanner rowScanner) (mistakeapp.MistakeRow, error) {
 	if err != nil {
 		return mistakeapp.MistakeRow{}, fmt.Errorf("decode related concept ids: %w", err)
 	}
-	if errorType.Valid {
-		value := errorType.String
-		diagnosis.ErrorType = &value
-	}
+	diagnosis.ErrorType = textPtr(errorType)
 	if errorSubtype.Valid {
 		diagnosis.ErrorSubtype = errorSubtype.String
 	}
-	if errorStepIndex.Valid {
-		value := int(errorStepIndex.Int32)
-		diagnosis.ErrorStepIndex = &value
-	}
+	diagnosis.ErrorStepIndex = intPtr(errorStepIndex)
 	attempt.StudentSteps = studentSteps
 	content.ConceptIDs = conceptIDs
 	content.Meta = meta
