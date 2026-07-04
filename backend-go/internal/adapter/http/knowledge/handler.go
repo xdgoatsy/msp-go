@@ -12,6 +12,7 @@ import (
 	"mathstudy/backend-go/internal/platform/httpauth"
 	"mathstudy/backend-go/internal/platform/httpjson"
 	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/httpvalidate"
 	"mathstudy/backend-go/internal/platform/redact"
 )
 
@@ -397,12 +398,12 @@ func writeKnowledgePaginationError(w http.ResponseWriter, err error) {
 }
 
 func (r nodeCreateRequest) toInput(w http.ResponseWriter) (knowledgeapp.NodeInput, bool) {
-	if !validateRequiredString(w, r.Name, 1, 200, "name") ||
+	if !httpvalidate.RequiredTrimmedString(w, r.Name, 1, 200, "name", writeKnowledgeError) ||
 		!validateNodeType(w, r.NodeType, "node_type") ||
-		!validateStringLength(w, r.Description, 2000, "description") ||
-		!validateOptionalString(w, r.NameEn, 200, "name_en") ||
-		!validateOptionalString(w, r.Chapter, 100, "chapter") ||
-		!validateOptionalString(w, r.Section, 100, "section") ||
+		!httpvalidate.StringLength(w, r.Description, 2000, "description", writeKnowledgeError) ||
+		!httpvalidate.OptionalString(w, r.NameEn, 200, "name_en", writeKnowledgeError) ||
+		!httpvalidate.OptionalString(w, r.Chapter, 100, "chapter", writeKnowledgeError) ||
+		!httpvalidate.OptionalString(w, r.Section, 100, "section", writeKnowledgeError) ||
 		!validateDifficulty(w, r.Difficulty) {
 		return knowledgeapp.NodeInput{}, false
 	}
@@ -427,12 +428,12 @@ func (r nodeCreateRequest) toInput(w http.ResponseWriter) (knowledgeapp.NodeInpu
 }
 
 func (r nodeUpdateRequest) toUpdate(w http.ResponseWriter) (knowledgeapp.NodeUpdate, bool) {
-	if !validateOptionalStringMinMax(w, r.Name, 1, 200, "name") ||
+	if !httpvalidate.OptionalRequiredTrimmedString(w, r.Name, 1, 200, "name", writeKnowledgeError) ||
 		!validateOptionalNodeType(w, r.NodeType, "node_type") ||
-		!validateOptionalString(w, r.Description, 2000, "description") ||
-		!validateOptionalString(w, r.NameEn, 200, "name_en") ||
-		!validateOptionalString(w, r.Chapter, 100, "chapter") ||
-		!validateOptionalString(w, r.Section, 100, "section") ||
+		!httpvalidate.OptionalString(w, r.Description, 2000, "description", writeKnowledgeError) ||
+		!httpvalidate.OptionalString(w, r.NameEn, 200, "name_en", writeKnowledgeError) ||
+		!httpvalidate.OptionalString(w, r.Chapter, 100, "chapter", writeKnowledgeError) ||
+		!httpvalidate.OptionalString(w, r.Section, 100, "section", writeKnowledgeError) ||
 		!validateDifficulty(w, r.Difficulty) {
 		return knowledgeapp.NodeUpdate{}, false
 	}
@@ -450,11 +451,11 @@ func (r nodeUpdateRequest) toUpdate(w http.ResponseWriter) (knowledgeapp.NodeUpd
 }
 
 func (r relationCreateRequest) toInput(w http.ResponseWriter) (knowledgeapp.RelationInput, bool) {
-	if !validateRequiredString(w, r.SourceID, 1, 0, "source_id") ||
-		!validateRequiredString(w, r.TargetID, 1, 0, "target_id") ||
+	if !httpvalidate.RequiredTrimmedString(w, r.SourceID, 1, 0, "source_id", writeKnowledgeError) ||
+		!httpvalidate.RequiredTrimmedString(w, r.TargetID, 1, 0, "target_id", writeKnowledgeError) ||
 		!validateRelationType(w, r.RelationType, "relation_type") ||
 		!validateWeight(w, r.Weight) ||
-		!validateOptionalString(w, r.Description, 500, "description") {
+		!httpvalidate.OptionalString(w, r.Description, 500, "description", writeKnowledgeError) {
 		return knowledgeapp.RelationInput{}, false
 	}
 	weight := 1.0
@@ -473,7 +474,7 @@ func (r relationCreateRequest) toInput(w http.ResponseWriter) (knowledgeapp.Rela
 func (r relationUpdateRequest) toUpdate(w http.ResponseWriter) (knowledgeapp.RelationUpdate, bool) {
 	if !validateOptionalRelationType(w, r.RelationType, "relation_type") ||
 		!validateWeight(w, r.Weight) ||
-		!validateOptionalString(w, r.Description, 500, "description") {
+		!httpvalidate.OptionalString(w, r.Description, 500, "description", writeKnowledgeError) {
 		return knowledgeapp.RelationUpdate{}, false
 	}
 	return knowledgeapp.RelationUpdate{
@@ -481,42 +482,6 @@ func (r relationUpdateRequest) toUpdate(w http.ResponseWriter) (knowledgeapp.Rel
 		Weight:       r.Weight,
 		Description:  r.Description,
 	}, true
-}
-
-func validateRequiredString(w http.ResponseWriter, value string, min int, max int, name string) bool {
-	length := len(strings.TrimSpace(value))
-	if length < min {
-		writeKnowledgeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 不能为空")
-		return false
-	}
-	if max > 0 && length > max {
-		writeKnowledgeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 长度超出限制")
-		return false
-	}
-	return true
-}
-
-func validateStringLength(w http.ResponseWriter, value string, max int, name string) bool {
-	if len(value) <= max {
-		return true
-	}
-	writeKnowledgeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 长度超出限制")
-	return false
-}
-
-func validateOptionalString(w http.ResponseWriter, value *string, max int, name string) bool {
-	if value == nil || len(*value) <= max {
-		return true
-	}
-	writeKnowledgeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 长度超出限制")
-	return false
-}
-
-func validateOptionalStringMinMax(w http.ResponseWriter, value *string, min int, max int, name string) bool {
-	if value == nil {
-		return true
-	}
-	return validateRequiredString(w, *value, min, max, name)
 }
 
 func validateDifficulty(w http.ResponseWriter, value *float64) bool {

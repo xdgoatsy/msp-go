@@ -13,6 +13,7 @@ import (
 	"mathstudy/backend-go/internal/platform/httpauth"
 	"mathstudy/backend-go/internal/platform/httpjson"
 	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/httpvalidate"
 	"mathstudy/backend-go/internal/platform/redact"
 )
 
@@ -330,9 +331,9 @@ func (r createRequest) toInput(w http.ResponseWriter) (resourceapp.ResourceInput
 	if !validateTitle(w, &r.Title) || !validateResourceType(w, r.Type) || !validateStorageType(w, r.StorageType) {
 		return resourceapp.ResourceInput{}, false
 	}
-	if !validateOptionalString(w, r.Chapter, 100, "chapter") ||
-		!validateOptionalString(w, r.Topic, 100, "topic") ||
-		!validateOptionalString(w, r.Source, 200, "source") ||
+	if !httpvalidate.OptionalString(w, r.Chapter, 100, "chapter", writeResourceError) ||
+		!httpvalidate.OptionalString(w, r.Topic, 100, "topic", writeResourceError) ||
+		!httpvalidate.OptionalString(w, r.Source, 200, "source", writeResourceError) ||
 		!validateOptionalPages(w, r.Pages) {
 		return resourceapp.ResourceInput{}, false
 	}
@@ -381,9 +382,9 @@ func (r updateRequest) toUpdate(w http.ResponseWriter) (resourceapp.ResourceUpda
 		writeResourceError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "difficulty 必须在 0 到 1 之间")
 		return resourceapp.ResourceUpdate{}, false
 	}
-	if !validateOptionalString(w, r.Chapter, 100, "chapter") ||
-		!validateOptionalString(w, r.Topic, 100, "topic") ||
-		!validateOptionalString(w, r.Source, 200, "source") ||
+	if !httpvalidate.OptionalString(w, r.Chapter, 100, "chapter", writeResourceError) ||
+		!httpvalidate.OptionalString(w, r.Topic, 100, "topic", writeResourceError) ||
+		!httpvalidate.OptionalString(w, r.Source, 200, "source", writeResourceError) ||
 		!validateOptionalPages(w, r.Pages) {
 		return resourceapp.ResourceUpdate{}, false
 	}
@@ -462,14 +463,6 @@ func validateStorageType(w http.ResponseWriter, value string) bool {
 		writeResourceError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "storage_type 必须是 local、cloud 或 external")
 		return false
 	}
-}
-
-func validateOptionalString(w http.ResponseWriter, value *string, max int, name string) bool {
-	if value == nil || len(*value) <= max {
-		return true
-	}
-	writeResourceError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 长度超出限制")
-	return false
 }
 
 func validateOptionalPages(w http.ResponseWriter, value *int) bool {

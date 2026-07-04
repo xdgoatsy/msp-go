@@ -13,6 +13,7 @@ import (
 	"mathstudy/backend-go/internal/platform/httpauth"
 	"mathstudy/backend-go/internal/platform/httpjson"
 	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/httpvalidate"
 	"mathstudy/backend-go/internal/platform/redact"
 )
 
@@ -480,15 +481,15 @@ func writeQuestionPaginationError(w http.ResponseWriter, err error) {
 }
 
 func (r createRequest) toInput(w http.ResponseWriter) (questionapp.QuestionInput, bool) {
-	if !validateRequiredString(w, r.Title, 1, questionapp.MaxQuestionTitleBytes, "title") ||
-		!validateRequiredString(w, r.Body, 1, questionapp.MaxQuestionBodyBytes, "body") ||
-		!validateRequiredField(w, r.Answer, "answer") ||
-		!validateOptionalString(w, r.Answer, questionapp.MaxQuestionAnswerBytes, "answer") ||
-		!validateStringSlice(w, r.ConceptIDs, "concept_ids") ||
-		!validateStringSlice(w, r.Tags, "tags") ||
-		!validateStringSlice(w, r.Hints, "hints") ||
-		!validateStringSlice(w, r.SolutionSteps, "solution_steps") ||
-		!validateOptionalStringSlice(w, r.Options, "options") ||
+	if !httpvalidate.RequiredTrimmedString(w, r.Title, 1, questionapp.MaxQuestionTitleBytes, "title", writeQuestionError) ||
+		!httpvalidate.RequiredTrimmedString(w, r.Body, 1, questionapp.MaxQuestionBodyBytes, "body", writeQuestionError) ||
+		!httpvalidate.RequiredField(w, r.Answer, "answer", writeQuestionError) ||
+		!httpvalidate.OptionalString(w, r.Answer, questionapp.MaxQuestionAnswerBytes, "answer", writeQuestionError) ||
+		!httpvalidate.StringSlice(w, r.ConceptIDs, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "concept_ids", writeQuestionError) ||
+		!httpvalidate.StringSlice(w, r.Tags, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "tags", writeQuestionError) ||
+		!httpvalidate.StringSlice(w, r.Hints, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "hints", writeQuestionError) ||
+		!httpvalidate.StringSlice(w, r.SolutionSteps, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "solution_steps", writeQuestionError) ||
+		!httpvalidate.OptionalStringSlice(w, r.Options, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "options", writeQuestionError) ||
 		!validateDifficulty(w, r.Difficulty) ||
 		!validateEstimatedSeconds(w, r.EstimatedTimeSeconds) {
 		return questionapp.QuestionInput{}, false
@@ -518,18 +519,18 @@ func (r createRequest) toInput(w http.ResponseWriter) (questionapp.QuestionInput
 }
 
 func (r updateRequest) toUpdate(w http.ResponseWriter) (questionapp.QuestionUpdate, bool) {
-	if r.Title != nil && !validateRequiredString(w, *r.Title, 1, questionapp.MaxQuestionTitleBytes, "title") {
+	if r.Title != nil && !httpvalidate.RequiredTrimmedString(w, *r.Title, 1, questionapp.MaxQuestionTitleBytes, "title", writeQuestionError) {
 		return questionapp.QuestionUpdate{}, false
 	}
-	if r.Body != nil && !validateRequiredString(w, *r.Body, 1, questionapp.MaxQuestionBodyBytes, "body") {
+	if r.Body != nil && !httpvalidate.RequiredTrimmedString(w, *r.Body, 1, questionapp.MaxQuestionBodyBytes, "body", writeQuestionError) {
 		return questionapp.QuestionUpdate{}, false
 	}
-	if !validateOptionalString(w, r.Answer, questionapp.MaxQuestionAnswerBytes, "answer") ||
-		!validateOptionalStringSlice(w, r.ConceptIDs, "concept_ids") ||
-		!validateOptionalStringSlice(w, r.Tags, "tags") ||
-		!validateOptionalStringSlice(w, r.Hints, "hints") ||
-		!validateOptionalStringSlice(w, r.SolutionSteps, "solution_steps") ||
-		!validateOptionalStringSlice(w, r.Options, "options") ||
+	if !httpvalidate.OptionalString(w, r.Answer, questionapp.MaxQuestionAnswerBytes, "answer", writeQuestionError) ||
+		!httpvalidate.OptionalStringSlice(w, r.ConceptIDs, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "concept_ids", writeQuestionError) ||
+		!httpvalidate.OptionalStringSlice(w, r.Tags, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "tags", writeQuestionError) ||
+		!httpvalidate.OptionalStringSlice(w, r.Hints, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "hints", writeQuestionError) ||
+		!httpvalidate.OptionalStringSlice(w, r.SolutionSteps, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "solution_steps", writeQuestionError) ||
+		!httpvalidate.OptionalStringSlice(w, r.Options, questionapp.MaxQuestionListItems, questionapp.MaxQuestionListItemBytes, "options", writeQuestionError) ||
 		!validateDifficulty(w, r.Difficulty) ||
 		!validateEstimatedSeconds(w, r.EstimatedTimeSeconds) {
 		return questionapp.QuestionUpdate{}, false
@@ -553,56 +554,6 @@ func (r updateRequest) toUpdate(w http.ResponseWriter) (questionapp.QuestionUpda
 		EstimatedTimeSeconds: r.EstimatedTimeSeconds,
 		Status:               r.Status,
 	}, true
-}
-
-func validateRequiredString(w http.ResponseWriter, value string, min int, max int, name string) bool {
-	length := len(strings.TrimSpace(value))
-	if length < min {
-		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 不能为空")
-		return false
-	}
-	if max > 0 && length > max {
-		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 长度超出限制")
-		return false
-	}
-	return true
-}
-
-func validateRequiredField(w http.ResponseWriter, value *string, name string) bool {
-	if value != nil {
-		return true
-	}
-	writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 为必填字段")
-	return false
-}
-
-func validateOptionalString(w http.ResponseWriter, value *string, max int, name string) bool {
-	if value == nil || len(*value) <= max {
-		return true
-	}
-	writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 长度超出限制")
-	return false
-}
-
-func validateStringSlice(w http.ResponseWriter, values []string, name string) bool {
-	if len(values) > questionapp.MaxQuestionListItems {
-		writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 数量超出限制")
-		return false
-	}
-	for _, value := range values {
-		if len(strings.TrimSpace(value)) > questionapp.MaxQuestionListItemBytes {
-			writeQuestionError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 单项长度超出限制")
-			return false
-		}
-	}
-	return true
-}
-
-func validateOptionalStringSlice(w http.ResponseWriter, values *[]string, name string) bool {
-	if values == nil {
-		return true
-	}
-	return validateStringSlice(w, *values, name)
 }
 
 func validateDifficulty(w http.ResponseWriter, value *float64) bool {
