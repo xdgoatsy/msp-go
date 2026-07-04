@@ -488,10 +488,7 @@ func (r TeacherRepository) StudentEnrollmentForTeacher(ctx context.Context, teac
 		}
 		return teacherapp.StudentEnrollment{}, false, err
 	}
-	if joinedAt.Valid {
-		value := joinedAt.Time
-		enrollment.JoinedAt = &value
-	}
+	enrollment.JoinedAt = timestampPtr(joinedAt)
 	return enrollment, true, nil
 }
 
@@ -697,10 +694,7 @@ func (r TeacherRepository) RecentSessions(ctx context.Context, studentID string,
 		if err := rows.Scan(&session.ID, &session.StartedAt, &endedAt); err != nil {
 			return nil, err
 		}
-		if endedAt.Valid {
-			value := endedAt.Time
-			session.EndedAt = &value
-		}
+		session.EndedAt = timestampPtr(endedAt)
 		sessions = append(sessions, session)
 	}
 	return sessions, rows.Err()

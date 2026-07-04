@@ -181,10 +181,7 @@ func (r ProgressRepository) ListMasteryStates(ctx context.Context, userID string
 		); err != nil {
 			return nil, err
 		}
-		if lastAttempt.Valid {
-			value := lastAttempt.Time
-			state.LastAttemptAt = &value
-		}
+		state.LastAttemptAt = timestampPtr(lastAttempt)
 		states = append(states, state)
 	}
 	return states, rows.Err()

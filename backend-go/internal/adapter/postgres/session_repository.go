@@ -312,10 +312,7 @@ func scanSession(scanner rowScanner) (sessionapp.LearningSession, error) {
 		return sessionapp.LearningSession{}, err
 	}
 	session.CurrentTopic = textPtr(topic)
-	if endedAt.Valid {
-		value := endedAt.Time
-		session.EndedAt = &value
-	}
+	session.EndedAt = timestampPtr(endedAt)
 	return session, nil
 }
 
@@ -328,10 +325,7 @@ func scanSessionListItem(rows pgx.Rows) (sessionapp.LearningSession, int, error)
 		return sessionapp.LearningSession{}, 0, err
 	}
 	session.CurrentTopic = textPtr(topic)
-	if endedAt.Valid {
-		value := endedAt.Time
-		session.EndedAt = &value
-	}
+	session.EndedAt = timestampPtr(endedAt)
 	return session, count, nil
 }
 

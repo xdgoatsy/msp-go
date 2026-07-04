@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -33,5 +34,16 @@ func TestFloatPtr(t *testing.T) {
 	}
 	if got := floatPtr(pgtype.Float8{}); got != nil {
 		t.Fatalf("floatPtr(invalid) = %#v, want nil", got)
+	}
+}
+
+func TestTimestampPtr(t *testing.T) {
+	now := time.Date(2026, 7, 4, 10, 20, 30, 0, time.UTC)
+	got := timestampPtr(pgtype.Timestamp{Time: now, Valid: true})
+	if got == nil || !got.Equal(now) {
+		t.Fatalf("timestampPtr(valid) = %#v, want %s", got, now)
+	}
+	if got := timestampPtr(pgtype.Timestamp{}); got != nil {
+		t.Fatalf("timestampPtr(invalid) = %#v, want nil", got)
 	}
 }

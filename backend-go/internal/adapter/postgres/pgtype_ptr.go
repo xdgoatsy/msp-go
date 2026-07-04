@@ -1,6 +1,10 @@
 package postgres
 
-import "github.com/jackc/pgx/v5/pgtype"
+import (
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+)
 
 func textPtr(value pgtype.Text) *string {
 	if !value.Valid {
@@ -22,4 +26,11 @@ func floatPtr(value pgtype.Float8) *float64 {
 		return nil
 	}
 	return &value.Float64
+}
+
+func timestampPtr(value pgtype.Timestamp) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	return &value.Time
 }

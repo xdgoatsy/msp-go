@@ -452,10 +452,7 @@ func scanMistakeListRow(rows pgx.Rows) (mistakeapp.MistakeListRow, error) {
 	); err != nil {
 		return mistakeapp.MistakeListRow{}, err
 	}
-	if submittedAt.Valid {
-		value := submittedAt.Time
-		attempt.SubmittedAt = &value
-	}
+	attempt.SubmittedAt = timestampPtr(submittedAt)
 	studentSteps, err := decodeStringSlice(studentStepsRaw)
 	if err != nil {
 		return mistakeapp.MistakeListRow{}, fmt.Errorf("decode student steps: %w", err)
@@ -533,10 +530,7 @@ func scanMistake(scanner rowScanner) (mistakeapp.MistakeRow, error) {
 	); err != nil {
 		return mistakeapp.MistakeRow{}, err
 	}
-	if submittedAt.Valid {
-		value := submittedAt.Time
-		attempt.SubmittedAt = &value
-	}
+	attempt.SubmittedAt = timestampPtr(submittedAt)
 	studentSteps, err := decodeStringSlice(studentStepsRaw)
 	if err != nil {
 		return mistakeapp.MistakeRow{}, fmt.Errorf("decode student steps: %w", err)
@@ -595,10 +589,7 @@ func scanAttemptAndContent(scanner rowScanner, attempt *mistakeapp.Attempt, cont
 	); err != nil {
 		return err
 	}
-	if submittedAt.Valid {
-		value := submittedAt.Time
-		attempt.SubmittedAt = &value
-	}
+	attempt.SubmittedAt = timestampPtr(submittedAt)
 	studentSteps, err := decodeStringSlice(studentStepsRaw)
 	if err != nil {
 		return fmt.Errorf("decode student steps: %w", err)

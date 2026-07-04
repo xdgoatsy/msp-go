@@ -166,9 +166,6 @@ func scanOptionalPortrait(row pgx.Row) (portraitapp.Profile, bool, error) {
 		value := content.String
 		profile.PortraitContent = &value
 	}
-	if generatedAt.Valid {
-		value := generatedAt.Time
-		profile.PortraitGeneratedAt = &value
-	}
+	profile.PortraitGeneratedAt = timestampPtr(generatedAt)
 	return profile, true, nil
 }

@@ -86,10 +86,7 @@ func (r SecurityLogRepository) Stats(ctx context.Context) (securitylogapp.StatsR
 	).Scan(&lastError); err != nil && err != pgx.ErrNoRows {
 		return securitylogapp.StatsResponse{}, err
 	}
-	if lastError.Valid {
-		value := lastError.Time
-		stats.LastErrorAt = &value
-	}
+	stats.LastErrorAt = timestampPtr(lastError)
 
 	var lastReport pgtype.Timestamp
 	if err := r.DB().QueryRow(ctx, `
@@ -101,10 +98,7 @@ func (r SecurityLogRepository) Stats(ctx context.Context) (securitylogapp.StatsR
 	).Scan(&lastReport); err != nil && err != pgx.ErrNoRows {
 		return securitylogapp.StatsResponse{}, err
 	}
-	if lastReport.Valid {
-		value := lastReport.Time
-		stats.LastDailyReportAt = &value
-	}
+	stats.LastDailyReportAt = timestampPtr(lastReport)
 	return stats, nil
 }
 

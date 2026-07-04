@@ -184,9 +184,6 @@ func scanPasswordResetRequest(row rowScanner) (admininboxapp.RequestItem, error)
 		return admininboxapp.RequestItem{}, err
 	}
 	item.Status = admininboxapp.Status(status)
-	if reviewedAt.Valid {
-		value := reviewedAt.Time
-		item.ReviewedAt = &value
-	}
+	item.ReviewedAt = timestampPtr(reviewedAt)
 	return item, nil
 }

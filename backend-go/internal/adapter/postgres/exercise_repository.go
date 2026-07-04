@@ -359,10 +359,7 @@ func (r ExerciseRepository) ListDKTStates(ctx context.Context, userID string, co
 			value := lastExerciseID.String
 			state.LastExerciseID = &value
 		}
-		if lastAttemptAt.Valid {
-			value := lastAttemptAt.Time
-			state.LastAttemptAt = &value
-		}
+		state.LastAttemptAt = timestampPtr(lastAttemptAt)
 		states[state.ConceptID] = state
 	}
 	return states, rows.Err()

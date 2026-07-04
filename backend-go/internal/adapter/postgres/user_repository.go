@@ -293,9 +293,6 @@ func scanOptionalUser(row rowScanner) (user.User, bool, error) {
 	account.Status = status
 	account.DisplayName = textPtr(displayName)
 	account.AvatarURL = textPtr(avatarURL)
-	if lastLoginAt.Valid {
-		value := lastLoginAt.Time
-		account.LastLoginAt = &value
-	}
+	account.LastLoginAt = timestampPtr(lastLoginAt)
 	return account, true, nil
 }
