@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -796,7 +797,7 @@ func preferConcept(candidates []Exercise, conceptID string) []Exercise {
 	}
 	matched := []Exercise{}
 	for _, candidate := range candidates {
-		if containsString(candidate.ConceptIDs, conceptID) {
+		if slices.Contains(candidate.ConceptIDs, conceptID) {
 			matched = append(matched, candidate)
 		}
 	}
@@ -1001,19 +1002,10 @@ func metaIntDefault(meta map[string]any, key string, fallback int) int {
 
 func appendUnique(values []string, value string) []string {
 	result := sliceutil.CloneStrings(values)
-	if !containsString(result, value) {
+	if !slices.Contains(result, value) {
 		result = append(result, value)
 	}
 	return result
-}
-
-func containsString(values []string, value string) bool {
-	for _, item := range values {
-		if item == value {
-			return true
-		}
-	}
-	return false
 }
 
 func uniqueNonEmpty(values []string) []string {

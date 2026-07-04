@@ -3,6 +3,7 @@ package exercise
 import (
 	"hash/fnv"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -135,11 +136,11 @@ func attentionSignal(targetConcept string, current LearningInteraction, sequence
 }
 
 func conceptRelevance(targetConcept string, currentConcepts []string, itemConcepts []string) float64 {
-	if containsString(itemConcepts, targetConcept) {
+	if slices.Contains(itemConcepts, targetConcept) {
 		return 1.0
 	}
 	for _, itemConcept := range itemConcepts {
-		if containsString(currentConcepts, itemConcept) {
+		if slices.Contains(currentConcepts, itemConcept) {
 			return 0.55
 		}
 	}
