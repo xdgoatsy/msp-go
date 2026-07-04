@@ -15,6 +15,7 @@ import (
 	"time"
 
 	uploadapp "mathstudy/backend-go/internal/application/upload"
+	"mathstudy/backend-go/internal/platform/maputil"
 )
 
 // S3Config contains the S3-compatible object storage settings.
@@ -251,11 +252,7 @@ func canonicalHeaders(headers map[string]string) (string, string) {
 }
 
 func canonicalQueryString(params map[string]string) string {
-	keys := make([]string, 0, len(params))
-	for key := range params {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := maputil.SortedStringKeys(params)
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
 		parts = append(parts, awsEncode(key, true)+"="+awsEncode(params[key], true))

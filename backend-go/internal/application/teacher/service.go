@@ -660,7 +660,7 @@ func (s *Service) timeRangeStart(timeRange string) (time.Time, bool) {
 
 func (s *Service) analyticsKnowledgePoints(ctx context.Context, profiles []StudentProfile) ([]KnowledgePointMastery, error) {
 	agg := aggregateMastery(profiles)
-	names, err := s.repo.KnowledgeNames(ctx, sortedMasteryKeys(agg))
+	names, err := s.repo.KnowledgeNames(ctx, maputil.SortedStringKeys(agg))
 	if err != nil {
 		return nil, err
 	}
@@ -680,7 +680,7 @@ func (s *Service) analyticsKnowledgePoints(ctx context.Context, profiles []Stude
 
 func (s *Service) classTopicMastery(ctx context.Context, profiles []StudentProfile) ([]ClassTopicMastery, error) {
 	agg := aggregateMastery(profiles)
-	names, err := s.repo.KnowledgeNames(ctx, sortedMasteryKeys(agg))
+	names, err := s.repo.KnowledgeNames(ctx, maputil.SortedStringKeys(agg))
 	if err != nil {
 		return nil, err
 	}
@@ -1045,15 +1045,6 @@ func sortedMasteryAgg(agg map[string]masteryAgg) []masteryAgg {
 		return left > right
 	})
 	return rows
-}
-
-func sortedMasteryKeys(agg map[string]masteryAgg) []string {
-	keys := make([]string, 0, len(agg))
-	for key := range agg {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func displayName(user UserInfo) string {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -916,13 +915,4 @@ func normalizeAIConfigPGError(err error) error {
 		}
 	}
 	return err
-}
-
-func sortedModelIDs(models map[string]adminaiconfigapp.LLMModel) []string {
-	ids := make([]string, 0, len(models))
-	for id := range models {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
 }
