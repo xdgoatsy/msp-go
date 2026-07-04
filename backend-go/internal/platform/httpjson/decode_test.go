@@ -2,6 +2,7 @@ package httpjson
 
 import (
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -52,6 +53,42 @@ func TestDecodeStrictRejectsOversizedBody(t *testing.T) {
 
 	if err := DecodeStrict(httptest.NewRecorder(), request, 4, &payload); err == nil {
 		t.Fatal("DecodeStrict() error = nil, want error")
+	}
+}
+
+func TestDecodeStrictOrDetailError(t *testing.T) {
+	var payload struct {
+		Name string `json:"name"`
+	}
+	request := httptest.NewRequest("POST", "/", strings.NewReader(`{"name":"alice"}`))
+	recorder := httptest.NewRecorder()
+
+	if ok := DecodeStrictOrDetailError(recorder, request, 1<<20, &payload); !ok {
+		t.Fatal("DecodeStrictOrDetailError() = false, want true")
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want untouched default 200", recorder.Code)
+	}
+	if payload.Name != "alice" {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
+func TestDecodeStrictOrDetailErrorWritesCommonError(t *testing.T) {
+	var payload struct {
+		Name string `json:"name"`
+	}
+	request := httptest.NewRequest("POST", "/", strings.NewReader(`{`))
+	recorder := httptest.NewRecorder()
+
+	if ok := DecodeStrictOrDetailError(recorder, request, 1<<20, &payload); ok {
+		t.Fatal("DecodeStrictOrDetailError() = true, want false")
+	}
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", recorder.Code)
+	}
+	if got := strings.TrimSpace(recorder.Body.String()); got != `{"detail":"请求体格式错误","code":"VALIDATION_ERROR","message":"请求体格式错误"}` {
+		t.Fatalf("body = %s", recorder.Body.String())
 	}
 }
 

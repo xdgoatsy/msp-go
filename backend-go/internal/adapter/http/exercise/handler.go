@@ -193,11 +193,7 @@ func parseNextQuery(w http.ResponseWriter, r *http.Request) (exerciseapp.NextQue
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
-		writeExerciseError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
-		return false
-	}
-	return true
+	return httpjson.DecodeStrictOrDetailError(w, r, 1<<20, target)
 }
 
 func valueOrEmpty(value *string) string {

@@ -34,6 +34,15 @@ func DecodeStrict(w http.ResponseWriter, r *http.Request, maxBytes int64, target
 	return nil
 }
 
+// DecodeStrictOrDetailError decodes a strict JSON request body and writes the common 422 detail error on failure.
+func DecodeStrictOrDetailError(w http.ResponseWriter, r *http.Request, maxBytes int64, target any) bool {
+	if err := DecodeStrict(w, r, maxBytes, target); err != nil {
+		WriteDetailError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
+		return false
+	}
+	return true
+}
+
 func DecodeLimited(reader io.Reader, maxBytes int64, target any) error {
 	decoder := json.NewDecoder(&limitedReader{reader: reader, remaining: maxBytes})
 	if err := decoder.Decode(target); err != nil {

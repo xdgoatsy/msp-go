@@ -409,11 +409,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error, fallback s
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	if err := httpjson.DecodeStrict(w, r, 1<<20, target); err != nil {
-		writeAIConfigError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "请求体格式错误")
-		return false
-	}
-	return true
+	return httpjson.DecodeStrictOrDetailError(w, r, 1<<20, target)
 }
 
 func parseBoolQuery(r *http.Request, name string) bool {
