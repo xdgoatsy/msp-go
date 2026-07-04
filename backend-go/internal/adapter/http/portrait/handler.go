@@ -53,12 +53,6 @@ func (h *Handler) Register(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("DELETE "+prefix, h.clear)
 }
 
-type errorResponse struct {
-	Detail  string `json:"detail"`
-	Code    string `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.requirePrincipal(w, r)
 	if !ok {
@@ -122,5 +116,5 @@ func (h *Handler) logPortraitError(message string, err error) {
 }
 
 func writePortraitError(w http.ResponseWriter, status int, code, message string) {
-	httpjson.Write(w, status, errorResponse{Detail: message, Code: code, Message: message})
+	httpjson.WriteDetailError(w, status, code, message)
 }

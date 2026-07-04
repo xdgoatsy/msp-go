@@ -65,12 +65,6 @@ type chaptersResponse struct {
 	Chapters []string `json:"chapters"`
 }
 
-type errorResponse struct {
-	Detail  string `json:"detail"`
-	Code    string `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
 func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.requirePrincipal(w, r)
 	if !ok {
@@ -198,5 +192,5 @@ func (h *Handler) logProgressError(message string, err error) {
 }
 
 func writeProgressError(w http.ResponseWriter, status int, code, message string) {
-	httpjson.Write(w, status, errorResponse{Detail: message, Code: code, Message: message})
+	httpjson.WriteDetailError(w, status, code, message)
 }

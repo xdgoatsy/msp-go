@@ -12,6 +12,13 @@ var (
 	ErrBodyTooLarge = errors.New("json body exceeds size limit")
 )
 
+// DetailError is the common error response shape used by HTTP adapters.
+type DetailError struct {
+	Detail  string `json:"detail"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
 func DecodeStrict(w http.ResponseWriter, r *http.Request, maxBytes int64, target any) error {
 	defer r.Body.Close()
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
@@ -45,6 +52,10 @@ func Write(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func WriteDetailError(w http.ResponseWriter, status int, code string, message string) {
+	Write(w, status, DetailError{Detail: message, Code: code, Message: message})
 }
 
 type limitedReader struct {

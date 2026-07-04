@@ -118,3 +118,19 @@ func TestWriteSetsJSONResponse(t *testing.T) {
 		t.Fatalf("body = %s", recorder.Body.String())
 	}
 }
+
+func TestWriteDetailErrorSetsCommonShape(t *testing.T) {
+	recorder := httptest.NewRecorder()
+
+	WriteDetailError(recorder, 422, "VALIDATION_ERROR", "请求体格式错误")
+
+	if recorder.Code != 422 {
+		t.Fatalf("status = %d, want 422", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := strings.TrimSpace(recorder.Body.String()); got != `{"detail":"请求体格式错误","code":"VALIDATION_ERROR","message":"请求体格式错误"}` {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
