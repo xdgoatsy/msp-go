@@ -10,6 +10,7 @@ import (
 
 	uploadapp "mathstudy/backend-go/internal/application/upload"
 	"mathstudy/backend-go/internal/platform/maputil"
+	"mathstudy/backend-go/internal/platform/metautil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 )
 
@@ -407,7 +408,7 @@ func (s *Service) SubmitAnswer(ctx context.Context, userID string, request Submi
 			return ErrBadRequest
 		}
 
-		correctAnswer := metaString(exercise.Meta, "answer")
+		correctAnswer := metautil.String(exercise.Meta, "answer")
 		if correctAnswer == "" {
 			return ErrBadRequest
 		}
@@ -420,7 +421,7 @@ func (s *Service) SubmitAnswer(ctx context.Context, userID string, request Submi
 		}
 		check := AnswerCheckResult{IsCorrect: false, Reason: "图片答案 OCR 判题能力将在 AI 迁移阶段恢复", Confidence: 0}
 		if !imageOnly {
-			check, err = s.checker.CheckAnswer(txCtx, studentAnswer, correctAnswer, metaString(exercise.Meta, "answer_type"))
+			check, err = s.checker.CheckAnswer(txCtx, studentAnswer, correctAnswer, metautil.String(exercise.Meta, "answer_type"))
 			if err != nil {
 				return err
 			}
@@ -545,8 +546,8 @@ func (s *Service) GetExercise(ctx context.Context, userID string, exerciseID str
 		Difficulty:      exercise.Difficulty,
 		Type:            metaStringDefault(exercise.Meta, "type", "short_answer"),
 		KnowledgePoints: sliceutil.CloneStrings(exercise.ConceptIDs),
-		Hints:           metaStringSlice(exercise.Meta, "hints"),
-		Options:         metaOptionalStringSlice(exercise.Meta, "options"),
+		Hints:           metautil.StringSlice(exercise.Meta, "hints"),
+		Options:         metautil.OptionalStringSlice(exercise.Meta, "options"),
 	}, nil
 }
 
@@ -563,14 +564,14 @@ func (s *Service) GetSolution(ctx context.Context, userID string, exerciseID str
 	if !hasAttempt {
 		return SolutionResponse{}, ErrNotFound
 	}
-	steps := metaStringSlice(exercise.Meta, "solution_steps")
+	steps := metautil.StringSlice(exercise.Meta, "solution_steps")
 	source := "unavailable"
 	if len(steps) > 0 {
 		source = "cached"
 	}
 	return SolutionResponse{
 		ExerciseID: exerciseID,
-		Answer:     metaString(exercise.Meta, "answer"),
+		Answer:     metautil.String(exercise.Meta, "answer"),
 		Steps:      steps,
 		Source:     source,
 	}, nil
@@ -819,9 +820,9 @@ func toExerciseResponse(exercise Exercise) *ExerciseResponse {
 		Difficulty:           exercise.Difficulty,
 		Type:                 metaStringDefault(exercise.Meta, "type", "short_answer"),
 		KnowledgePoints:      sliceutil.CloneStrings(exercise.ConceptIDs),
-		HintsAvailable:       len(metaStringSlice(exercise.Meta, "hints")) > 0,
+		HintsAvailable:       len(metautil.StringSlice(exercise.Meta, "hints")) > 0,
 		EstimatedTimeSeconds: metaIntDefault(exercise.Meta, "estimated_time_seconds", 300),
-		Options:              metaOptionalStringSlice(exercise.Meta, "options"),
+		Options:              metautil.OptionalStringSlice(exercise.Meta, "options"),
 	}
 }
 
@@ -975,62 +976,12 @@ func normalizeAnswer(value string) string {
 	return strings.ToLower(replacer.Replace(strings.TrimSpace(value)))
 }
 
-func metaString(meta map[string]any, key string) string {
-	if meta == nil {
-		return ""
-	}
-	if value, ok := meta[key].(string); ok {
-		return value
-	}
-	return ""
-}
-
 func metaStringDefault(meta map[string]any, key string, fallback string) string {
-	value := metaString(meta, key)
+	value := metautil.String(meta, key)
 	if value == "" {
 		return fallback
 	}
 	return value
-}
-
-func metaStringSlice(meta map[string]any, key string) []string {
-	values, ok := readStringSlice(meta, key)
-	if !ok {
-		return []string{}
-	}
-	return values
-}
-
-func metaOptionalStringSlice(meta map[string]any, key string) []string {
-	values, ok := readStringSlice(meta, key)
-	if !ok {
-		return nil
-	}
-	return values
-}
-
-func readStringSlice(meta map[string]any, key string) ([]string, bool) {
-	if meta == nil {
-		return nil, false
-	}
-	value, exists := meta[key]
-	if !exists || value == nil {
-		return nil, false
-	}
-	switch typed := value.(type) {
-	case []string:
-		return sliceutil.CloneStrings(typed), true
-	case []any:
-		result := make([]string, 0, len(typed))
-		for _, item := range typed {
-			if text, ok := item.(string); ok {
-				result = append(result, text)
-			}
-		}
-		return result, true
-	default:
-		return nil, false
-	}
 }
 
 func metaIntDefault(meta map[string]any, key string, fallback int) int {

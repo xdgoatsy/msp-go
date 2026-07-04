@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	resourceapp "mathstudy/backend-go/internal/application/resource"
+	"mathstudy/backend-go/internal/platform/metautil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 )
 
@@ -254,7 +255,7 @@ func (r ResourceRepository) updateResource(ctx context.Context, resourceID strin
 			resourceID,
 			resourceTypeFromDB(currentType),
 			metaStringDefault(meta, "storage_type", "external"),
-			metaStringPointer(meta, "duration"),
+			metautil.StringPointer(meta, "duration"),
 			metaIntPointer(meta, "pages"),
 			input,
 			now,
@@ -651,11 +652,11 @@ func scanResource(scanner rowScanner) (resourceapp.Resource, map[string]any, err
 	}
 	resource.Type = resourceTypeFromDB(dbType)
 	resource.Tags = tags
-	resource.Chapter = metaStringPointer(meta, "chapter")
-	resource.Topic = metaStringPointer(meta, "topic")
-	resource.Source = metaStringPointer(meta, "source")
-	resource.StorageType = metaStringPointer(meta, "storage_type")
-	resource.Duration = metaStringPointer(meta, "duration")
+	resource.Chapter = metautil.StringPointer(meta, "chapter")
+	resource.Topic = metautil.StringPointer(meta, "topic")
+	resource.Source = metautil.StringPointer(meta, "source")
+	resource.StorageType = metautil.StringPointer(meta, "storage_type")
+	resource.Duration = metautil.StringPointer(meta, "duration")
 	resource.Pages = metaIntPointer(meta, "pages")
 	resource.Views = intFromMeta(meta, "views")
 	resource.Likes = intFromMeta(meta, "likes")
@@ -693,20 +694,8 @@ func resourceAssetKind(resourceType string) string {
 	}
 }
 
-func metaStringPointer(meta map[string]any, key string) *string {
-	value, ok := meta[key]
-	if !ok || value == nil {
-		return nil
-	}
-	text, ok := value.(string)
-	if !ok {
-		return nil
-	}
-	return &text
-}
-
 func metaStringDefault(meta map[string]any, key string, fallback string) string {
-	value := metaStringPointer(meta, key)
+	value := metautil.StringPointer(meta, key)
 	if value == nil || strings.TrimSpace(*value) == "" {
 		return fallback
 	}

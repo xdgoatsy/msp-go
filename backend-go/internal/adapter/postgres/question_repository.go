@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	questionapp "mathstudy/backend-go/internal/application/question"
+	"mathstudy/backend-go/internal/platform/metautil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 )
 
@@ -432,8 +433,8 @@ func (r QuestionRepository) BatchDuplicate(ctx context.Context, ownerID string, 
 				Tags:                 source.Tags,
 				Answer:               stringFromMeta(source.Meta, "answer", ""),
 				AnswerType:           stringFromMeta(source.Meta, "answer_type", "expression"),
-				Hints:                stringSliceFromMeta(source.Meta, "hints"),
-				SolutionSteps:        stringSliceFromMeta(source.Meta, "solution_steps"),
+				Hints:                metautil.StringSlice(source.Meta, "hints"),
+				SolutionSteps:        metautil.StringSlice(source.Meta, "solution_steps"),
 				Options:              optionsFromMeta(source.Meta),
 				EstimatedTimeSeconds: intFromMeta(source.Meta, "estimated_time_seconds"),
 			}
@@ -942,39 +943,15 @@ func splitGroupKeywords(groupName string) []string {
 }
 
 func stringFromMeta(meta map[string]any, key string, fallback string) string {
-	value, ok := meta[key]
-	if !ok || value == nil {
-		return fallback
-	}
-	if text, ok := value.(string); ok {
-		return text
+	value, ok := metautil.LookupString(meta, key)
+	if ok {
+		return value
 	}
 	return fallback
 }
 
-func stringSliceFromMeta(meta map[string]any, key string) []string {
-	value, ok := meta[key]
-	if !ok || value == nil {
-		return []string{}
-	}
-	values, ok := value.([]any)
-	if !ok {
-		if typed, ok := value.([]string); ok {
-			return sliceutil.CloneStrings(typed)
-		}
-		return []string{}
-	}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if text, ok := value.(string); ok {
-			result = append(result, text)
-		}
-	}
-	return result
-}
-
 func optionsFromMeta(meta map[string]any) *[]string {
-	values := stringSliceFromMeta(meta, "options")
+	values := metautil.StringSlice(meta, "options")
 	if len(values) == 0 {
 		return nil
 	}

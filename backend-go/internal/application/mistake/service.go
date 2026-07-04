@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mathstudy/backend-go/internal/platform/maputil"
+	"mathstudy/backend-go/internal/platform/metautil"
 	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 )
@@ -591,7 +592,7 @@ func toMistakeItem(item listItemData) MistakeItem {
 		},
 		Attempt: MistakeAttempt{
 			StudentAnswer:    row.Attempt.StudentAnswer,
-			CorrectAnswer:    metaString(row.Content.Meta, "answer"),
+			CorrectAnswer:    metautil.String(row.Content.Meta, "answer"),
 			IsCorrect:        row.Attempt.IsCorrect,
 			Score:            row.Attempt.Score,
 			SubmittedAt:      optionalTimeString(row.Attempt.SubmittedAt),
@@ -615,7 +616,7 @@ func toMistakeItem(item listItemData) MistakeItem {
 }
 
 func toDetailResponse(row MistakeRow, history []MistakeHistory) DetailResponse {
-	solutionSteps := metaStringSlice(row.Content.Meta, "solution_steps")
+	solutionSteps := metautil.StringSlice(row.Content.Meta, "solution_steps")
 	source := "unavailable"
 	if len(solutionSteps) > 0 {
 		source = "cached"
@@ -628,12 +629,12 @@ func toDetailResponse(row MistakeRow, history []MistakeHistory) DetailResponse {
 			Content:         row.Content.Body,
 			Difficulty:      row.Content.Difficulty,
 			KnowledgePoints: sliceutil.CloneStrings(row.Content.ConceptIDs),
-			Hints:           metaStringSlice(row.Content.Meta, "hints"),
+			Hints:           metautil.StringSlice(row.Content.Meta, "hints"),
 		},
 		Attempt: MistakeDetailAttempt{
 			StudentAnswer:    row.Attempt.StudentAnswer,
 			StudentSteps:     sliceutil.CloneStrings(row.Attempt.StudentSteps),
-			CorrectAnswer:    metaString(row.Content.Meta, "answer"),
+			CorrectAnswer:    metautil.String(row.Content.Meta, "answer"),
 			SubmittedAt:      optionalTimeString(row.Attempt.SubmittedAt),
 			TimeSpentSeconds: row.Attempt.TimeSpentSeconds,
 		},
@@ -645,7 +646,7 @@ func toDetailResponse(row MistakeRow, history []MistakeHistory) DetailResponse {
 			RelatedConcepts: sliceutil.CloneStrings(row.Diagnosis.RelatedConceptIDs),
 		},
 		Solution: MistakeSolution{
-			Answer: metaString(row.Content.Meta, "answer"),
+			Answer: metautil.String(row.Content.Meta, "answer"),
 			Steps:  solutionSteps,
 			Source: source,
 		},
@@ -663,7 +664,7 @@ func toReviewResponse(candidate reviewCandidate) ReviewExerciseResponse {
 			Difficulty:      row.Content.Difficulty,
 			Type:            contentTypeValue(row.Content.Type),
 			KnowledgePoints: sliceutil.CloneStrings(row.Content.ConceptIDs),
-			HintsAvailable:  len(metaStringSlice(row.Content.Meta, "hints")) > 0,
+			HintsAvailable:  len(metautil.StringSlice(row.Content.Meta, "hints")) > 0,
 		},
 		Context: ReviewContext{
 			IsReview:          true,
@@ -875,44 +876,6 @@ func optionalTimeString(value *time.Time) *string {
 
 func formatTime(value time.Time) string {
 	return value.Format("2006-01-02T15:04:05.999999")
-}
-
-func metaString(meta map[string]any, key string) string {
-	if meta == nil {
-		return ""
-	}
-	value, ok := meta[key]
-	if !ok || value == nil {
-		return ""
-	}
-	if text, ok := value.(string); ok {
-		return text
-	}
-	return ""
-}
-
-func metaStringSlice(meta map[string]any, key string) []string {
-	if meta == nil {
-		return []string{}
-	}
-	value, ok := meta[key]
-	if !ok || value == nil {
-		return []string{}
-	}
-	switch typed := value.(type) {
-	case []string:
-		return sliceutil.CloneStrings(typed)
-	case []any:
-		result := make([]string, 0, len(typed))
-		for _, item := range typed {
-			if text, ok := item.(string); ok {
-				result = append(result, text)
-			}
-		}
-		return result
-	default:
-		return []string{}
-	}
 }
 
 func contentTypeValue(value string) string {
