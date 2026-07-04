@@ -710,7 +710,7 @@ func (s *Service) weeklyActivity(ctx context.Context, studentIDs []string, total
 		count := rows[timefmt.Date(day)]
 		rate := 0.0
 		if total > 0 {
-			rate = numutil.RoundPlaces(float64(count)/float64(total)*100, 1)
+			rate = numutil.RoundPlaces(numutil.Percent(total, count), 1)
 		}
 		items = append(items, WeeklyActivityItem{
 			Date:       timefmt.Date(day),

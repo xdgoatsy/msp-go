@@ -725,7 +725,7 @@ func buildErrorTypeDistribution(counts map[string]int, total int) map[string]Err
 	for key, count := range counts {
 		percentage := 0.0
 		if total > 0 {
-			percentage = numutil.RoundPlaces(float64(count)/float64(total)*100, 1)
+			percentage = numutil.RoundPlaces(numutil.Percent(total, count), 1)
 		}
 		label := labels[key]
 		if label == "" {

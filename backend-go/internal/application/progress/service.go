@@ -887,7 +887,7 @@ func buildErrorDistribution(errorCounts map[string]int) map[string]ErrorTypeDist
 	for key, count := range errorCounts {
 		percentage := 0.0
 		if total > 0 {
-			percentage = numutil.RoundPlaces(float64(count)/float64(total)*100.0, 1)
+			percentage = numutil.RoundPlaces(numutil.Percent(total, count), 1)
 		}
 		distribution[key] = ErrorTypeDistribution{Count: count, Percentage: percentage}
 	}
