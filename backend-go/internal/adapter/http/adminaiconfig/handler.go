@@ -90,12 +90,6 @@ func (h *Handler) Register(mux *http.ServeMux, prefix string) {
 	mux.HandleFunc("DELETE "+prefix+"/agents/{agent_type}", h.deleteAgentConfig)
 }
 
-type errorResponse struct {
-	Detail  string `json:"detail"`
-	Code    string `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
-}
-
 func (h *Handler) listProviders(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.requireAdmin(w, r); !ok {
 		return
@@ -428,5 +422,5 @@ func parseBoolQuery(r *http.Request, name string) bool {
 }
 
 func writeAIConfigError(w http.ResponseWriter, status int, code string, message string) {
-	httpjson.Write(w, status, errorResponse{Detail: message, Code: code, Message: message})
+	httpjson.WriteDetailError(w, status, code, message)
 }
