@@ -7,6 +7,7 @@ import (
 	"time"
 
 	uploadapp "mathstudy/backend-go/internal/application/upload"
+	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 )
 
@@ -482,7 +483,7 @@ func toMessageResponses(messages []Message) []MessageResponse {
 			ID:          message.ID,
 			Role:        message.Role,
 			Content:     message.Content,
-			Agent:       copyOptionalString(message.Agent),
+			Agent:       ptrutil.Clone(message.Agent),
 			Timestamp:   formatTime(message.CreatedAt),
 			Attachments: sliceutil.CloneStrings(message.Attachments),
 		})
@@ -495,7 +496,7 @@ func toSessionResponse(row SessionListItem) SessionResponse {
 	return SessionResponse{
 		SessionID:    session.ID,
 		UserID:       session.StudentID,
-		Topic:        copyOptionalString(session.CurrentTopic),
+		Topic:        ptrutil.Clone(session.CurrentTopic),
 		Status:       sessionStatus(session.IsActive),
 		StartedAt:    formatTime(session.StartedAt),
 		EndedAt:      optionalFormattedTime(session.EndedAt),
@@ -548,14 +549,6 @@ func optionalFormattedTime(value *time.Time) *string {
 	}
 	formatted := formatTime(*value)
 	return &formatted
-}
-
-func copyOptionalString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	copied := *value
-	return &copied
 }
 
 func clampInt(value int, minValue int, maxValue int, fallback int) int {

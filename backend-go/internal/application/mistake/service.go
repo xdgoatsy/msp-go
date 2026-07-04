@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 )
 
@@ -596,7 +597,7 @@ func toMistakeItem(item listItemData) MistakeItem {
 			TimeSpentSeconds: row.Attempt.TimeSpentSeconds,
 		},
 		Diagnosis: MistakeDiagnosis{
-			ErrorType:       copyOptionalString(row.Diagnosis.ErrorType),
+			ErrorType:       ptrutil.Clone(row.Diagnosis.ErrorType),
 			ErrorSubtype:    row.Diagnosis.ErrorSubtype,
 			Severity:        row.Diagnosis.Severity,
 			Explanation:     row.Diagnosis.Explanation,
@@ -636,8 +637,8 @@ func toDetailResponse(row MistakeRow, history []MistakeHistory) DetailResponse {
 			TimeSpentSeconds: row.Attempt.TimeSpentSeconds,
 		},
 		Diagnosis: MistakeDetailDiagnosis{
-			ErrorType:       copyOptionalString(row.Diagnosis.ErrorType),
-			ErrorStepIndex:  copyOptionalInt(row.Diagnosis.ErrorStepIndex),
+			ErrorType:       ptrutil.Clone(row.Diagnosis.ErrorType),
+			ErrorStepIndex:  ptrutil.Clone(row.Diagnosis.ErrorStepIndex),
 			Explanation:     row.Diagnosis.Explanation,
 			Suggestion:      row.Diagnosis.Suggestion,
 			RelatedConcepts: sliceutil.CloneStrings(row.Diagnosis.RelatedConceptIDs),
@@ -666,7 +667,7 @@ func toReviewResponse(candidate reviewCandidate) ReviewExerciseResponse {
 		Context: ReviewContext{
 			IsReview:          true,
 			OriginalAttemptID: row.Attempt.ID,
-			PreviousErrorType: copyOptionalString(row.Diagnosis.ErrorType),
+			PreviousErrorType: ptrutil.Clone(row.Diagnosis.ErrorType),
 			MasteryBefore:     candidate.avgMastery,
 			ErrorCount:        candidate.errorCount,
 		},
@@ -947,22 +948,6 @@ func nonEmpty(value string, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func copyOptionalString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	copied := *value
-	return &copied
-}
-
-func copyOptionalInt(value *int) *int {
-	if value == nil {
-		return nil
-	}
-	copied := *value
-	return &copied
 }
 
 func round1(value float64) float64 {
