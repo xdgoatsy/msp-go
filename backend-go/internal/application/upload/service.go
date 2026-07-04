@@ -3,9 +3,7 @@ package upload
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"errors"
-	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -15,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"mathstudy/backend-go/internal/platform/identifier"
 	"mathstudy/backend-go/internal/platform/uploadpath"
 )
 
@@ -355,17 +354,5 @@ func allowedResourceTypes() map[string]string {
 }
 
 func newUUID() (string, error) {
-	var data [16]byte
-	if _, err := rand.Read(data[:]); err != nil {
-		return "", err
-	}
-	data[6] = (data[6] & 0x0f) | 0x40
-	data[8] = (data[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		data[0:4],
-		data[4:6],
-		data[6:8],
-		data[8:10],
-		data[10:16],
-	), nil
+	return identifier.NewUUID()
 }

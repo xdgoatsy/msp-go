@@ -1,4 +1,4 @@
-package adminaiconfig
+package postgres
 
 import "mathstudy/backend-go/internal/platform/identifier"
 
