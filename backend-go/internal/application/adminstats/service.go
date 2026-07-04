@@ -3,10 +3,10 @@ package adminstats
 import (
 	"context"
 	"errors"
-	"math"
 	"strings"
 	"time"
 
+	"mathstudy/backend-go/internal/platform/numutil"
 	"mathstudy/backend-go/internal/platform/timefmt"
 )
 
@@ -210,12 +210,12 @@ func (s *Service) OverviewStats(ctx context.Context) (OverviewStatsResponse, err
 		TeacherCount:     snapshot.TeacherCount,
 		AdminCount:       snapshot.AdminCount,
 		ActiveUsersToday: snapshot.ActiveUsersToday,
-		ActiveRate:       round(activeRate, 1),
+		ActiveRate:       numutil.RoundPlaces(activeRate, 1),
 		Trends: TrendData{
 			UsersChange:      usersChange,
-			StudentsChange:   round(usersChange*0.9, 1),
-			TeachersChange:   round(usersChange*0.5, 1),
-			ActiveRateChange: round(usersChange*0.3, 1),
+			StudentsChange:   numutil.RoundPlaces(usersChange*0.9, 1),
+			TeachersChange:   numutil.RoundPlaces(usersChange*0.5, 1),
+			ActiveRateChange: numutil.RoundPlaces(usersChange*0.3, 1),
 		},
 	}, nil
 }
@@ -269,7 +269,7 @@ func (s *Service) UserGrowth(ctx context.Context, period string) (UserGrowthResp
 		Data:   data,
 		Summary: UserGrowthSummary{
 			TotalNewUsers:  totalNewUsers,
-			AvgDailyGrowth: round(float64(totalNewUsers)/float64(days), 2),
+			AvgDailyGrowth: numutil.RoundPlaces(float64(totalNewUsers)/float64(days), 2),
 		},
 	}, nil
 }
@@ -377,12 +377,7 @@ func percentChange(current int, previous int) float64 {
 	if previous == 0 {
 		previous = 1
 	}
-	return round((float64(current)-float64(previous))/float64(previous)*100, 1)
-}
-
-func round(value float64, places int) float64 {
-	scale := math.Pow10(places)
-	return math.Round(value*scale) / scale
+	return numutil.RoundPlaces((float64(current)-float64(previous))/float64(previous)*100, 1)
 }
 
 func recentActivityID(account RecentUser) string {

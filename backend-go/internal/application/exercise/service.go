@@ -11,6 +11,7 @@ import (
 	uploadapp "mathstudy/backend-go/internal/application/upload"
 	"mathstudy/backend-go/internal/platform/maputil"
 	"mathstudy/backend-go/internal/platform/metautil"
+	"mathstudy/backend-go/internal/platform/numutil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 )
 
@@ -678,8 +679,8 @@ func (s *Service) updateTracking(ctx context.Context, repo Repository, userID st
 			}
 		}
 		result := dktUpdate(prior, conceptID, current, sequence, profile, optionalStringValue(errorType), state.AttemptCount)
-		nextMastery := round4(result.mastery)
-		nextConfidence := round4(result.confidence)
+		nextMastery := numutil.RoundPlaces(result.mastery, 4)
+		nextConfidence := numutil.RoundPlaces(result.confidence, 4)
 		mastery[conceptID] = nextMastery
 		masteryUpdate[conceptID] = nextMastery
 		outcome := isCorrect
@@ -691,7 +692,7 @@ func (s *Service) updateTracking(ctx context.Context, repo Repository, userID st
 		state.CorrectCount += boolInt(isCorrect)
 		state.IncorrectCount += boolInt(!isCorrect)
 		state.SequenceLength = result.sequenceLength
-		state.AttentionWeight = round4(result.attentionWeight)
+		state.AttentionWeight = numutil.RoundPlaces(result.attentionWeight, 4)
 		state.LastOutcome = &outcome
 		state.LastExerciseID = &exercise.ID
 		state.LastAttemptAt = &now
@@ -1069,8 +1070,4 @@ func clamp(value float64, floor float64, ceiling float64) float64 {
 		return ceiling
 	}
 	return value
-}
-
-func round4(value float64) float64 {
-	return math.Round(value*10000) / 10000
 }

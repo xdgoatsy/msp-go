@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"mathstudy/backend-go/internal/platform/numutil"
 	"mathstudy/backend-go/internal/platform/timefmt"
 )
 
@@ -189,7 +190,7 @@ func toPortraitResponse(profile Profile) PortraitResponse {
 		PortraitGeneratedAt:   timefmt.OptionalDateTimeMicros(profile.PortraitGeneratedAt),
 		PortraitVersion:       profile.PortraitVersion,
 		TotalExercises:        profile.TotalExercises,
-		CorrectRate:           round2(ratio(profile.CorrectCount, profile.TotalExercises)),
+		CorrectRate:           numutil.RoundPlaces(ratio(profile.CorrectCount, profile.TotalExercises), 2),
 		TotalStudyTimeMinutes: profile.TotalStudyTimeMinutes,
 		HasContent:            profile.PortraitContent != nil,
 	}
@@ -266,10 +267,6 @@ func ratio(count int, total int) float64 {
 		return 0
 	}
 	return float64(count) / float64(total)
-}
-
-func round2(value float64) float64 {
-	return math.Round(value*100) / 100
 }
 
 func formatNumber(value float64) string {

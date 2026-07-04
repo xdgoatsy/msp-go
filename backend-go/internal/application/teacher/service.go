@@ -11,6 +11,7 @@ import (
 
 	"mathstudy/backend-go/internal/platform/identifier"
 	"mathstudy/backend-go/internal/platform/maputil"
+	"mathstudy/backend-go/internal/platform/numutil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 	"mathstudy/backend-go/internal/platform/timefmt"
 )
@@ -330,7 +331,7 @@ func (s *Service) GetDashboardStats(ctx context.Context, teacherID string) (Dash
 	}
 	return DashboardStats{
 		TotalStudents:     total,
-		ActiveToday:       round1(float64(active) / float64(total) * 100),
+		ActiveToday:       numutil.RoundPlaces(float64(active)/float64(total)*100, 1),
 		AvgCompletionRate: 0,
 		PendingGrading:    0,
 	}, nil
@@ -376,8 +377,8 @@ func (s *Service) GetStudentsStats(ctx context.Context, teacherID string) (Stude
 	}
 	return StudentsStats{
 		TotalStudents: total,
-		AvgScore:      round1(avgScore),
-		ActiveToday:   round1(float64(todayActive) / float64(total) * 100),
+		AvgScore:      numutil.RoundPlaces(avgScore, 1),
+		ActiveToday:   numutil.RoundPlaces(float64(todayActive)/float64(total)*100, 1),
 		NeedAttention: len(needAttention),
 	}, nil
 }
@@ -447,9 +448,9 @@ func (s *Service) GetAnalytics(ctx context.Context, teacherID string, timeRange 
 	return AnalyticsResponse{
 		Overview: AnalyticsOverview{
 			TotalStudents:     total,
-			AvgCompletionRate: round1(float64(activeStudents) / float64(total) * 100),
-			AvgScore:          round1(avgScore),
-			AvgStudyHours:     round1(float64(totalSeconds) / float64(max(total, 1)) / 3600),
+			AvgCompletionRate: numutil.RoundPlaces(float64(activeStudents)/float64(total)*100, 1),
+			AvgScore:          numutil.RoundPlaces(avgScore, 1),
+			AvgStudyHours:     numutil.RoundPlaces(float64(totalSeconds)/float64(max(total, 1))/3600, 1),
 		},
 		KnowledgePoints: knowledgePoints,
 		WeeklyActivity:  weekly,
@@ -509,8 +510,8 @@ func (s *Service) GetClassAnalytics(ctx context.Context, teacherID string, class
 	return ClassAnalyticsResponse{
 		Stats: ClassAnalyticsStats{
 			AverageMastery:   averageProfileMastery(profiles),
-			AverageScore:     round1(avgScore),
-			WeeklyStudyHours: round1(float64(seconds) / float64(max(total, 1)) / 3600),
+			AverageScore:     numutil.RoundPlaces(avgScore, 1),
+			WeeklyStudyHours: numutil.RoundPlaces(float64(seconds)/float64(max(total, 1))/3600, 1),
 		},
 		TopicMastery:    topicMastery,
 		CommonErrors:    commonErrors,
@@ -597,10 +598,10 @@ func (s *Service) GetStudentDetail(ctx context.Context, teacherID string, studen
 			ClassName:          enrollment.ClassName,
 			JoinedAt:           joinedAt,
 			LastActive:         lastActiveText,
-			TotalStudyHours:    round1(float64(profile.TotalStudyTimeMinutes) / 60),
+			TotalStudyHours:    numutil.RoundPlaces(float64(profile.TotalStudyTimeMinutes)/60, 1),
 			TotalExercises:     profile.TotalExercises,
-			CorrectRate:        round1(float64(profile.CorrectCount) / float64(max(profile.TotalExercises, 1)) * 100),
-			AvgScore:           round1(avgScore),
+			CorrectRate:        numutil.RoundPlaces(float64(profile.CorrectCount)/float64(max(profile.TotalExercises, 1))*100, 1),
+			AvgScore:           numutil.RoundPlaces(avgScore, 1),
 			Rank:               rank,
 			TotalClassStudents: len(classStudentIDs),
 			StreakDays:         streakDays,
@@ -670,7 +671,7 @@ func (s *Service) analyticsKnowledgePoints(ctx context.Context, profiles []Stude
 		items = append(items, KnowledgePointMastery{
 			ConceptID:    row.conceptID,
 			Name:         nameOrUnknown(names, row.conceptID),
-			Mastery:      round1(row.average() * 100),
+			Mastery:      numutil.RoundPlaces(row.average()*100, 1),
 			StudentCount: row.count,
 		})
 	}
@@ -690,7 +691,7 @@ func (s *Service) classTopicMastery(ctx context.Context, profiles []StudentProfi
 		items = append(items, ClassTopicMastery{
 			ConceptID:    row.conceptID,
 			Topic:        nameOrUnknown(names, row.conceptID),
-			Mastery:      round3(row.average()),
+			Mastery:      numutil.RoundPlaces(row.average(), 3),
 			StudentCount: row.count,
 		})
 	}
@@ -709,7 +710,7 @@ func (s *Service) weeklyActivity(ctx context.Context, studentIDs []string, total
 		count := rows[timefmt.Date(day)]
 		rate := 0.0
 		if total > 0 {
-			rate = round1(float64(count) / float64(total) * 100)
+			rate = numutil.RoundPlaces(float64(count)/float64(total)*100, 1)
 		}
 		items = append(items, WeeklyActivityItem{
 			Date:       timefmt.Date(day),
@@ -739,7 +740,7 @@ func (s *Service) topStudents(ctx context.Context, studentIDs []string, limit in
 			Rank:      index + 1,
 			StudentID: row.StudentID,
 			Name:      fallbackName(names[row.StudentID]),
-			AvgScore:  round1(row.AvgScore),
+			AvgScore:  numutil.RoundPlaces(row.AvgScore, 1),
 		})
 	}
 	return items, nil
@@ -846,7 +847,7 @@ func (s *Service) classRankings(ctx context.Context, studentIDs []string, limit 
 		items = append(items, ClassStudentRank{
 			StudentID: row.StudentID,
 			Name:      fallbackName(names[row.StudentID]),
-			AvgScore:  round1(row.AvgScore),
+			AvgScore:  numutil.RoundPlaces(row.AvgScore, 1),
 		})
 	}
 	return items, nil
@@ -900,7 +901,7 @@ func (s *Service) studentTopicMastery(ctx context.Context, studentID string, mas
 		items = append(items, StudentTopicMastery{
 			ConceptID:     id,
 			Topic:         nameOrUnknown(names, id),
-			Mastery:       round3(mastery[id]),
+			Mastery:       numutil.RoundPlaces(mastery[id], 3),
 			ExerciseCount: counts[id],
 		})
 	}
@@ -1027,7 +1028,7 @@ func averageProfileMastery(profiles []StudentProfile) float64 {
 	if count == 0 {
 		return 0
 	}
-	return round3(total / float64(count))
+	return numutil.RoundPlaces(total/float64(count), 3)
 }
 
 func sortedMasteryAgg(agg map[string]masteryAgg) []masteryAgg {
@@ -1098,14 +1099,6 @@ func nameOrUnknown(names map[string]string, id string) string {
 		return value
 	}
 	return "未知知识点"
-}
-
-func round1(value float64) float64 {
-	return math.Round(value*10) / 10
-}
-
-func round3(value float64) float64 {
-	return math.Round(value*1000) / 1000
 }
 
 func totalPages(total int, pageSize int) int {

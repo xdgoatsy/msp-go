@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mathstudy/backend-go/internal/platform/maputil"
+	"mathstudy/backend-go/internal/platform/numutil"
 	"mathstudy/backend-go/internal/platform/timefmt"
 )
 
@@ -302,7 +303,7 @@ func (s *Service) GetOverview(ctx context.Context, userID string) (Overview, err
 	return Overview{
 		TotalExercises:   totalExercises,
 		CorrectCount:     correctCount,
-		CorrectRate:      round1(percent(totalExercises, correctCount)),
+		CorrectRate:      numutil.RoundPlaces(percent(totalExercises, correctCount), 1),
 		StudyMinutes:     totalSeconds / 60,
 		StreakDays:       streakDays,
 		MasteredConcepts: masteredConcepts,
@@ -427,8 +428,8 @@ func (s *Service) GetLearningPath(ctx context.Context, userID string, target str
 			Status:         status,
 			LockedBy:       lockedBy,
 			Recommendation: learningRecommendation(status),
-			Mastery:        round4(masteryValue),
-			Confidence:     round4(confidenceValue),
+			Mastery:        numutil.RoundPlaces(masteryValue, 4),
+			Confidence:     numutil.RoundPlaces(confidenceValue, 4),
 			Exercises:      exerciseCount,
 			Difficulty:     node.Difficulty,
 		})
@@ -440,7 +441,7 @@ func (s *Service) GetLearningPath(ctx context.Context, userID string, target str
 		Statistics: PathStatistics{
 			Total:     len(path),
 			Completed: completed,
-			Progress:  round2(float64(completed) / float64(max(len(path), 1))),
+			Progress:  numutil.RoundPlaces(float64(completed)/float64(max(len(path), 1)), 2),
 		},
 	}, nil
 }
@@ -512,7 +513,7 @@ func (s *Service) GetKnowledgeGraphView(ctx context.Context, userID string, filt
 	}
 	overall := 0.0
 	if len(graphNodes) > 0 {
-		overall = round2(sum / float64(len(graphNodes)))
+		overall = numutil.RoundPlaces(sum/float64(len(graphNodes)), 2)
 	}
 	return GraphResponse{
 		Nodes: graphNodes,
@@ -625,7 +626,7 @@ func (s *Service) GetClassRanking(ctx context.Context, userID string) (ClassRank
 		}
 	}
 	total := len(rankingRows)
-	percentile := round1((1.0 - float64(rank-1)/float64(total)) * 100.0)
+	percentile := numutil.RoundPlaces((1.0-float64(rank-1)/float64(total))*100.0, 1)
 	return ClassRankingResponse{
 		InClass:    true,
 		Rank:       &rank,
@@ -655,8 +656,8 @@ func (s *Service) masteryDetails(ctx context.Context, userID string, fallback ma
 			daysSince := now.Sub(*state.LastAttemptAt).Hours() / 24.0
 			rawMastery = applyForgetting(rawMastery, daysSince, dktRetentionFloor)
 		}
-		mastery[state.ConceptID] = round4(rawMastery)
-		confidence[state.ConceptID] = round4(state.Confidence)
+		mastery[state.ConceptID] = numutil.RoundPlaces(rawMastery, 4)
+		confidence[state.ConceptID] = numutil.RoundPlaces(state.Confidence, 4)
 		attempts[state.ConceptID] = state.AttemptCount
 	}
 
@@ -886,7 +887,7 @@ func buildErrorDistribution(errorCounts map[string]int) map[string]ErrorTypeDist
 	for key, count := range errorCounts {
 		percentage := 0.0
 		if total > 0 {
-			percentage = round1(float64(count) / float64(total) * 100.0)
+			percentage = numutil.RoundPlaces(float64(count)/float64(total)*100.0, 1)
 		}
 		distribution[key] = ErrorTypeDistribution{Count: count, Percentage: percentage}
 	}
@@ -957,18 +958,6 @@ func weekdayMondayIndex(value time.Time) int {
 
 func normalizeTarget(value string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), " ", ""))
-}
-
-func round1(value float64) float64 {
-	return math.Round(value*10) / 10
-}
-
-func round2(value float64) float64 {
-	return math.Round(value*100) / 100
-}
-
-func round4(value float64) float64 {
-	return math.Round(value*10000) / 10000
 }
 
 type rankingRow struct {

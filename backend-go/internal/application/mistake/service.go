@@ -10,6 +10,7 @@ import (
 
 	"mathstudy/backend-go/internal/platform/maputil"
 	"mathstudy/backend-go/internal/platform/metautil"
+	"mathstudy/backend-go/internal/platform/numutil"
 	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 	"mathstudy/backend-go/internal/platform/timefmt"
@@ -397,8 +398,8 @@ func (s *Service) GetStatistics(ctx context.Context, userID string, timeRange st
 		Overview: StatisticsOverview{
 			TotalMistakes:  totalMistakes,
 			TotalExercises: totalExercises,
-			MistakeRate:    round1(percent(totalExercises, totalMistakes)),
-			AvgMastery:     round2(averageFloatMap(mastery)),
+			MistakeRate:    numutil.RoundPlaces(percent(totalExercises, totalMistakes), 1),
+			AvgMastery:     numutil.RoundPlaces(averageFloatMap(mastery), 2),
 		},
 		ErrorTypeDistribution: buildErrorTypeDistribution(errorCounts, totalMistakes),
 		ConceptWeakness:       buildConceptWeakness(conceptMistakes, mastery),
@@ -724,7 +725,7 @@ func buildErrorTypeDistribution(counts map[string]int, total int) map[string]Err
 	for key, count := range counts {
 		percentage := 0.0
 		if total > 0 {
-			percentage = round1(float64(count) / float64(total) * 100)
+			percentage = numutil.RoundPlaces(float64(count)/float64(total)*100, 1)
 		}
 		label := labels[key]
 		if label == "" {
@@ -890,14 +891,6 @@ func nonEmpty(value string, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func round1(value float64) float64 {
-	return math.Round(value*10) / 10
-}
-
-func round2(value float64) float64 {
-	return math.Round(value*100) / 100
 }
 
 type listItemData struct {
