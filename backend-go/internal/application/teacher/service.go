@@ -449,7 +449,7 @@ func (s *Service) GetAnalytics(ctx context.Context, teacherID string, timeRange 
 			TotalStudents:     total,
 			AvgCompletionRate: round1(float64(activeStudents) / float64(total) * 100),
 			AvgScore:          round1(avgScore),
-			AvgStudyHours:     round1(float64(totalSeconds) / float64(maxInt(total, 1)) / 3600),
+			AvgStudyHours:     round1(float64(totalSeconds) / float64(max(total, 1)) / 3600),
 		},
 		KnowledgePoints: knowledgePoints,
 		WeeklyActivity:  weekly,
@@ -510,7 +510,7 @@ func (s *Service) GetClassAnalytics(ctx context.Context, teacherID string, class
 		Stats: ClassAnalyticsStats{
 			AverageMastery:   averageProfileMastery(profiles),
 			AverageScore:     round1(avgScore),
-			WeeklyStudyHours: round1(float64(seconds) / float64(maxInt(total, 1)) / 3600),
+			WeeklyStudyHours: round1(float64(seconds) / float64(max(total, 1)) / 3600),
 		},
 		TopicMastery:    topicMastery,
 		CommonErrors:    commonErrors,
@@ -599,7 +599,7 @@ func (s *Service) GetStudentDetail(ctx context.Context, teacherID string, studen
 			LastActive:         lastActiveText,
 			TotalStudyHours:    round1(float64(profile.TotalStudyTimeMinutes) / 60),
 			TotalExercises:     profile.TotalExercises,
-			CorrectRate:        round1(float64(profile.CorrectCount) / float64(maxInt(profile.TotalExercises, 1)) * 100),
+			CorrectRate:        round1(float64(profile.CorrectCount) / float64(max(profile.TotalExercises, 1)) * 100),
 			AvgScore:           round1(avgScore),
 			Rank:               rank,
 			TotalClassStudents: len(classStudentIDs),
@@ -664,7 +664,7 @@ func (s *Service) analyticsKnowledgePoints(ctx context.Context, profiles []Stude
 		return nil, err
 	}
 	rows := sortedMasteryAgg(agg)
-	limit := minInt(10, len(rows))
+	limit := min(10, len(rows))
 	items := make([]KnowledgePointMastery, 0, limit)
 	for _, row := range rows[:limit] {
 		items = append(items, KnowledgePointMastery{
@@ -684,7 +684,7 @@ func (s *Service) classTopicMastery(ctx context.Context, profiles []StudentProfi
 		return nil, err
 	}
 	rows := sortedMasteryAgg(agg)
-	limit := minInt(10, len(rows))
+	limit := min(10, len(rows))
 	items := make([]ClassTopicMastery, 0, limit)
 	for _, row := range rows[:limit] {
 		items = append(items, ClassTopicMastery{
@@ -961,7 +961,7 @@ func (s *Service) recentActivity(ctx context.Context, studentID string) ([]Stude
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].at.After(items[j].at)
 	})
-	limit := minInt(10, len(items))
+	limit := min(10, len(items))
 	result := make([]StudentRecentActivity, 0, limit)
 	for _, item := range items[:limit] {
 		result = append(result, item.item)
@@ -1106,20 +1106,6 @@ func round1(value float64) float64 {
 
 func round3(value float64) float64 {
 	return math.Round(value*1000) / 1000
-}
-
-func minInt(left int, right int) int {
-	if left < right {
-		return left
-	}
-	return right
-}
-
-func maxInt(left int, right int) int {
-	if left > right {
-		return left
-	}
-	return right
 }
 
 func totalPages(total int, pageSize int) int {

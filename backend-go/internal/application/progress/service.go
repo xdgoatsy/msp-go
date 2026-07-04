@@ -440,7 +440,7 @@ func (s *Service) GetLearningPath(ctx context.Context, userID string, target str
 		Statistics: PathStatistics{
 			Total:     len(path),
 			Completed: completed,
-			Progress:  round2(float64(completed) / float64(maxInt(len(path), 1))),
+			Progress:  round2(float64(completed) / float64(max(len(path), 1))),
 		},
 	}, nil
 }
@@ -552,7 +552,7 @@ func (s *Service) GetStatistics(ctx context.Context, userID string, rangeType st
 		rangeDays = 365
 		startDate = today.AddDate(0, 0, -364)
 	default:
-		rangeDays = minInt(7, int(today.Sub(startDate).Hours()/24)+1)
+		rangeDays = min(7, int(today.Sub(startDate).Hours()/24)+1)
 	}
 
 	endDate := time.Date(today.Year(), today.Month(), today.Day(), 23, 59, 59, int(time.Second-time.Nanosecond), today.Location())
@@ -969,20 +969,6 @@ func round2(value float64) float64 {
 
 func round4(value float64) float64 {
 	return math.Round(value*10000) / 10000
-}
-
-func minInt(left int, right int) int {
-	if left < right {
-		return left
-	}
-	return right
-}
-
-func maxInt(left int, right int) int {
-	if left > right {
-		return left
-	}
-	return right
 }
 
 type rankingRow struct {

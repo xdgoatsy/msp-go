@@ -374,7 +374,7 @@ func (r QuestionRepository) BatchPublish(ctx context.Context, ownerID string, id
 		return 0, err
 	}
 	count := int(tag.RowsAffected())
-	for _, id := range ids[:minInt(count, len(ids))] {
+	for _, id := range ids[:min(count, len(ids))] {
 		if err := r.insertAudit(ctx, id, ownerID, "UPDATE", map[string]any{"status": "published"}, now); err != nil {
 			return count, err
 		}
@@ -400,7 +400,7 @@ func (r QuestionRepository) BatchDelete(ctx context.Context, ownerID string, ids
 		return 0, err
 	}
 	count := int(tag.RowsAffected())
-	for _, id := range ids[:minInt(count, len(ids))] {
+	for _, id := range ids[:min(count, len(ids))] {
 		if err := r.insertAudit(ctx, id, ownerID, "DELETE", map[string]any{}, now); err != nil {
 			return count, err
 		}
@@ -956,11 +956,4 @@ func optionsFromMeta(meta map[string]any) *[]string {
 		return nil
 	}
 	return &values
-}
-
-func minInt(a int, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
