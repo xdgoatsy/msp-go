@@ -395,7 +395,7 @@ func (s *Service) ListStudents(ctx context.Context, teacherID string, filter Stu
 		Total:      total,
 		Page:       filter.Page,
 		PageSize:   filter.PageSize,
-		TotalPages: totalPages(total, filter.PageSize),
+		TotalPages: numutil.TotalPages(total, filter.PageSize),
 	}, nil
 }
 
@@ -1099,13 +1099,6 @@ func nameOrUnknown(names map[string]string, id string) string {
 		return value
 	}
 	return "未知知识点"
-}
-
-func totalPages(total int, pageSize int) int {
-	if pageSize <= 0 {
-		return 0
-	}
-	return (total + pageSize - 1) / pageSize
 }
 
 func formatScore(value float64) string {

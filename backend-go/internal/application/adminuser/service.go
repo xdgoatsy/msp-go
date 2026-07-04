@@ -9,6 +9,7 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	"mathstudy/backend-go/internal/domain/user"
+	"mathstudy/backend-go/internal/platform/numutil"
 	"mathstudy/backend-go/internal/platform/redact"
 )
 
@@ -188,7 +189,7 @@ func (s *Service) ListUsers(ctx context.Context, filter ListFilter) (ListRespons
 		Total:      total,
 		Page:       normalized.Page,
 		PageSize:   normalized.PageSize,
-		TotalPages: totalPages(total, normalized.PageSize),
+		TotalPages: numutil.TotalPages(total, normalized.PageSize),
 	}, nil
 }
 
@@ -496,13 +497,6 @@ func toUserItem(account user.User) UserItem {
 		Status:      account.Status,
 		CreatedAt:   account.CreatedAt,
 	}
-}
-
-func totalPages(total int, pageSize int) int {
-	if total == 0 {
-		return 0
-	}
-	return (total + pageSize - 1) / pageSize
 }
 
 func normalizeAllFilter(value string) string {

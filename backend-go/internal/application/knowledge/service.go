@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"mathstudy/backend-go/internal/platform/numutil"
 )
 
 var (
@@ -220,7 +222,7 @@ func (s *Service) ListNodes(ctx context.Context, filter NodeFilter) (NodeListRes
 		Total:      total,
 		Page:       filter.Page,
 		PageSize:   filter.PageSize,
-		TotalPages: totalPages(total, filter.PageSize),
+		TotalPages: numutil.TotalPages(total, filter.PageSize),
 	}, nil
 }
 
@@ -476,13 +478,6 @@ func validRelationType(value string) bool {
 	default:
 		return false
 	}
-}
-
-func totalPages(total int, pageSize int) int {
-	if total <= 0 {
-		return 0
-	}
-	return (total + pageSize - 1) / pageSize
 }
 
 func badRequest(message string) error {

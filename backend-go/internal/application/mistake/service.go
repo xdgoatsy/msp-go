@@ -355,7 +355,7 @@ func (s *Service) GetMistakes(ctx context.Context, userID string, query ListQuer
 			Page:       query.Page,
 			PageSize:   query.PageSize,
 			Total:      total,
-			TotalPages: totalPages(total, query.PageSize),
+			TotalPages: numutil.TotalPages(total, query.PageSize),
 		},
 		Statistics: MistakeStatistics{
 			TotalMistakes: total,
@@ -807,13 +807,6 @@ func averageFloatMap(values map[string]float64) float64 {
 		sum += value
 	}
 	return sum / float64(len(values))
-}
-
-func totalPages(total int, pageSize int) int {
-	if pageSize <= 0 {
-		return 0
-	}
-	return (total + pageSize - 1) / pageSize
 }
 
 func compareOptionalTime(left *time.Time, right *time.Time) int {
