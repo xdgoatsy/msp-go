@@ -15,6 +15,7 @@ import (
 	"mathstudy/backend-go/internal/platform/numutil"
 	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
+	"mathstudy/backend-go/internal/platform/stringutil"
 )
 
 // Public exercise errors mapped by the HTTP layer.
@@ -885,7 +886,7 @@ func basicDiagnosis(reason string, imageOnly bool, concepts []string) *Diagnosis
 		ErrorDescription: explanation,
 		ErrorStepIndex:   nil,
 		Severity:         taxonomy.Severity,
-		Suggestion:       nonEmptyString(taxonomy.Suggestion, suggestion),
+		Suggestion:       stringutil.NonBlankOr(taxonomy.Suggestion, suggestion),
 		RelatedConcepts:  sliceutil.CloneStrings(concepts),
 	}
 }
@@ -1011,13 +1012,6 @@ func uniqueNonEmpty(values []string) []string {
 	}
 	sort.Strings(result)
 	return result
-}
-
-func nonEmptyString(value string, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return value
 }
 
 func boolScore(value bool) float64 {

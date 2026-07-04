@@ -13,6 +13,7 @@ import (
 	"mathstudy/backend-go/internal/platform/maputil"
 	"mathstudy/backend-go/internal/platform/numutil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
+	"mathstudy/backend-go/internal/platform/stringutil"
 	"mathstudy/backend-go/internal/platform/timefmt"
 )
 
@@ -739,7 +740,7 @@ func (s *Service) topStudents(ctx context.Context, studentIDs []string, limit in
 		items = append(items, TopStudentItem{
 			Rank:      index + 1,
 			StudentID: row.StudentID,
-			Name:      fallbackName(names[row.StudentID]),
+			Name:      stringutil.NonBlankOr(names[row.StudentID], "未知"),
 			AvgScore:  numutil.RoundPlaces(row.AvgScore, 1),
 		})
 	}
@@ -800,7 +801,7 @@ func (s *Service) classAlerts(ctx context.Context, studentIDs []string, weekStar
 		alerts = append(alerts, ClassAlert{
 			ID:          alertID,
 			StudentID:   id,
-			StudentName: fallbackName(names[id]),
+			StudentName: stringutil.NonBlankOr(names[id], "未知"),
 			Type:        "low_score",
 			Message:     "平均成绩 " + formatScore(lowScoreStudents[id]) + " 分，低于及格线",
 			Severity:    "high",
@@ -820,7 +821,7 @@ func (s *Service) classAlerts(ctx context.Context, studentIDs []string, weekStar
 		alerts = append(alerts, ClassAlert{
 			ID:          alertID,
 			StudentID:   id,
-			StudentName: fallbackName(names[id]),
+			StudentName: stringutil.NonBlankOr(names[id], "未知"),
 			Type:        "inactive",
 			Message:     "超过 7 天未学习",
 			Severity:    "medium",
@@ -846,7 +847,7 @@ func (s *Service) classRankings(ctx context.Context, studentIDs []string, limit 
 	for _, row := range rows {
 		items = append(items, ClassStudentRank{
 			StudentID: row.StudentID,
-			Name:      fallbackName(names[row.StudentID]),
+			Name:      stringutil.NonBlankOr(names[row.StudentID], "未知"),
 			AvgScore:  numutil.RoundPlaces(row.AvgScore, 1),
 		})
 	}
@@ -927,7 +928,7 @@ func (s *Service) recentActivity(ctx context.Context, studentID string) ([]Stude
 		if attempt.IsCorrect {
 			status = "success"
 		}
-		content := "完成\"" + fallbackTitle(attempt.Title) + "\"练习"
+		content := "完成\"" + stringutil.NonBlankOr(attempt.Title, "未知题目") + "\"练习"
 		if attempt.Score != 0 {
 			content += "，得分 " + formatScore(attempt.Score)
 		}
@@ -1055,20 +1056,6 @@ func displayName(user UserInfo) string {
 		return user.Username
 	}
 	return "未知"
-}
-
-func fallbackName(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "未知"
-	}
-	return value
-}
-
-func fallbackTitle(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "未知题目"
-	}
-	return value
 }
 
 func nameOrUnknown(names map[string]string, id string) string {
