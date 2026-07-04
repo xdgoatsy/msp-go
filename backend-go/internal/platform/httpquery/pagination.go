@@ -1,6 +1,10 @@
 package httpquery
 
-import "net/url"
+import (
+	"errors"
+	"net/url"
+	"strconv"
+)
 
 const (
 	PageField     = "page"
@@ -47,4 +51,19 @@ func Pagination(query url.Values, defaultPageSize int, maxPageSize int) (Paginat
 		return PaginationParams{}, PaginationError{Field: PageSizeField, Err: ErrIntOutOfRange}
 	}
 	return PaginationParams{Page: page, PageSize: pageSize}, nil
+}
+
+// PaginationErrorMessage returns the stable Chinese validation message used by HTTP adapters.
+func PaginationErrorMessage(err error, maxPageSize int) string {
+	var paginationErr PaginationError
+	if !errors.As(err, &paginationErr) {
+		return "分页参数无效"
+	}
+	if errors.Is(err, ErrInvalidInt) {
+		return paginationErr.Field + " 必须是整数"
+	}
+	if paginationErr.Field == PageField {
+		return "page 必须大于等于 1"
+	}
+	return "page_size 必须在 1 到 " + strconv.Itoa(maxPageSize) + " 之间"
 }

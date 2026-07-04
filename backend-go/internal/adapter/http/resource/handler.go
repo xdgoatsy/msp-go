@@ -318,21 +318,7 @@ func parsePage(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 }
 
 func writeResourcePaginationError(w http.ResponseWriter, err error) {
-	writeResourceError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", paginationErrorMessage(err))
-}
-
-func paginationErrorMessage(err error) string {
-	var paginationErr httpquery.PaginationError
-	if !errors.As(err, &paginationErr) {
-		return "分页参数无效"
-	}
-	if errors.Is(err, httpquery.ErrInvalidInt) {
-		return paginationErr.Field + " 必须是整数"
-	}
-	if paginationErr.Field == httpquery.PageField {
-		return "page 必须大于等于 1"
-	}
-	return "page_size 必须在 1 到 100 之间"
+	writeResourceError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", httpquery.PaginationErrorMessage(err, 100))
 }
 
 func parseBool(value string) bool {
