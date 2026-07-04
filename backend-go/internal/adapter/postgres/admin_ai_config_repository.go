@@ -865,28 +865,6 @@ func jsonObject(value map[string]any) string {
 	return string(data)
 }
 
-func textPtr(value pgtype.Text) *string {
-	if !value.Valid {
-		return nil
-	}
-	return &value.String
-}
-
-func intPtr(value pgtype.Int4) *int {
-	if !value.Valid {
-		return nil
-	}
-	converted := int(value.Int32)
-	return &converted
-}
-
-func floatPtr(value pgtype.Float8) *float64 {
-	if !value.Valid {
-		return nil
-	}
-	return &value.Float64
-}
-
 func normalizeAIConfigPGError(err error) error {
 	if err == nil {
 		return nil

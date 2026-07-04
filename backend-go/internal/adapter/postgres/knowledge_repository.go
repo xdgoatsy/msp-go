@@ -169,10 +169,7 @@ func (r KnowledgeRepository) ListAllSimpleNodes(ctx context.Context) ([]knowledg
 		if err := rows.Scan(&node.ID, &node.Name, &chapter, &nodeType); err != nil {
 			return nil, err
 		}
-		if chapter.Valid {
-			value := chapter.String
-			node.Chapter = &value
-		}
+		node.Chapter = textPtr(chapter)
 		value := nodeTypeFromDB(nodeType)
 		node.NodeType = &value
 		nodes = append(nodes, node)
@@ -547,22 +544,10 @@ func scanAdminKnowledgeNode(scanner rowScanner) (knowledgeapp.KnowledgeNode, err
 		return knowledgeapp.KnowledgeNode{}, err
 	}
 	node.NodeType = nodeTypeFromDB(nodeType)
-	if nameEn.Valid {
-		value := nameEn.String
-		node.NameEn = &value
-	}
-	if chapter.Valid {
-		value := chapter.String
-		node.Chapter = &value
-	}
-	if section.Valid {
-		value := section.String
-		node.Section = &value
-	}
-	if latexFormula.Valid {
-		value := latexFormula.String
-		node.LatexFormula = &value
-	}
+	node.NameEn = textPtr(nameEn)
+	node.Chapter = textPtr(chapter)
+	node.Section = textPtr(section)
+	node.LatexFormula = textPtr(latexFormula)
 	tags, err := decodeStringSlice(tagsRaw)
 	if err != nil {
 		return knowledgeapp.KnowledgeNode{}, fmt.Errorf("decode knowledge node tags: %w", err)
@@ -590,19 +575,10 @@ func scanAdminKnowledgeRelation(scanner rowScanner) (knowledgeapp.KnowledgeRelat
 	); err != nil {
 		return knowledgeapp.KnowledgeRelation{}, err
 	}
-	if sourceName.Valid {
-		value := sourceName.String
-		relation.SourceName = &value
-	}
-	if targetName.Valid {
-		value := targetName.String
-		relation.TargetName = &value
-	}
+	relation.SourceName = textPtr(sourceName)
+	relation.TargetName = textPtr(targetName)
 	relation.RelationType = relationTypeFromDB(relationType)
-	if description.Valid {
-		value := description.String
-		relation.Description = &value
-	}
+	relation.Description = textPtr(description)
 	return relation, nil
 }
 
