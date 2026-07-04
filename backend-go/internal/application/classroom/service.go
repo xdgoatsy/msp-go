@@ -2,13 +2,12 @@ package classroom
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
-	"math/big"
 	"strings"
 	"time"
 
 	"mathstudy/backend-go/internal/domain/user"
+	"mathstudy/backend-go/internal/platform/securerand"
 )
 
 var (
@@ -320,14 +319,5 @@ func displayName(userRef *UserRef) *string {
 
 func generateClassCode() (string, error) {
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	var builder strings.Builder
-	builder.Grow(6)
-	for i := 0; i < 6; i++ {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
-		if err != nil {
-			return "", err
-		}
-		builder.WriteByte(alphabet[n.Int64()])
-	}
-	return builder.String(), nil
+	return securerand.String(6, alphabet)
 }

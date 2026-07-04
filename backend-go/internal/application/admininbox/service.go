@@ -2,14 +2,13 @@ package admininbox
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 	"time"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
+	"mathstudy/backend-go/internal/platform/securerand"
 )
 
 const (
@@ -258,42 +257,20 @@ func generateTempPassword() (string, error) {
 	var builder strings.Builder
 	builder.Grow(tempPasswordLength)
 	for _, pool := range []string{tempPasswordLower, tempPasswordUpper, tempPasswordDigits, tempPasswordSpecial} {
-		char, err := randomByte(pool)
+		char, err := securerand.Byte(pool)
 		if err != nil {
 			return "", err
 		}
 		builder.WriteByte(char)
 	}
 	for builder.Len() < tempPasswordLength {
-		char, err := randomByte(tempPasswordChars)
+		char, err := securerand.Byte(tempPasswordChars)
 		if err != nil {
 			return "", err
 		}
 		builder.WriteByte(char)
 	}
-	return shufflePassword(builder.String())
-}
-
-func randomByte(pool string) (byte, error) {
-	max := big.NewInt(int64(len(pool)))
-	index, err := rand.Int(rand.Reader, max)
-	if err != nil {
-		return 0, err
-	}
-	return pool[index.Int64()], nil
-}
-
-func shufflePassword(password string) (string, error) {
-	data := []byte(password)
-	for i := len(data) - 1; i > 0; i-- {
-		index, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
-		if err != nil {
-			return "", err
-		}
-		j := int(index.Int64())
-		data[i], data[j] = data[j], data[i]
-	}
-	return string(data), nil
+	return securerand.ShuffleString(builder.String())
 }
 
 func badRequest(message string) error {
