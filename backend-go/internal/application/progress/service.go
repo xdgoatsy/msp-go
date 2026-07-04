@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"mathstudy/backend-go/internal/platform/maputil"
 )
 
 const (
@@ -322,7 +324,7 @@ func (s *Service) GetMasteryVector(ctx context.Context, userID string) (MasteryR
 		return MasteryResponse{}, err
 	}
 
-	keys := sortedKeys(mastery)
+	keys := maputil.SortedFloatKeys(mastery)
 	topics := make([]MasteryTopic, 0, len(keys))
 	for _, key := range keys {
 		topics = append(topics, MasteryTopic{
@@ -943,15 +945,6 @@ func copyFloatMap(source map[string]float64) map[string]float64 {
 		result[key] = value
 	}
 	return result
-}
-
-func sortedKeys(values map[string]float64) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func percent(total int, count int) float64 {

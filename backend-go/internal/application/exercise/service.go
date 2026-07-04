@@ -9,6 +9,7 @@ import (
 	"time"
 
 	uploadapp "mathstudy/backend-go/internal/application/upload"
+	"mathstudy/backend-go/internal/platform/maputil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 )
 
@@ -763,7 +764,7 @@ func chooseTarget(query NextQuery, mastery map[string]float64) (string, float64)
 	if targetConcept != "" || query.Difficulty != nil || len(mastery) == 0 {
 		return targetConcept, clamp(targetDifficulty, 0, 1)
 	}
-	keys := sortedKeys(mastery)
+	keys := maputil.SortedFloatKeys(mastery)
 	midConcept := ""
 	midMastery := 0.0
 	weakestConcept := ""
@@ -1079,15 +1080,6 @@ func uniqueNonEmpty(values []string) []string {
 	}
 	sort.Strings(result)
 	return result
-}
-
-func sortedKeys(values map[string]float64) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func normalizeFloatMap(values map[string]float64) map[string]float64 {
