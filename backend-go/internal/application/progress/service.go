@@ -928,17 +928,7 @@ func applyForgetting(mastery float64, daysSinceLast float64, floor float64) floa
 		return mastery
 	}
 	decayed := floor + (mastery-floor)*math.Exp(-0.05*daysSinceLast)
-	return clampProbability(decayed)
-}
-
-func clampProbability(value float64) float64 {
-	if value < 0.001 {
-		return 0.001
-	}
-	if value > 0.999 {
-		return 0.999
-	}
-	return value
+	return numutil.ClampFloat(decayed, 0.001, 0.999)
 }
 
 func weekdayMondayIndex(value time.Time) int {
