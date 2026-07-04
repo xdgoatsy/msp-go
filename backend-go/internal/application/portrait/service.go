@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mathstudy/backend-go/internal/platform/numutil"
+	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/timefmt"
 )
 
@@ -129,7 +130,7 @@ func (s *Service) GeneratePortrait(ctx context.Context, userID string) (Generate
 		return GenerateResponse{}, errors.New("portrait profile disappeared before save")
 	}
 	return GenerateResponse{
-		PortraitContent:     valueOrEmpty(saved.PortraitContent),
+		PortraitContent:     ptrutil.ValueOrZero(saved.PortraitContent),
 		PortraitGeneratedAt: timefmt.DateTimeMicros(generatedAt),
 		PortraitVersion:     saved.PortraitVersion,
 	}, nil
@@ -253,13 +254,6 @@ func normalizeProfile(profile Profile) Profile {
 		profile.RecentConcepts = []string{}
 	}
 	return profile
-}
-
-func valueOrEmpty(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func formatNumber(value float64) string {

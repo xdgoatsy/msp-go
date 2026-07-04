@@ -13,6 +13,7 @@ import (
 	"mathstudy/backend-go/internal/platform/maputil"
 	"mathstudy/backend-go/internal/platform/metautil"
 	"mathstudy/backend-go/internal/platform/numutil"
+	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
 )
 
@@ -679,7 +680,7 @@ func (s *Service) updateTracking(ctx context.Context, repo Repository, userID st
 				CreatedAt: now,
 			}
 		}
-		result := dktUpdate(prior, conceptID, current, sequence, profile, optionalStringValue(errorType), state.AttemptCount)
+		result := dktUpdate(prior, conceptID, current, sequence, profile, ptrutil.ValueOrZero(errorType), state.AttemptCount)
 		nextMastery := numutil.RoundPlaces(result.mastery, 4)
 		nextConfidence := numutil.RoundPlaces(result.confidence, 4)
 		mastery[conceptID] = nextMastery
@@ -1010,13 +1011,6 @@ func uniqueNonEmpty(values []string) []string {
 	}
 	sort.Strings(result)
 	return result
-}
-
-func optionalStringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func nonEmptyString(value string, fallback string) string {

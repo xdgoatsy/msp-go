@@ -20,3 +20,19 @@ func TestCloneNil(t *testing.T) {
 		t.Fatalf("Clone(nil) = %#v, want nil", got)
 	}
 }
+
+func TestValueOrZero(t *testing.T) {
+	source := "value"
+	if got := ValueOrZero(&source); got != "value" {
+		t.Fatalf("ValueOrZero() = %q, want value", got)
+	}
+}
+
+func TestValueOrZeroNil(t *testing.T) {
+	if got := ValueOrZero[string](nil); got != "" {
+		t.Fatalf("ValueOrZero(nil string) = %q, want empty", got)
+	}
+	if got := ValueOrZero[int](nil); got != 0 {
+		t.Fatalf("ValueOrZero(nil int) = %d, want 0", got)
+	}
+}

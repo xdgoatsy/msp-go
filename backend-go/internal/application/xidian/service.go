@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/redact"
 )
 
@@ -161,14 +162,14 @@ func (s *Service) CompleteBinding(ctx context.Context, userID string, input Comp
 	if err != nil {
 		return BindCompleteResponse{}, err
 	}
-	username := stringValue(input.Username)
+	username := ptrutil.ValueOrZero(input.Username)
 	if username == "" {
 		if !accountFound {
 			return BindCompleteResponse{}, ServiceError{Code: "ACCOUNT_REQUIRED", Message: "缺少账号信息", Status: 400}
 		}
 		username = account.Username
 	}
-	password := stringValue(input.Password)
+	password := ptrutil.ValueOrZero(input.Password)
 	if password == "" {
 		if !accountFound || account.EncryptedPassword == "" {
 			return BindCompleteResponse{}, ServiceError{Code: "PASSWORD_REQUIRED", Message: "请输入密码完成绑定", Status: 400}
@@ -317,13 +318,6 @@ func sanitizeServiceError(serviceErr ServiceError) ServiceError {
 		serviceErr.Err = errors.New(redact.String(serviceErr.Err.Error()))
 	}
 	return serviceErr
-}
-
-func stringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func stringPtrFromAny(value any) *string {

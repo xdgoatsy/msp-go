@@ -12,6 +12,7 @@ import (
 	"mathstudy/backend-go/internal/platform/httpauth"
 	"mathstudy/backend-go/internal/platform/httpjson"
 	"mathstudy/backend-go/internal/platform/httpquery"
+	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/redact"
 )
 
@@ -91,8 +92,8 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 	if !decodeRequest(w, r, &request) {
 		return
 	}
-	answerText := valueOrEmpty(request.AnswerText)
-	answerImageURL := valueOrEmpty(request.AnswerImageURL)
+	answerText := ptrutil.ValueOrZero(request.AnswerText)
+	answerImageURL := ptrutil.ValueOrZero(request.AnswerImageURL)
 	if strings.TrimSpace(answerText) == "" && strings.TrimSpace(answerImageURL) == "" {
 		writeExerciseError(w, http.StatusBadRequest, "BAD_REQUEST", "请提供文本答案或图片答案")
 		return
@@ -194,13 +195,6 @@ func parseNextQuery(w http.ResponseWriter, r *http.Request) (exerciseapp.NextQue
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) bool {
 	return httpjson.DecodeStrictOrDetailError(w, r, 1<<20, target)
-}
-
-func valueOrEmpty(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func writeExerciseError(w http.ResponseWriter, status int, code, message string) {

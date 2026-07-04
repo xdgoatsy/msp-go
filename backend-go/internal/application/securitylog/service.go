@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mathstudy/backend-go/internal/platform/csvsafe"
+	"mathstudy/backend-go/internal/platform/ptrutil"
 	"mathstudy/backend-go/internal/platform/redact"
 	"mathstudy/backend-go/internal/platform/timefmt"
 )
@@ -507,7 +508,7 @@ func exportCSV(logs []LogItem) string {
 			redact.String(log.Title),
 			redact.String(log.Description),
 			redactedFieldString(log.IPAddress),
-			stringValue(log.UserID),
+			ptrutil.ValueOrZero(log.UserID),
 			redactedString(log.Username),
 			log.CreatedAt.Format(time.RFC3339),
 			yesNo(log.Archived),
@@ -515,13 +516,6 @@ func exportCSV(logs []LogItem) string {
 	}
 	writer.Flush()
 	return buffer.String()
-}
-
-func stringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func redactedPointer(value *string) *string {
