@@ -14,6 +14,7 @@ import (
 	resourceapp "mathstudy/backend-go/internal/application/resource"
 	"mathstudy/backend-go/internal/platform/metautil"
 	"mathstudy/backend-go/internal/platform/sliceutil"
+	"mathstudy/backend-go/internal/platform/stringutil"
 )
 
 // ResourceRepository persists resource center data in PostgreSQL.
@@ -695,8 +696,8 @@ func resourceAssetKind(resourceType string) string {
 
 func metaStringDefault(meta map[string]any, key string, fallback string) string {
 	value := metautil.StringPointer(meta, key)
-	if value == nil || strings.TrimSpace(*value) == "" {
+	if value == nil {
 		return fallback
 	}
-	return *value
+	return stringutil.NonBlankOr(*value, fallback)
 }
