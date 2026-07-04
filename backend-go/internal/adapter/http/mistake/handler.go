@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	authapp "mathstudy/backend-go/internal/application/auth"
@@ -287,33 +286,18 @@ func parseFloatQuery(w http.ResponseWriter, value string, fallback float64, name
 }
 
 func parseOptionalTimeQuery(w http.ResponseWriter, value string, message string) (*time.Time, bool) {
-	if strings.TrimSpace(value) == "" {
-		return nil, true
-	}
-	parsed, err := parseISOTime(value)
-	if err != nil {
-		writeMistakeError(w, http.StatusBadRequest, "BAD_REQUEST", message)
-		return nil, false
-	}
-	return &parsed, true
-}
-
-func parseISOTime(value string) (time.Time, error) {
-	layouts := []string{
+	parsed, err := httpquery.OptionalTime(
+		value,
 		time.RFC3339Nano,
 		"2006-01-02T15:04:05.999999",
 		"2006-01-02T15:04:05",
 		"2006-01-02",
+	)
+	if err != nil {
+		writeMistakeError(w, http.StatusBadRequest, "BAD_REQUEST", message)
+		return nil, false
 	}
-	var lastErr error
-	for _, layout := range layouts {
-		parsed, err := time.Parse(layout, value)
-		if err == nil {
-			return parsed, nil
-		}
-		lastErr = err
-	}
-	return time.Time{}, lastErr
+	return parsed, true
 }
 
 func writeMistakeError(w http.ResponseWriter, status int, code, message string) {

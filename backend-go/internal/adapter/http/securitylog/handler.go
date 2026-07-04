@@ -263,19 +263,12 @@ func paginationErrorMessage(err error) string {
 }
 
 func parseTimeQuery(w http.ResponseWriter, value string, name string) (*time.Time, bool) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, true
-	}
-	parsed, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		parsed, err = time.Parse("2006-01-02", value)
-	}
+	parsed, err := httpquery.OptionalTime(value, time.RFC3339, "2006-01-02")
 	if err != nil {
 		writeSecurityLogError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", name+" 时间格式错误")
 		return nil, false
 	}
-	return &parsed, true
+	return parsed, true
 }
 
 func parseEventTypes(values []string) []securitylogapp.EventType {
