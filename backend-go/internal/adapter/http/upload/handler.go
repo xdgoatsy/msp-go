@@ -14,6 +14,7 @@ import (
 
 	authapp "mathstudy/backend-go/internal/application/auth"
 	uploadapp "mathstudy/backend-go/internal/application/upload"
+	"mathstudy/backend-go/internal/platform/httpauth"
 	"mathstudy/backend-go/internal/platform/redact"
 )
 
@@ -122,14 +123,13 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request, maxSize int64, 
 }
 
 func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (authapp.Principal, bool) {
-	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
-	fields := strings.Fields(authHeader)
-	if len(fields) != 2 || !strings.EqualFold(fields[0], "Bearer") {
+	token, ok := httpauth.BearerToken(r)
+	if !ok {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		writeUploadError(w, http.StatusUnauthorized, "UNAUTHORIZED", "未认证，请先登录")
 		return authapp.Principal{}, false
 	}
-	principal, ok := h.auth.DecodeAccessToken(fields[1])
+	principal, ok := h.auth.DecodeAccessToken(token)
 	if !ok {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		writeUploadError(w, http.StatusUnauthorized, "UNAUTHORIZED", "未认证，请先登录")
