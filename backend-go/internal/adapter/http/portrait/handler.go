@@ -2,7 +2,6 @@ package portraithttp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	authapp "mathstudy/backend-go/internal/application/auth"
 	portraitapp "mathstudy/backend-go/internal/application/portrait"
 	"mathstudy/backend-go/internal/platform/httpauth"
+	"mathstudy/backend-go/internal/platform/httpjson"
 	"mathstudy/backend-go/internal/platform/redact"
 )
 
@@ -70,7 +70,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		writePortraitError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学生画像失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpjson.Write(w, http.StatusOK, response)
 }
 
 func (h *Handler) generate(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +84,7 @@ func (h *Handler) generate(w http.ResponseWriter, r *http.Request) {
 		writePortraitError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "画像生成失败，请稍后重试")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpjson.Write(w, http.StatusOK, response)
 }
 
 func (h *Handler) clear(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +98,7 @@ func (h *Handler) clear(w http.ResponseWriter, r *http.Request) {
 		writePortraitError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "清除学生画像失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpjson.Write(w, http.StatusOK, response)
 }
 
 func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (authapp.Principal, bool) {
@@ -121,12 +121,6 @@ func (h *Handler) logPortraitError(message string, err error) {
 	h.logger.Error(message, "error", redact.String(err.Error()))
 }
 
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func writePortraitError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, errorResponse{Detail: message, Code: code, Message: message})
+	httpjson.Write(w, status, errorResponse{Detail: message, Code: code, Message: message})
 }

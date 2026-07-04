@@ -100,3 +100,21 @@ func TestDecodeLimitedRejectsOversizedTrailingWhitespace(t *testing.T) {
 		t.Fatalf("DecodeLimited() error = %v, want ErrBodyTooLarge", err)
 	}
 }
+
+func TestWriteSetsJSONResponse(t *testing.T) {
+	recorder := httptest.NewRecorder()
+
+	Write(recorder, 201, struct {
+		Name string `json:"name"`
+	}{Name: "alice"})
+
+	if recorder.Code != 201 {
+		t.Fatalf("status = %d, want 201", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := strings.TrimSpace(recorder.Body.String()); got != `{"name":"alice"}` {
+		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}

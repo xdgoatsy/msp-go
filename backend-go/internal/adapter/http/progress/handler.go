@@ -2,7 +2,6 @@ package progresshttp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -10,6 +9,7 @@ import (
 	authapp "mathstudy/backend-go/internal/application/auth"
 	progressapp "mathstudy/backend-go/internal/application/progress"
 	"mathstudy/backend-go/internal/platform/httpauth"
+	"mathstudy/backend-go/internal/platform/httpjson"
 	"mathstudy/backend-go/internal/platform/redact"
 )
 
@@ -82,7 +82,7 @@ func (h *Handler) overview(w http.ResponseWriter, r *http.Request) {
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学习进度失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpjson.Write(w, http.StatusOK, response)
 }
 
 func (h *Handler) mastery(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +96,7 @@ func (h *Handler) mastery(w http.ResponseWriter, r *http.Request) {
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取知识点掌握度失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpjson.Write(w, http.StatusOK, response)
 }
 
 func (h *Handler) path(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +110,7 @@ func (h *Handler) path(w http.ResponseWriter, r *http.Request) {
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学习路径失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpjson.Write(w, http.StatusOK, response)
 }
 
 func (h *Handler) knowledgeGraph(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +129,7 @@ func (h *Handler) knowledgeGraph(w http.ResponseWriter, r *http.Request) {
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取知识图谱失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpjson.Write(w, http.StatusOK, response)
 }
 
 func (h *Handler) statistics(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +147,7 @@ func (h *Handler) statistics(w http.ResponseWriter, r *http.Request) {
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取学习统计失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpjson.Write(w, http.StatusOK, response)
 }
 
 func (h *Handler) classRanking(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +161,7 @@ func (h *Handler) classRanking(w http.ResponseWriter, r *http.Request) {
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取班级排名失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpjson.Write(w, http.StatusOK, response)
 }
 
 func (h *Handler) chapters(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +174,7 @@ func (h *Handler) chapters(w http.ResponseWriter, r *http.Request) {
 		writeProgressError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取章节列表失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, chaptersResponse{Chapters: chapters})
+	httpjson.Write(w, http.StatusOK, chaptersResponse{Chapters: chapters})
 }
 
 func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (authapp.Principal, bool) {
@@ -197,12 +197,6 @@ func (h *Handler) logProgressError(message string, err error) {
 	h.logger.Error(message, "error", redact.String(err.Error()))
 }
 
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func writeProgressError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, errorResponse{Detail: message, Code: code, Message: message})
+	httpjson.Write(w, status, errorResponse{Detail: message, Code: code, Message: message})
 }

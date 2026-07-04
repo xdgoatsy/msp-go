@@ -41,6 +41,12 @@ func DecodeLimited(reader io.Reader, maxBytes int64, target any) error {
 	return nil
 }
 
+func Write(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
 type limitedReader struct {
 	reader    io.Reader
 	remaining int64
