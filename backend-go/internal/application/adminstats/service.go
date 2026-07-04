@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"mathstudy/backend-go/internal/platform/timefmt"
 )
 
 var (
@@ -189,7 +191,7 @@ func NewService(repo Repository, providers ...StatusProvider) (*Service, error) 
 // OverviewStats returns active user counts and weekly trends.
 func (s *Service) OverviewStats(ctx context.Context) (OverviewStatsResponse, error) {
 	now := s.now()
-	today := startOfDay(now)
+	today := timefmt.StartOfDay(now)
 	oneWeekAgo := now.AddDate(0, 0, -7)
 	twoWeeksAgo := now.AddDate(0, 0, -14)
 	snapshot, err := s.repo.OverviewSnapshot(ctx, today, oneWeekAgo, twoWeeksAgo)
@@ -247,7 +249,7 @@ func (s *Service) UserGrowth(ctx context.Context, period string) (UserGrowthResp
 	cumulative := snapshot.Base
 	totalNewUsers := 0
 	data := make([]UserGrowthDataPoint, 0, days+1)
-	for current := startOfDay(start); !current.After(startOfDay(now)); current = current.AddDate(0, 0, 1) {
+	for current := timefmt.StartOfDay(start); !current.After(timefmt.StartOfDay(now)); current = current.AddDate(0, 0, 1) {
 		date := current.Format("2006-01-02")
 		counts := daily[date]
 		cumulative.Total += counts.Total
@@ -376,11 +378,6 @@ func percentChange(current int, previous int) float64 {
 		previous = 1
 	}
 	return round((float64(current)-float64(previous))/float64(previous)*100, 1)
-}
-
-func startOfDay(value time.Time) time.Time {
-	year, month, day := value.Date()
-	return time.Date(year, month, day, 0, 0, 0, 0, value.Location())
 }
 
 func round(value float64, places int) float64 {

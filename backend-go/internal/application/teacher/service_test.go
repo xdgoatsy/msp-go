@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"mathstudy/backend-go/internal/platform/timefmt"
 )
 
 func TestGetDashboardStatsComputesActiveRate(t *testing.T) {
@@ -23,7 +25,7 @@ func TestGetDashboardStatsComputesActiveRate(t *testing.T) {
 	if stats.TotalStudents != 2 || stats.ActiveToday != 50 || stats.AvgCompletionRate != 0 || stats.PendingGrading != 0 {
 		t.Fatalf("stats = %#v", stats)
 	}
-	if !repo.lastSince.Equal(startOfDay(now)) {
+	if !repo.lastSince.Equal(timefmt.StartOfDay(now)) {
 		t.Fatalf("since = %v, want start of day", repo.lastSince)
 	}
 }

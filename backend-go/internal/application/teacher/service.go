@@ -324,7 +324,7 @@ func (s *Service) GetDashboardStats(ctx context.Context, teacherID string) (Dash
 	if total == 0 {
 		return DashboardStats{}, nil
 	}
-	active, err := s.repo.CountActiveSessionsSince(ctx, studentIDs, startOfDay(s.now()))
+	active, err := s.repo.CountActiveSessionsSince(ctx, studentIDs, timefmt.StartOfDay(s.now()))
 	if err != nil {
 		return DashboardStats{}, err
 	}
@@ -353,7 +353,7 @@ func (s *Service) GetStudentsStats(ctx context.Context, teacherID string) (Stude
 	if !ok {
 		avgScore = 0
 	}
-	todayActive, err := s.repo.CountActiveSessionsSince(ctx, studentIDs, startOfDay(s.now()))
+	todayActive, err := s.repo.CountActiveSessionsSince(ctx, studentIDs, timefmt.StartOfDay(s.now()))
 	if err != nil {
 		return StudentsStats{}, err
 	}
@@ -647,7 +647,7 @@ func (s *Service) timeRangeStart(timeRange string) (time.Time, bool) {
 	case "", "week":
 		return now.AddDate(0, 0, -7), true
 	case "today":
-		return startOfDay(now), true
+		return timefmt.StartOfDay(now), true
 	case "month":
 		return now.AddDate(0, 0, -30), true
 	case "semester":
@@ -702,7 +702,7 @@ func (s *Service) weeklyActivity(ctx context.Context, studentIDs []string, total
 	if err != nil {
 		return nil, err
 	}
-	today := startOfDay(s.now())
+	today := timefmt.StartOfDay(s.now())
 	items := make([]WeeklyActivityItem, 0, 7)
 	for offset := 6; offset >= 0; offset-- {
 		day := today.AddDate(0, 0, -offset)
@@ -874,7 +874,7 @@ func (s *Service) streakDays(ctx context.Context, studentID string) (int, error)
 	for _, day := range days {
 		active[timefmt.Date(day)] = struct{}{}
 	}
-	current := startOfDay(s.now())
+	current := timefmt.StartOfDay(s.now())
 	streak := 0
 	for {
 		if _, ok := active[timefmt.Date(current)]; !ok {
@@ -1098,10 +1098,6 @@ func nameOrUnknown(names map[string]string, id string) string {
 		return value
 	}
 	return "未知知识点"
-}
-
-func startOfDay(value time.Time) time.Time {
-	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
 }
 
 func round1(value float64) float64 {

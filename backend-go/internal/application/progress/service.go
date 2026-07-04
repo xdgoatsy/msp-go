@@ -276,7 +276,7 @@ func (s *Service) GetOverview(ctx context.Context, userID string) (Overview, err
 		return Overview{}, err
 	}
 	now := s.now()
-	todayStart := startOfDay(now)
+	todayStart := timefmt.StartOfDay(now)
 	todaySeconds, err := s.repo.SumStudySeconds(ctx, userID, &todayStart)
 	if err != nil {
 		return Overview{}, err
@@ -528,7 +528,7 @@ func (s *Service) GetKnowledgeGraphView(ctx context.Context, userID string, filt
 // GetStatistics returns learning activity statistics.
 func (s *Service) GetStatistics(ctx context.Context, userID string, rangeType string) (StatisticsResponse, error) {
 	now := s.now()
-	today := startOfDay(now)
+	today := timefmt.StartOfDay(now)
 	startDate := today.AddDate(0, 0, -weekdayMondayIndex(today))
 	rangeDays := 7
 	interval := "day"
@@ -681,7 +681,7 @@ func (s *Service) calculateStreakDays(ctx context.Context, userID string) (int, 
 		activeDays[timefmt.Date(day)] = struct{}{}
 	}
 	streak := 0
-	current := startOfDay(s.now())
+	current := timefmt.StartOfDay(s.now())
 	for {
 		if _, ok := activeDays[timefmt.Date(current)]; !ok {
 			return streak, nil
@@ -945,10 +945,6 @@ func percent(total int, count int) float64 {
 		return 0
 	}
 	return float64(count) / float64(total) * 100.0
-}
-
-func startOfDay(value time.Time) time.Time {
-	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
 }
 
 func weekdayMondayIndex(value time.Time) int {

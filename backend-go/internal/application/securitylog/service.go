@@ -12,6 +12,7 @@ import (
 
 	"mathstudy/backend-go/internal/platform/csvsafe"
 	"mathstudy/backend-go/internal/platform/redact"
+	"mathstudy/backend-go/internal/platform/timefmt"
 )
 
 var (
@@ -311,7 +312,7 @@ func (s *Service) ArchiveLogs(ctx context.Context, before time.Time) (ArchiveRes
 
 // GenerateDailyReport creates a daily safe report when no abnormal events exist.
 func (s *Service) GenerateDailyReport(ctx context.Context) (DailyReportResponse, error) {
-	todayStart := startOfDay(s.now())
+	todayStart := timefmt.StartOfDay(s.now())
 	todayEnd := todayStart.AddDate(0, 0, 1)
 	hasReport, abnormalCount, err := s.repo.DailyReportStatus(ctx, todayStart, todayEnd)
 	if err != nil {
@@ -326,7 +327,7 @@ func (s *Service) GenerateDailyReport(ctx context.Context) (DailyReportResponse,
 		Severity:    SeverityInfo,
 		Title:       "每日安全报告",
 		Description: "系统运行正常，未检测到安全异常",
-		ExtraData:   map[string]any{"date": todayStart.Format("2006-01-02")},
+		ExtraData:   map[string]any{"date": timefmt.Date(todayStart)},
 		CreatedAt:   s.now(),
 	})
 	if err != nil {
@@ -448,16 +449,16 @@ func normalizeCleanupConfig(config CleanupConfig) CleanupConfig {
 }
 
 func (s *Service) groupLogsByDate(logs []LogItem) []LogGroup {
-	today := startOfDay(s.now())
+	today := timefmt.StartOfDay(s.now())
 	yesterday := today.AddDate(0, 0, -1)
 	groups := make([]LogGroup, 0)
 	indexByDate := map[string]int{}
 	for _, log := range logs {
-		date := startOfDay(log.CreatedAt).Format("2006-01-02")
+		date := timefmt.Date(timefmt.StartOfDay(log.CreatedAt))
 		groupIndex, ok := indexByDate[date]
 		if !ok {
 			display := date
-			logDate := startOfDay(log.CreatedAt)
+			logDate := timefmt.StartOfDay(log.CreatedAt)
 			if logDate.Equal(today) {
 				display = "今天"
 			} else if logDate.Equal(yesterday) {
@@ -514,11 +515,6 @@ func exportCSV(logs []LogItem) string {
 	}
 	writer.Flush()
 	return buffer.String()
-}
-
-func startOfDay(value time.Time) time.Time {
-	year, month, day := value.Date()
-	return time.Date(year, month, day, 0, 0, 0, 0, value.Location())
 }
 
 func stringValue(value *string) string {
