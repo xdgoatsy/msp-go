@@ -105,7 +105,7 @@ func TestSubmitRejectsMissingAnswerBeforeServiceCall(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	if body["detail"] != "请提供文本答案或图片答案" {
+	if body["detail"] != "请提供文本答案" {
 		t.Fatalf("body = %#v", body)
 	}
 }
@@ -137,8 +137,8 @@ func TestSubmitForwardsPayloadAndMapsBadRequest(t *testing.T) {
 	}
 }
 
-func TestSubmitForwardsImageAnswerURL(t *testing.T) {
-	service := &fakeExerciseService{submitResponse: exerciseapp.SubmitResponse{Score: 0}}
+func TestSubmitMapsImageOnlyOCRUnavailable(t *testing.T) {
+	service := &fakeExerciseService{submitErr: exerciseapp.ErrOCRUnavailable}
 	auth := &fakeAuthenticator{principal: authapp.Principal{UserID: "student-1", Role: user.RoleStudent}}
 	handler := newTestHandler(t, service, auth)
 	mux := http.NewServeMux()
@@ -149,11 +149,18 @@ func TestSubmitForwardsImageAnswerURL(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer token")
 	mux.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK {
+	if recorder.Code != http.StatusNotImplemented {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 	if !service.submitCalled || service.lastSubmitRequest.AnswerImageURL != "/uploads/images/answer.png" {
 		t.Fatalf("request = %#v", service.lastSubmitRequest)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if body["code"] != "OCR_UNAVAILABLE" || body["detail"] != "图片答案自动判题尚未开放，请改用文本答案" {
+		t.Fatalf("body = %#v", body)
 	}
 }
 

@@ -95,7 +95,7 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 	answerText := ptrutil.ValueOrZero(request.AnswerText)
 	answerImageURL := ptrutil.ValueOrZero(request.AnswerImageURL)
 	if strings.TrimSpace(answerText) == "" && strings.TrimSpace(answerImageURL) == "" {
-		writeExerciseError(w, http.StatusBadRequest, "BAD_REQUEST", "请提供文本答案或图片答案")
+		writeExerciseError(w, http.StatusBadRequest, "BAD_REQUEST", "请提供文本答案")
 		return
 	}
 	response, err := h.service.SubmitAnswer(r.Context(), principal.UserID, exerciseapp.SubmitRequest{
@@ -167,6 +167,10 @@ func (h *Handler) requirePrincipal(w http.ResponseWriter, r *http.Request) (auth
 }
 
 func (h *Handler) writeExerciseError(w http.ResponseWriter, err error, fallback string) {
+	if errors.Is(err, exerciseapp.ErrOCRUnavailable) {
+		writeExerciseError(w, http.StatusNotImplemented, "OCR_UNAVAILABLE", "图片答案自动判题尚未开放，请改用文本答案")
+		return
+	}
 	if errors.Is(err, exerciseapp.ErrForbidden) {
 		writeExerciseError(w, http.StatusForbidden, "FORBIDDEN", "请先加入班级后再开始练习")
 		return

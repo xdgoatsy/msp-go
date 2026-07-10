@@ -717,7 +717,6 @@ func diagnosticianPrompt(input exerciseapp.DiagnosisInput) string {
 	builder.WriteString(fmt.Sprintf("- 标准答案: %s\n", input.CorrectAnswer))
 	builder.WriteString(fmt.Sprintf("- 本地判题理由: %s\n", input.Check.Reason))
 	builder.WriteString(fmt.Sprintf("- 本地判题置信度: %.2f\n", input.Check.Confidence))
-	builder.WriteString(fmt.Sprintf("- 图片答案: %v\n", input.ImageOnly))
 	if len(input.AnswerSteps) > 0 {
 		builder.WriteString("学生步骤：\n")
 		for index, step := range input.AnswerSteps {

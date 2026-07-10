@@ -48,8 +48,7 @@ export interface SubmitResult {
 
 export interface SubmitPayload {
   exerciseId: string;
-  answerText?: string;
-  answerImageUrl?: string;
+  answerText: string;
   answerSteps?: string[];
   timeSpentSeconds: number;
 }
@@ -105,7 +104,6 @@ export const exerciseService = {
   async submitAnswer(payload: SubmitPayload): Promise<SubmitResult> {
     exerciseLogger.debug('Submitting answer', {
       exerciseId: payload.exerciseId,
-      hasImage: !!payload.answerImageUrl,
     });
 
     const res = await apiClient.post<{
@@ -130,7 +128,6 @@ export const exerciseService = {
     }>('/exercise/submit', {
       exercise_id: payload.exerciseId,
       answer_text: payload.answerText,
-      answer_image_url: payload.answerImageUrl,
       answer_steps: payload.answerSteps,
       time_spent_seconds: payload.timeSpentSeconds,
     });

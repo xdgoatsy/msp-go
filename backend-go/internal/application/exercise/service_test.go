@@ -88,6 +88,7 @@ func TestSubmitAnswerRecordsCorrectAttemptAndUpdatesTracking(t *testing.T) {
 	response, err := service.SubmitAnswer(context.Background(), "student-1", SubmitRequest{
 		ExerciseID:       "exercise-1",
 		AnswerText:       " x + 1 ",
+		AnswerImageURL:   "/uploads/images/supporting-work.png",
 		AnswerSteps:      []string{"step"},
 		TimeSpentSeconds: 60,
 	})
@@ -99,6 +100,9 @@ func TestSubmitAnswerRecordsCorrectAttemptAndUpdatesTracking(t *testing.T) {
 	}
 	if len(repo.insertedAttempts) != 1 || repo.insertedAttempts[0].ID != "attempt-1" {
 		t.Fatalf("attempts = %#v", repo.insertedAttempts)
+	}
+	if repo.insertedAttempts[0].StudentAnswer != "x + 1" {
+		t.Fatalf("student answer = %q", repo.insertedAttempts[0].StudentAnswer)
 	}
 	if len(repo.insertedDiagnoses) != 0 {
 		t.Fatalf("diagnoses = %#v", repo.insertedDiagnoses)
@@ -151,41 +155,19 @@ func TestSolverAnswerCheckerFallsBackForInvalidSolverResult(t *testing.T) {
 	}
 }
 
-func TestSubmitAnswerRecordsBasicDiagnosisForImageOnlyAnswer(t *testing.T) {
-	now := time.Date(2026, time.April, 25, 10, 0, 0, 0, time.UTC)
-	repo := &fakeExerciseRepo{
-		session:    LearningSession{ID: "session-1", StudentID: "student-1"},
-		hasSession: true,
-		teacherID:  "teacher-1",
-		hasTeacher: true,
-		exercises: map[string]Exercise{
-			"exercise-1": newExercise("exercise-1", "teacher-1", []string{"algebra"}, map[string]any{"answer": "x+1"}),
-		},
-		profile:    StudentProfile{MasteryVector: map[string]float64{"algebra": 0.4}, PreferredDifficulty: 0.5, LearningPace: 1},
-		hasProfile: true,
-	}
+func TestSubmitAnswerRejectsImageOnlyBeforeTransaction(t *testing.T) {
+	repo := &fakeExerciseRepo{}
 	service := newTestService(repo)
-	service.now = func() time.Time { return now }
-	service.newID = sequentialIDs("attempt-1", "diagnosis-1", "dkt-1")
 
-	response, err := service.SubmitAnswer(context.Background(), "student-1", SubmitRequest{
+	_, err := service.SubmitAnswer(context.Background(), "student-1", SubmitRequest{
 		ExerciseID:     "exercise-1",
 		AnswerImageURL: "/uploads/images/answer.png",
 	})
-	if err != nil {
-		t.Fatalf("SubmitAnswer() error = %v", err)
+	if !errors.Is(err, ErrOCRUnavailable) {
+		t.Fatalf("SubmitAnswer() error = %v, want ErrOCRUnavailable", err)
 	}
-	if response.IsCorrect || response.Diagnosis == nil {
-		t.Fatalf("response = %#v", response)
-	}
-	if response.Diagnosis.TaxonomyCode != "S-Type" || response.Diagnosis.ErrorType == nil || *response.Diagnosis.ErrorType != "symbolic" {
-		t.Fatalf("diagnosis taxonomy = %#v", response.Diagnosis)
-	}
-	if len(repo.insertedDiagnoses) != 1 || repo.insertedDiagnoses[0].ID != "diagnosis-1" {
-		t.Fatalf("diagnoses = %#v", repo.insertedDiagnoses)
-	}
-	if response.NextRecommendation != "review" {
-		t.Fatalf("next recommendation = %q", response.NextRecommendation)
+	if repo.withTxCalled || len(repo.insertedAttempts) != 0 || len(repo.insertedDiagnoses) != 0 || len(repo.upsertedStates) != 0 {
+		t.Fatalf("image-only answer reached persistence: %#v", repo)
 	}
 }
 
@@ -257,6 +239,40 @@ func TestSubmitAnswerFallsBackWhenDiagnosticianFails(t *testing.T) {
 		t.Fatalf("SubmitAnswer() error = %v", err)
 	}
 	if response.Diagnosis == nil || response.Diagnosis.ErrorSubtype != "answer_mismatch" || response.Diagnosis.TaxonomyCode != "P-Type" {
+		t.Fatalf("diagnosis = %#v", response.Diagnosis)
+	}
+}
+
+func TestSubmitAnswerKeepsSymbolicTaxonomyForTextErrors(t *testing.T) {
+	repo := &fakeExerciseRepo{
+		session:    LearningSession{ID: "session-1", StudentID: "student-1"},
+		hasSession: true,
+		teacherID:  "teacher-1",
+		hasTeacher: true,
+		exercises: map[string]Exercise{
+			"exercise-1": newExercise("exercise-1", "teacher-1", []string{"algebra"}, map[string]any{"answer": "x+1"}),
+		},
+		profile:    StudentProfile{MasteryVector: map[string]float64{"algebra": 0.4}, PreferredDifficulty: 0.5, LearningPace: 1},
+		hasProfile: true,
+	}
+	service, err := NewService(repo, fakeAnswerChecker{result: AnswerCheckResult{
+		IsCorrect:  false,
+		Reason:     "答案符号格式错误",
+		Confidence: 1,
+	}})
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	service.newID = sequentialIDs("attempt-1", "diagnosis-1", "dkt-1")
+
+	response, err := service.SubmitAnswer(context.Background(), "student-1", SubmitRequest{
+		ExerciseID: "exercise-1",
+		AnswerText: "x-1",
+	})
+	if err != nil {
+		t.Fatalf("SubmitAnswer() error = %v", err)
+	}
+	if response.Diagnosis == nil || response.Diagnosis.ErrorType == nil || *response.Diagnosis.ErrorType != "symbolic" || response.Diagnosis.TaxonomyCode != "S-Type" {
 		t.Fatalf("diagnosis = %#v", response.Diagnosis)
 	}
 }
@@ -379,6 +395,15 @@ type fakeMathSolver struct {
 	err    error
 }
 
+type fakeAnswerChecker struct {
+	result AnswerCheckResult
+	err    error
+}
+
+func (c fakeAnswerChecker) CheckAnswer(context.Context, string, string, string) (AnswerCheckResult, error) {
+	return c.result, c.err
+}
+
 func (s *fakeMathSolver) CheckAnswer(_ context.Context, input AnswerCheckInput) (AnswerCheckResult, error) {
 	s.called = true
 	s.input = input
@@ -389,6 +414,7 @@ func (s *fakeMathSolver) CheckAnswer(_ context.Context, input AnswerCheckInput) 
 }
 
 type fakeExerciseRepo struct {
+	withTxCalled         bool
 	session              LearningSession
 	hasSession           bool
 	createdSession       LearningSession
@@ -413,6 +439,7 @@ type fakeExerciseRepo struct {
 }
 
 func (r *fakeExerciseRepo) WithTx(ctx context.Context, fn func(context.Context, Repository) error) error {
+	r.withTxCalled = true
 	return fn(ctx, r)
 }
 

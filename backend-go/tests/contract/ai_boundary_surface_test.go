@@ -16,8 +16,15 @@ func TestRemainingAIBoundariesStayExplicit(t *testing.T) {
 		{
 			file: "backend-go/internal/application/exercise/service.go",
 			required: []string{
-				"OCR 判题能力将在 AI 迁移阶段恢复",
+				"ErrOCRUnavailable",
 				"NormalizedAnswerChecker is a deterministic local checker used when the Math Solver agent is unavailable",
+			},
+		},
+		{
+			file: "backend-go/internal/adapter/http/exercise/handler.go",
+			required: []string{
+				"OCR_UNAVAILABLE",
+				"图片答案自动判题尚未开放，请改用文本答案",
 			},
 		},
 	}

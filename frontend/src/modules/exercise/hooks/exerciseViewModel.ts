@@ -5,7 +5,6 @@ import {
   type Question,
   type SubmitResult,
 } from '@/modules/exercise/services/exerciseService';
-import { uploadService } from '@/modules/upload/services/uploadService';
 import { logger } from '@/libs/utils/logger';
 import { getApiErrorMessage } from '@/libs/http/apiClient';
 
@@ -23,7 +22,7 @@ export type ExerciseErrorType =
 /**
  * 练习题 ViewModel Hook
  *
- * 管理题目加载、答案提交（文本+图片）、反馈展示
+ * 管理题目加载、文本答案提交和反馈展示
  */
 export function useExerciseViewModel() {
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
@@ -86,10 +85,10 @@ export function useExerciseViewModel() {
   );
 
   const submitAnswer = useCallback(
-    async (answerText?: string, answerImageUrl?: string) => {
+    async (answerText: string) => {
       if (!currentQuestion) return;
-      if (!answerText && !answerImageUrl) {
-        setError('请输入答案或上传图片');
+      if (!answerText.trim()) {
+        setError('请输入答案');
         return;
       }
 
@@ -102,7 +101,6 @@ export function useExerciseViewModel() {
         const result = await exerciseService.submitAnswer({
           exerciseId: currentQuestion.id,
           answerText,
-          answerImageUrl,
           timeSpentSeconds: timeSpent,
         });
         setSubmitResult(result);
@@ -124,23 +122,6 @@ export function useExerciseViewModel() {
     [currentQuestion],
   );
 
-  const uploadAnswerImage = useCallback(async (file: File): Promise<string | null> => {
-    const validation = uploadService.validateImageFile(file);
-    if (!validation.valid) {
-      setError(validation.error || '图片验证失败');
-      return null;
-    }
-
-    try {
-      const result = await uploadService.uploadImage(file);
-      return result.url;
-    } catch (err) {
-      setError('图片上传失败，请重试');
-      exerciseLogger.error('Image upload failed', { error: err });
-      return null;
-    }
-  }, []);
-
   return {
     currentQuestion,
     isLoading,
@@ -150,6 +131,5 @@ export function useExerciseViewModel() {
     errorType,
     loadNextQuestion,
     submitAnswer,
-    uploadAnswerImage,
   };
 }

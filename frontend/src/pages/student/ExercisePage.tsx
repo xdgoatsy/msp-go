@@ -56,18 +56,6 @@ export const ExercisePage: React.FC = () => {
 
           {/* 侧边栏 */}
           <div className="lg:col-span-4 space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">使用说明</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-surface-600 dark:text-surface-400">
-                <p>📝 在输入框中输入 LaTeX 格式的答案</p>
-                <p>📷 也可以拍照上传手写公式，AI 会自动识别</p>
-                <p>🎯 系统会根据你的掌握情况自适应出题</p>
-                <p>📊 每次答题后会更新你的知识点掌握度</p>
-              </CardContent>
-            </Card>
-
             <Card className="border-primary-200 dark:border-primary-800 bg-linear-to-br from-primary-50 to-purple-50 dark:from-primary-950/50 dark:to-purple-950/50">
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">

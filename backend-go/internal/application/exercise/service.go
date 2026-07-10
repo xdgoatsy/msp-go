@@ -20,9 +20,10 @@ import (
 
 // Public exercise errors mapped by the HTTP layer.
 var (
-	ErrNotFound   = errors.New("exercise not found")
-	ErrForbidden  = errors.New("student is not enrolled")
-	ErrBadRequest = errors.New("bad exercise request")
+	ErrNotFound       = errors.New("exercise not found")
+	ErrForbidden      = errors.New("student is not enrolled")
+	ErrBadRequest     = errors.New("bad exercise request")
+	ErrOCRUnavailable = errors.New("image answer OCR is unavailable")
 )
 
 // Repository is the persistence surface required by exercise use cases.
@@ -261,7 +262,6 @@ type DiagnosisInput struct {
 	AnswerSteps   []string
 	CorrectAnswer string
 	Check         AnswerCheckResult
-	ImageOnly     bool
 	Fallback      DiagnosisDetail
 }
 
@@ -391,6 +391,9 @@ func (s *Service) SubmitAnswer(ctx context.Context, userID string, request Submi
 	if request.AnswerImageURL != "" && !isSafeAnswerImageURL(request.AnswerImageURL) {
 		return SubmitResponse{}, ErrBadRequest
 	}
+	if request.AnswerText == "" {
+		return SubmitResponse{}, ErrOCRUnavailable
+	}
 
 	var response SubmitResponse
 	err := s.repo.WithTx(ctx, func(txCtx context.Context, repo Repository) error {
@@ -418,17 +421,9 @@ func (s *Service) SubmitAnswer(ctx context.Context, userID string, request Submi
 		}
 
 		studentAnswer := request.AnswerText
-		imageOnly := false
-		if studentAnswer == "" {
-			imageOnly = true
-			studentAnswer = request.AnswerImageURL
-		}
-		check := AnswerCheckResult{IsCorrect: false, Reason: "图片答案 OCR 判题能力将在 AI 迁移阶段恢复", Confidence: 0}
-		if !imageOnly {
-			check, err = s.checker.CheckAnswer(txCtx, studentAnswer, correctAnswer, metautil.String(exercise.Meta, "answer_type"))
-			if err != nil {
-				return err
-			}
+		check, err := s.checker.CheckAnswer(txCtx, studentAnswer, correctAnswer, metautil.String(exercise.Meta, "answer_type"))
+		if err != nil {
+			return err
 		}
 
 		now := s.now()
@@ -462,8 +457,7 @@ func (s *Service) SubmitAnswer(ctx context.Context, userID string, request Submi
 				AnswerSteps:   request.AnswerSteps,
 				CorrectAnswer: correctAnswer,
 				Check:         check,
-				ImageOnly:     imageOnly,
-				Fallback:      *basicDiagnosis(check.Reason, imageOnly, exercise.ConceptIDs),
+				Fallback:      *basicDiagnosis(check.Reason, exercise.ConceptIDs),
 			})
 			errorType = diagnosis.ErrorType
 			reportID, err := s.newID()
@@ -838,17 +832,7 @@ type errorTaxonomy struct {
 	Suggestion string
 }
 
-func classifyMathError(reason string, imageOnly bool) errorTaxonomy {
-	if imageOnly {
-		errorType := "symbolic"
-		return errorTaxonomy{
-			ErrorType:  &errorType,
-			Code:       "S-Type",
-			Subtype:    "notation_or_ocr_pending",
-			Severity:   "medium",
-			Suggestion: "请补充可解析的文本答案，重点检查符号书写、上下标和等号链是否清晰。",
-		}
-	}
+func classifyMathError(reason string) errorTaxonomy {
 	normalized := strings.ToLower(reason)
 	switch {
 	case strings.Contains(normalized, "concept") || strings.Contains(reason, "概念") || strings.Contains(reason, "定义"):
@@ -869,16 +853,13 @@ func classifyMathError(reason string, imageOnly bool) errorTaxonomy {
 	}
 }
 
-func basicDiagnosis(reason string, imageOnly bool, concepts []string) *DiagnosisDetail {
+func basicDiagnosis(reason string, concepts []string) *DiagnosisDetail {
 	explanation := "答案不正确"
 	suggestion := "请重新检查解题过程"
 	if reason != "" {
 		explanation = reason
 	}
-	if imageOnly {
-		suggestion = "图片答案已记录，OCR 诊断能力将在 AI 迁移阶段恢复；请优先提交文本答案以获得自动判题。"
-	}
-	taxonomy := classifyMathError(reason, imageOnly)
+	taxonomy := classifyMathError(reason)
 	return &DiagnosisDetail{
 		ErrorType:        taxonomy.ErrorType,
 		ErrorSubtype:     taxonomy.Subtype,

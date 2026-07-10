@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { MathRenderer } from '@/libs/math/MathRenderer';
 import { MathText } from '@/libs/math/MathText';
-import { Camera, Loader2, X } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { EmptyExerciseState } from './EmptyExerciseState';
 import type { Question, SubmitResult } from '@/modules/exercise/services/exerciseService';
 import type { ExerciseErrorType } from '../hooks/exerciseViewModel';
@@ -47,8 +47,7 @@ export interface ExercisePanelProps {
   error: string | null;
   errorType: ExerciseErrorType | null;
   loadNextQuestion: (conceptId?: string, difficulty?: number) => Promise<void>;
-  submitAnswer: (answerText?: string, answerImageUrl?: string) => Promise<void>;
-  uploadAnswerImage: (file: File) => Promise<string | null>;
+  submitAnswer: (answerText: string) => Promise<void>;
 }
 
 export const ExercisePanel: React.FC<ExercisePanelProps> = ({
@@ -60,72 +59,26 @@ export const ExercisePanel: React.FC<ExercisePanelProps> = ({
   errorType,
   loadNextQuestion,
   submitAnswer,
-  uploadAnswerImage,
 }) => {
 
   const [answer, setAnswer] = useState('');
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const imagePreviewRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadNextQuestion();
   }, [loadNextQuestion]);
 
-  useEffect(() => {
-    return () => {
-      if (imagePreviewRef.current) {
-        URL.revokeObjectURL(imagePreviewRef.current);
-      }
-    };
-  }, []);
-
-  const replaceImagePreview = useCallback((url: string | null) => {
-    if (imagePreviewRef.current) {
-      URL.revokeObjectURL(imagePreviewRef.current);
-    }
-    imagePreviewRef.current = url;
-    setImagePreview(url);
-  }, []);
-
-  // 图片选择
-  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImageFile(file);
-    replaceImagePreview(URL.createObjectURL(file));
-  }, [replaceImagePreview]);
-
-  // 移除图片
-  const handleRemoveImage = useCallback(() => {
-    replaceImagePreview(null);
-    setImageFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [replaceImagePreview]);
   // 提交答案
   const handleSubmit = useCallback(async () => {
-    let imageUrl: string | undefined;
-
-    // 如果有图片，先上传
-    if (imageFile) {
-      setIsUploading(true);
-      const url = await uploadAnswerImage(imageFile);
-      setIsUploading(false);
-      if (!url) return; // 上传失败
-      imageUrl = url;
-    }
-
-    await submitAnswer(answer || undefined, imageUrl);
-  }, [answer, imageFile, submitAnswer, uploadAnswerImage]);
+    const normalizedAnswer = answer.trim();
+    if (!normalizedAnswer) return;
+    await submitAnswer(normalizedAnswer);
+  }, [answer, submitAnswer]);
 
   // 下一题
   const handleNext = useCallback(() => {
     setAnswer('');
-    handleRemoveImage();
     loadNextQuestion();
-  }, [handleRemoveImage, loadNextQuestion]);
+  }, [loadNextQuestion]);
 
   // ========== 渲染 ==========
 
@@ -152,17 +105,10 @@ export const ExercisePanel: React.FC<ExercisePanelProps> = ({
     return <div className="p-4 text-center text-surface-500">暂无可用题目</div>;
   }
 
-  const isBusy = isSubmitting || isUploading;
+  const isBusy = isSubmitting;
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* 提示信息 */}
-      <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-        <p className="text-sm text-blue-700 dark:text-blue-300">
-          💡 提示：刷新页面不会更换题目，请认真完成当前练习
-        </p>
-      </div>
-
       {/* 题目卡片 */}
       <Card className="border-primary-100 dark:border-primary-900 shadow-md overflow-hidden">
         <CardHeader className="bg-primary-50/50 dark:bg-primary-950/50 border-b border-primary-100 dark:border-primary-900">
@@ -194,50 +140,6 @@ export const ExercisePanel: React.FC<ExercisePanelProps> = ({
               disabled={isBusy || !!submitResult}
             />
 
-            {/* 图片上传区 */}
-            <div className="flex items-center gap-3">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp"
-                onChange={handleImageSelect}
-                className="hidden"
-                disabled={isBusy || !!submitResult}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isBusy || !!submitResult}
-              >
-                <Camera className="h-4 w-4 mr-1" />
-                拍照/上传手写答案
-              </Button>
-              {isUploading && (
-                <span className="text-sm text-surface-500 flex items-center gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  上传中...
-                </span>
-              )}
-            </div>
-
-            {/* 图片预览 */}
-            {imagePreview && (
-              <div className="relative inline-block">
-                <img
-                  src={imagePreview}
-                  alt="手写答案预览"
-                  className="max-h-48 rounded-lg border border-surface-200 dark:border-surface-700"
-                />
-                <button
-                  onClick={handleRemoveImage}
-                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
-                  disabled={isBusy}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            )}
           </div>
         </CardContent>
         <CardFooter className="bg-surface-50 dark:bg-surface-800 p-4 flex justify-between items-center">
@@ -245,7 +147,7 @@ export const ExercisePanel: React.FC<ExercisePanelProps> = ({
             <Button
               onClick={handleSubmit}
               isLoading={isBusy}
-              disabled={(!answer && !imageFile) || isBusy}
+              disabled={!answer.trim() || isBusy}
               className="w-full sm:w-auto"
             >
               提交答案
