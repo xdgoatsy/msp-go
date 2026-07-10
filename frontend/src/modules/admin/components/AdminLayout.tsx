@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAppDispatch, useAppSelector } from '@/store';
-import { logout, selectCurrentUser } from '@/modules/auth/store/authSlice';
+import { useAppSelector } from '@/store';
+import { selectCurrentUser } from '@/modules/auth/store/authSlice';
+import { useAuth } from '@/modules/auth/hooks/useAuth';
 import { animationCombos } from '@/libs/animations';
 import { Button } from '@/components/ui/Button';
 import {
@@ -11,6 +12,7 @@ import {
   Brain,
   Settings,
   LogOut,
+  Loader2,
   Menu,
   X,
   ChevronRight,
@@ -28,8 +30,8 @@ interface AdminLayoutProps {
 export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = '' }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const dispatch = useAppDispatch();
   const user = useAppSelector(selectCurrentUser);
+  const { handleLogout, isLoggingOut } = useAuth('/admin');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inboxPendingCount, setInboxPendingCount] = useState(0);
 
@@ -47,11 +49,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = 
     const interval = setInterval(fetchPendingCount, 60_000);
     return () => clearInterval(interval);
   }, []);
-
-  const handleLogout = () => {
-    dispatch(logout());
-    navigate('/admin');
-  };
 
   const menuItems = [
     {
@@ -178,14 +175,30 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = 
                   </div>
                 </div>
               </div>
-              <Button variant="outline" size="sm" className="w-full" onClick={handleLogout}>
-                <LogOut className="w-4 h-4 mr-2" />
-                退出登录
+              <Button variant="outline" size="sm" className="w-full" onClick={handleLogout} disabled={isLoggingOut}>
+                {isLoggingOut ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <LogOut className="w-4 h-4 mr-2" />
+                )}
+                {isLoggingOut ? '退出中...' : '退出登录'}
               </Button>
             </div>
           ) : (
-            <Button variant="ghost" size="icon" className="w-full" onClick={handleLogout}>
-              <LogOut className="w-4 h-4" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-full"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              aria-label="退出登录"
+              title="退出登录"
+            >
+              {isLoggingOut ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <LogOut className="w-4 h-4" />
+              )}
             </Button>
           )}
         </div>

@@ -19,6 +19,7 @@ export interface AuthState {
   isAuthenticated: boolean;
   loadingState: LoadingState;
   error: string | null;
+  currentUserRequestId: string | null;
 }
 
 type AuthUser = NonNullable<AuthState['user']>;
@@ -100,6 +101,7 @@ const initialState: AuthState = {
   isAuthenticated: !!token,
   loadingState: 'idle',
   error: null,
+  currentUserRequestId: null,
 };
 
 // 异步 thunk：获取当前用户信息
@@ -115,8 +117,6 @@ export const fetchCurrentUser = createAsyncThunk(
         role: userInfo.role,
       };
     } catch {
-      // 获取用户信息失败，清除 token
-      authTokenStorage.clear();
       return rejectWithValue('获取用户信息失败');
     }
   }
@@ -140,6 +140,7 @@ const authSlice = createSlice({
       state.isAuthenticated = true;
       state.loadingState = 'success';
       state.error = null;
+      state.currentUserRequestId = null;
       authTokenStorage.set(token);
       saveUserToCache(user);
     },
@@ -151,6 +152,7 @@ const authSlice = createSlice({
       state.isAuthenticated = false;
       state.loadingState = 'idle';
       state.error = null;
+      state.currentUserRequestId = null;
       authTokenStorage.clear();
       saveUserToCache(null);
     },
@@ -193,22 +195,30 @@ const authSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchCurrentUser.pending, (state) => {
+      .addCase(fetchCurrentUser.pending, (state, action) => {
         state.loadingState = 'loading';
+        state.currentUserRequestId = action.meta.requestId;
       })
       .addCase(fetchCurrentUser.fulfilled, (state, action) => {
+        if (state.currentUserRequestId !== action.meta.requestId || !state.token) return;
+
         state.user = action.payload;
         state.isAuthenticated = true;
         state.loadingState = 'success';
         state.error = null;
+        state.currentUserRequestId = null;
         saveUserToCache(action.payload);
       })
-      .addCase(fetchCurrentUser.rejected, (state) => {
+      .addCase(fetchCurrentUser.rejected, (state, action) => {
+        if (state.currentUserRequestId !== action.meta.requestId) return;
+
         state.token = null;
         state.user = null;
         state.isAuthenticated = false;
         state.loadingState = 'error';
         state.error = null;
+        state.currentUserRequestId = null;
+        authTokenStorage.clear();
         saveUserToCache(null);
       });
   },

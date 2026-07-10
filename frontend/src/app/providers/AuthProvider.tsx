@@ -16,16 +16,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const user = useAppSelector(selectCurrentUser);
   const loadingState = useAppSelector(selectAuthLoadingState);
   const fetchStarted = useRef(false);
-  const refreshStarted = useRef(false);
+  const sessionRestoreStarted = useRef(false);
+  const sessionRestoreCancelled = useRef(false);
+  const initialAuthenticationState = useRef(isAuthenticated);
 
   useEffect(() => {
-    if (!isAuthenticated && !refreshStarted.current) {
-      refreshStarted.current = true;
+    // 会话恢复只属于应用初始化。主动退出后的未认证状态不能再次触发 refresh。
+    if (!sessionRestoreStarted.current) {
+      sessionRestoreStarted.current = true;
+      if (isAuthenticated) return;
+
       void refreshAccessToken().then((token) => {
-        if (token) {
+        if (token && !sessionRestoreCancelled.current) {
           dispatch(refreshToken(token));
         }
       });
+      return;
+    }
+
+    // 初始化恢复进行期间若认证状态已被登录/退出操作改变，忽略迟到的恢复结果。
+    if (isAuthenticated !== initialAuthenticationState.current) {
+      sessionRestoreCancelled.current = true;
     }
   }, [dispatch, isAuthenticated]);
 

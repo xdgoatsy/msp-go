@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/Button';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { cn } from '@/libs/utils/cn';
-import { LogOut, User, Users } from 'lucide-react';
+import { Loader2, LogOut, User, Users } from 'lucide-react';
 import { selectIsAuthenticated, selectCurrentUser } from '@/modules/auth/store/authSlice';
 import { getNavItemsByRole } from '@/modules/auth/constants/navigationConfig';
 import { useAuth } from '@/modules/auth/hooks/useAuth';
@@ -29,7 +29,7 @@ export const Header: React.FC<HeaderProps> = ({ variant = 'default', onLoginClic
   const location = useLocation();
   const isAuthenticated = useAppSelector(selectIsAuthenticated);
   const user = useAppSelector(selectCurrentUser);
-  const { handleLogin, handleRegister, handleLogout } = useAuth();
+  const { handleLogin, handleRegister, handleLogout, isLoggingOut } = useAuth();
 
   // 真正的登录状态：token 存在且 user 信息已加载
   const isLoggedIn = isAuthenticated && user !== null;
@@ -156,10 +156,16 @@ export const Header: React.FC<HeaderProps> = ({ variant = 'default', onLoginClic
                   </Link>
                   <button
                     onClick={handleLogout}
+                    type="button"
+                    disabled={isLoggingOut}
                     className="w-full px-4 py-2 text-left text-sm text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-700 flex items-center"
                   >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    退出登录
+                    {isLoggingOut ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <LogOut className="w-4 h-4 mr-2" />
+                    )}
+                    {isLoggingOut ? '退出中...' : '退出登录'}
                   </button>
                 </div>
               </div>

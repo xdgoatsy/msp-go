@@ -1,7 +1,8 @@
-import { useCallback } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import { logout } from '@/modules/auth/store/authSlice';
+import { authService } from '@/modules/auth/services/authService';
 
 /**
  * useAuth Hook
@@ -12,9 +13,11 @@ import { logout } from '@/modules/auth/store/authSlice';
  * - 单一职责: 只处理认证相关逻辑
  * - DRY: 避免在多个组件中重复认证逻辑
  */
-export const useAuth = () => {
+export const useAuth = (logoutRedirect = '/welcome') => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const logoutInProgress = useRef(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   /**
    * 处理登录
@@ -45,14 +48,29 @@ export const useAuth = () => {
   /**
    * 处理登出
    */
-  const handleLogout = useCallback(() => {
-    dispatch(logout());
-    navigate('/');
-  }, [dispatch, navigate]);
+  const handleLogout = useCallback(async () => {
+    if (logoutInProgress.current) return;
+
+    logoutInProgress.current = true;
+    setIsLoggingOut(true);
+
+    try {
+      // 先撤销服务端 refresh session 并清除 HttpOnly Cookie，再落定本地退出状态。
+      await authService.logout();
+    } catch {
+      // 服务端不可用时仍必须完成本地退出，避免界面滞留在认证态。
+    } finally {
+      dispatch(logout());
+      logoutInProgress.current = false;
+      setIsLoggingOut(false);
+      navigate(logoutRedirect, { replace: true });
+    }
+  }, [dispatch, logoutRedirect, navigate]);
 
   return {
     handleLogin,
     handleRegister,
-    handleLogout
+    handleLogout,
+    isLoggingOut,
   };
 };

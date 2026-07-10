@@ -7,14 +7,16 @@ const apiClientMock = vi.hoisted(() => ({
   put: vi.fn(),
 }));
 
+const authTokenStorageMock = vi.hoisted(() => ({
+  clear: vi.fn(),
+}));
+
 vi.mock('@/libs/http/apiClient', () => ({
   apiClient: apiClientMock,
 }));
 
 vi.mock('@/libs/auth/tokenStorage', () => ({
-  authTokenStorage: {
-    clear: vi.fn(),
-  },
+  authTokenStorage: authTokenStorageMock,
 }));
 
 describe('authService account profile', () => {
@@ -33,5 +35,21 @@ describe('authService account profile', () => {
 
     await expect(authService.getCurrentUser()).resolves.toEqual(account);
     expect(apiClientMock.get).toHaveBeenCalledWith('/auth/me');
+  });
+
+  it('revokes the server session before clearing the local token', async () => {
+    apiClientMock.post.mockResolvedValue({ data: { message: '登出成功' } });
+
+    await authService.logout();
+
+    expect(apiClientMock.post).toHaveBeenCalledWith('/auth/logout');
+    expect(authTokenStorageMock.clear).toHaveBeenCalledOnce();
+  });
+
+  it('still clears the local token when the logout request fails', async () => {
+    apiClientMock.post.mockRejectedValue(new Error('network unavailable'));
+
+    await expect(authService.logout()).resolves.toBeUndefined();
+    expect(authTokenStorageMock.clear).toHaveBeenCalledOnce();
   });
 });
