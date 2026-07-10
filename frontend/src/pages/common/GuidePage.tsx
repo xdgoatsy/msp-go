@@ -13,7 +13,6 @@ import {
   FileQuestion,
   GraduationCap,
   Users,
-  ClipboardList,
   Library,
   TrendingUp,
   AlertTriangle,
@@ -96,19 +95,14 @@ const teacherFeatures: FeatureItem[] = [
     description: '创建、编辑和管理题目，支持 LaTeX 公式编辑。可按知识点、难度、题型分类组织题目，支持批量导入导出。',
   },
   {
-    icon: ClipboardList,
-    title: '作业布置',
-    description: '灵活布置作业，可从题库选题或自定义题目。支持设置截止时间、允许迟交、限制答题次数等选项，自动批改客观题。',
-  },
-  {
     icon: AlertTriangle,
     title: '学情预警',
-    description: '系统自动监测学生学习状态，对连续缺勤、成绩下滑、作业未交等情况发出预警，帮助教师及时干预和辅导。',
+    description: '系统自动监测学生学习状态，对连续低活跃、成绩下滑等情况发出预警，帮助教师及时干预和辅导。',
   },
   {
     icon: BarChart3,
     title: '教学分析',
-    description: '查看班级整体的学习数据分析，包括知识点掌握分布、作业完成率、测验成绩趋势等，为教学决策提供数据支持。',
+    description: '查看班级整体的学习数据分析，包括知识点掌握分布、练习参与率和成绩趋势等，为教学决策提供数据支持。',
   },
   {
     icon: FolderOpen,
@@ -138,8 +132,7 @@ const teacherQuickStart: QuickStartStep[] = [
   { step: 2, content: '进入「教师工作台」查看整体教学数据和待处理事项。' },
   { step: 3, content: '在「班级管理」中创建班级或导入学生名单，建立教学班级。' },
   { step: 4, content: '使用「题库管理」添加题目，可手动创建或批量导入。' },
-  { step: 5, content: '通过「作业布置」向班级发布作业，设置截止时间和要求。' },
-  { step: 6, content: '查看「学情预警」关注需要帮助的学生，及时进行辅导干预。' },
+  { step: 5, content: '查看「学情预警」关注需要帮助的学生，及时进行辅导干预。' },
 ];
 
 // 学生端使用技巧
@@ -155,7 +148,6 @@ const studentTips = [
 const teacherTips = [
   '批量导入学生时，使用 Excel 模板可以快速完成',
   '题目支持设置多个知识点标签，方便后续按知识点组卷',
-  '作业可以设置「允许迟交」，迟交作业会单独标记',
   '学情预警支持自定义规则，可根据班级情况调整阈值',
   '教学资源可以设置「仅本班可见」或「全平台共享」',
 ];

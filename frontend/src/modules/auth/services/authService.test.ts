@@ -5,8 +5,6 @@ const apiClientMock = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
-  patch: vi.fn(),
-  delete: vi.fn(),
 }));
 
 vi.mock('@/libs/http/apiClient', () => ({
@@ -19,16 +17,21 @@ vi.mock('@/libs/auth/tokenStorage', () => ({
   },
 }));
 
-describe('authService email verification boundary', () => {
+describe('authService account profile', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('rejects bindEmail locally while the backend route is unavailable', async () => {
-    await expect(authService.bindEmail('alice@example.com')).rejects.toThrow('邮箱绑定与验证功能暂未接入');
+  it('returns the registered email from the current-user response', async () => {
+    const account = {
+      id: 'user-1',
+      username: 'alice',
+      email: 'alice@example.com',
+      role: 'student' as const,
+    };
+    apiClientMock.get.mockResolvedValue({ data: account });
 
-    expect(apiClientMock.post).not.toHaveBeenCalled();
-    expect(apiClientMock.get).not.toHaveBeenCalled();
+    await expect(authService.getCurrentUser()).resolves.toEqual(account);
+    expect(apiClientMock.get).toHaveBeenCalledWith('/auth/me');
   });
-
 });

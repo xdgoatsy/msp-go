@@ -8,14 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { User, Phone, Mail, School, Lock, ArrowLeft, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { User, Mail, School, Lock, ArrowLeft, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { getApiErrorMessage } from '@/libs/http/apiClient';
 import { passwordChangeSchema, type PasswordChangeFormData } from '@/libs/validation/schemas';
 import { authService } from '@/modules/auth/services/authService';
 import { xidianService, type XidianBindingStatus, type XidianCaptchaChallenge } from '@/modules/xidian/services/xidianService';
 import { clearCredential } from '@/modules/xidian';
-
-const EMAIL_VERIFICATION_UNAVAILABLE = '邮箱绑定与验证功能暂未接入';
 
 export const ProfilePage: React.FC = () => {
   const user = useAppSelector(selectCurrentUser);
@@ -35,11 +33,6 @@ export const ProfilePage: React.FC = () => {
   const [bindingSubmitting, setBindingSubmitting] = useState(false);
   const [xidianActionStatus, setXidianActionStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [syncingType, setSyncingType] = useState<'classtable' | 'exams' | 'scores' | null>(null);
-  const [emailBindModalOpen, setEmailBindModalOpen] = useState(false);
-  const [emailBindValue, setEmailBindValue] = useState('');
-  const [emailBindSubmitting, setEmailBindSubmitting] = useState(false);
-  const [emailBindError, setEmailBindError] = useState<string | null>(null);
-  const [emailActionStatus, setEmailActionStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const {
     register,
@@ -197,39 +190,6 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
-  const isEmailBound = Boolean(user?.email && user.email_verified);
-
-  const handleOpenEmailBind = () => {
-    setEmailBindModalOpen(true);
-    setEmailBindValue(isEmailBound ? '' : (user?.email || ''));
-    setEmailBindError(null);
-    setEmailActionStatus(null);
-  };
-
-  const handleSendEmailCode = async () => {
-    const email = emailBindValue.trim();
-    if (!email) {
-      setEmailBindError('请输入邮箱地址');
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setEmailBindError('请输入有效的邮箱格式');
-      return;
-    }
-    setEmailBindSubmitting(true);
-    setEmailBindError(null);
-    try {
-      await authService.bindEmail(email);
-    } catch (err: unknown) {
-      setEmailActionStatus({
-        type: 'error',
-        message: getApiErrorMessage(err, EMAIL_VERIFICATION_UNAVAILABLE),
-      });
-    } finally {
-      setEmailBindSubmitting(false);
-    }
-  };
-
   const isXidianBound = xidianStatus?.is_bound;
   const lastSyncText = xidianStatus?.last_sync_at
     ? new Date(xidianStatus.last_sync_at).toLocaleString()
@@ -282,82 +242,24 @@ export const ProfilePage: React.FC = () => {
               <Lock className="w-5 h-5" />
               账号安全与绑定
             </CardTitle>
-            <CardDescription>管理您的手机号、邮箱及学校账户绑定</CardDescription>
+            <CardDescription>查看注册邮箱并管理学校账户绑定</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* Phone */}
-            <div className="flex items-center justify-between p-4 border border-surface-200 dark:border-surface-700 rounded-lg bg-surface-50/50 dark:bg-surface-800/50 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors">
-                <div className="flex items-center gap-4">
-                    <div className="p-2.5 bg-white dark:bg-surface-700 rounded-full border border-surface-200 dark:border-surface-600 text-surface-600 dark:text-surface-400">
-                        <Phone className="w-5 h-5" />
-                    </div>
-                    <div>
-                        <p className="font-medium text-surface-900 dark:text-surface-100">手机号码</p>
-                        <p className="text-sm text-surface-500 dark:text-surface-400">未绑定</p>
-                    </div>
-                </div>
-                <Button variant="outline" size="sm">绑定</Button>
-            </div>
-
             {/* Email */}
-            <div className="flex items-center justify-between p-4 border border-surface-200 dark:border-surface-700 rounded-lg bg-surface-50/50 dark:bg-surface-800/50 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors">
+            <div
+              aria-label="注册邮箱"
+              className="flex items-center p-4 border border-surface-200 dark:border-surface-700 rounded-lg bg-surface-50/50 dark:bg-surface-800/50"
+            >
               <div className="flex items-center gap-4">
                 <div className="p-2.5 bg-white dark:bg-surface-700 rounded-full border border-surface-200 dark:border-surface-600 text-surface-600 dark:text-surface-400">
                   <Mail className="w-5 h-5" />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium text-surface-900 dark:text-surface-100">电子邮箱</p>
-                    {user?.email && (
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          isEmailBound
-                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                            : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                        }`}
-                      >
-                        {isEmailBound ? '已验证' : '未验证'}
-                      </span>
-                    )}
-                  </div>
+                <div>
+                  <p className="font-medium text-surface-900 dark:text-surface-100">注册邮箱</p>
                   <p className="text-sm text-surface-500 dark:text-surface-400">
-                    {(user?.email || isEmailBound) ? (user?.email || '') : '未绑定'}
+                    {user?.email || '未提供'}
                   </p>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {user?.email && !isEmailBound ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setEmailBindValue(user?.email || '');
-                        setEmailBindError(null);
-                        setEmailActionStatus(null);
-                        setEmailBindModalOpen(true);
-                      }}
-                    >
-                      验证
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setEmailBindValue('');
-                        setEmailBindError(null);
-                        setEmailActionStatus(null);
-                        setEmailBindModalOpen(true);
-                      }}
-                    >
-                      换绑
-                    </Button>
-                  </>
-                ) : (
-                  <Button variant="outline" size="sm" onClick={handleOpenEmailBind}>
-                    {isEmailBound ? '换绑' : '绑定'}
-                  </Button>
-                )}
               </div>
             </div>
 
@@ -617,57 +519,6 @@ export const ProfilePage: React.FC = () => {
         </div>
       </Modal>
 
-      <Modal
-        isOpen={emailBindModalOpen}
-        onClose={() => setEmailBindModalOpen(false)}
-        title={isEmailBound ? '换绑邮箱' : '绑定邮箱'}
-        className="max-w-md"
-      >
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-surface-700 dark:text-surface-300">
-              {isEmailBound ? '新邮箱地址' : '邮箱地址'}
-            </label>
-            <Input
-              type="email"
-              placeholder={isEmailBound ? '请输入新的邮箱地址' : '请输入要绑定的邮箱地址'}
-              value={emailBindValue}
-              onChange={(e) => setEmailBindValue(e.target.value)}
-              disabled={emailBindSubmitting}
-            />
-          </div>
-          {emailBindError && (
-            <div className="flex items-center gap-2 rounded-lg bg-red-50 p-3 text-red-700 dark:bg-red-900/20 dark:text-red-400">
-              <XCircle className="h-4 w-4 shrink-0" />
-              <span className="text-sm">{emailBindError}</span>
-            </div>
-          )}
-          {emailActionStatus && (
-            <div
-              className={`flex items-center gap-2 rounded-lg p-3 ${
-                emailActionStatus.type === 'success'
-                  ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
-                  : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400'
-              }`}
-            >
-              {emailActionStatus.type === 'success' ? (
-                <CheckCircle className="h-4 w-4 shrink-0" />
-              ) : (
-                <XCircle className="h-4 w-4 shrink-0" />
-              )}
-              <span className="text-sm">{emailActionStatus.message}</span>
-            </div>
-          )}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setEmailBindModalOpen(false)} disabled={emailBindSubmitting}>
-              取消
-            </Button>
-            <Button onClick={handleSendEmailCode} disabled={emailBindSubmitting}>
-              {emailBindSubmitting ? '处理中...' : '确认'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 };

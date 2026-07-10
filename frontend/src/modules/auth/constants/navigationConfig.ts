@@ -8,7 +8,6 @@ import {
   FolderOpen,
   Users,
   FileText,
-  ClipboardList,
   TrendingUp
 } from 'lucide-react';
 
@@ -46,8 +45,6 @@ export const teacherNavItems: NavItem[] = [
   { label: '班级管理', href: '/teacher/classes', icon: Users },
   { label: '学生管理', href: '/teacher/students', icon: Users },
   { label: '题库管理', href: '/teacher/question-bank', icon: FileText },
-  { label: '作业管理', href: '/teacher/assignments', icon: ClipboardList },
-
   { label: '资源管理', href: '/teacher/resources', icon: FolderOpen },
 ];
 

@@ -22,7 +22,6 @@ describe('authSlice cached user boundary', () => {
         id: 'user-1',
         name: 'Alice',
         email: 'alice@example.com',
-        email_verified: true,
         role: 'teacher',
         avatar: '/uploads/images/avatar.png',
         ignored: 'extra',
@@ -36,7 +35,6 @@ describe('authSlice cached user boundary', () => {
       id: 'user-1',
       name: 'Alice',
       email: 'alice@example.com',
-      email_verified: true,
       role: 'teacher',
       avatar: '/uploads/images/avatar.png',
     });

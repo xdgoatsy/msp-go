@@ -60,11 +60,8 @@ export interface UserInfo {
   id: string;
   username: string;
   email: string;
-  email_verified?: boolean;
   role: 'student' | 'teacher' | 'admin';
 }
-
-const EMAIL_VERIFICATION_UNAVAILABLE = '邮箱绑定与验证功能暂未接入';
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
@@ -111,11 +108,6 @@ export const authService = {
   async getCurrentUser(): Promise<UserInfo> {
     const response = await apiClient.get<UserInfo>('/auth/me');
     return response.data;
-  },
-
-  async bindEmail(email: string): Promise<{ message: string }> {
-    void email;
-    throw new Error(EMAIL_VERIFICATION_UNAVAILABLE);
   },
 };
 

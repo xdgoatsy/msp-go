@@ -164,18 +164,6 @@ export interface Course {
   studentCount: number;
 }
 
-// 作业
-export interface Assignment {
-  id: string;
-  courseId: string;
-  title: string;
-  description?: string;
-  exerciseIds: string[];
-  dueDate?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 // 班级
 export interface Class {
   id: string;

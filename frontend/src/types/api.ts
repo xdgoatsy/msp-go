@@ -11,7 +11,6 @@ import type {
   DiagnosisReport,
   LearningPath,
   Course,
-  Assignment,
   Class,
 } from './models';
 import type { PaginationParams, PaginationResponse } from './common';
@@ -104,20 +103,6 @@ export type LearningPathResponse = LearningPath;
 export type CourseListResponse = PaginationResponse<Course>;
 
 export type CourseDetailResponse = Course;
-
-// ==================== 作业相关 ====================
-
-export interface AssignmentCreateRequest {
-  courseId: string;
-  title: string;
-  description?: string;
-  exerciseIds: string[];
-  dueDate?: string;
-}
-
-export type AssignmentCreateResponse = Assignment;
-
-export type AssignmentListResponse = PaginationResponse<Assignment>;
 
 // ==================== 班级相关 ====================
 

@@ -6,7 +6,6 @@ const TeacherDashboardPage = lazy(() => import('@/pages/teacher/TeacherDashboard
 const ClassManagementPage = lazy(() => import('@/pages/teacher/ClassManagementPage').then(m => ({ default: m.ClassManagementPage })));
 const QuestionBankPage = lazy(() => import('@/pages/teacher/QuestionBankPage').then(m => ({ default: m.QuestionBankPage })));
 const QuestionEditPage = lazy(() => import('@/pages/teacher/QuestionEditPage').then(m => ({ default: m.QuestionEditPage })));
-const AssignmentsPage = lazy(() => import('@/pages/teacher/AssignmentsPage').then(m => ({ default: m.AssignmentsPage })));
 const ClassDetailPage = lazy(() => import('@/pages/teacher/ClassDetailPage').then(m => ({ default: m.ClassDetailPage })));
 const StudentDetailPage = lazy(() => import('@/pages/teacher/StudentDetailPage').then(m => ({ default: m.StudentDetailPage })));
 const StudentsPage = lazy(() => import('@/pages/teacher/StudentsPage').then(m => ({ default: m.StudentsPage })));
@@ -23,7 +22,6 @@ export const teacherRoutes: RouteConfig[] = [
   { path: '/teacher/question-bank', component: QuestionBankPage, title: '题库管理', protected: true, requiredRole: 'teacher' },
   { path: '/teacher/question/new', component: QuestionEditPage, title: '新建题目', protected: true, requiredRole: 'teacher' },
   { path: '/teacher/question/:id/edit', component: QuestionEditPage, title: '编辑题目', protected: true, requiredRole: 'teacher' },
-  { path: '/teacher/assignments', component: AssignmentsPage, title: '作业管理', protected: true, requiredRole: 'teacher' },
   { path: '/teacher/resources', component: TeacherResourcesPage, title: '教学资源', protected: true, requiredRole: 'teacher' },
   { path: '/teacher/class/:id', component: ClassDetailPage, title: '班级详情', protected: true, requiredRole: 'teacher' },
   { path: '/teacher/student/:id', component: StudentDetailPage, title: '学生详情', protected: true, requiredRole: 'teacher' },

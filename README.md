@@ -165,7 +165,6 @@ MathStudyPlatform/
 | 学生管理 | `/teacher/students` | 查看学生学习情况 |
 | 班级管理 | `/teacher/classes` | 创建班级、查看详情、移除学生 |
 | 题库管理 | `/teacher/question-bank` | 创建和管理题目 |
-| 作业管理 | `/teacher/assignments` | 布置和批改作业 |
 | 教学分析 | `/teacher/analytics` | 班级学习数据分析 |
 | 教学资源 | `/teacher/resources` | 教学资料管理 |
 

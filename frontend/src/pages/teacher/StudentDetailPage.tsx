@@ -11,7 +11,6 @@ import {
   Calendar,
   Clock,
   Target,
-  BookOpen,
   TrendingUp,
   TrendingDown,
   AlertCircle,
@@ -381,22 +380,6 @@ export const StudentDetailPage: React.FC = () => {
               </CardContent>
             </Card>
 
-            {/* 快捷操作 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">快捷操作</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-start">
-                  <BookOpen className="h-4 w-4 mr-2" />
-                  布置专项作业
-                </Button>
-                <Button variant="outline" className="w-full justify-start">
-                  <Target className="h-4 w-4 mr-2" />
-                  生成学习计划
-                </Button>
-              </CardContent>
-            </Card>
           </div>
         </div>
       </div>

@@ -186,7 +186,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
               账号创建成功
             </h3>
             <p className="text-sm text-surface-500 dark:text-surface-400">
-              邮箱 {registeredEmail} 已保存，邮箱验证功能暂未接入。
+              邮箱 {registeredEmail} 已保存，可以直接登录。
             </p>
           </div>
         </div>
@@ -271,7 +271,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSwitchToLogin }) =
             {...register('email')}
           />
           <p className="text-xs text-surface-500 dark:text-surface-400 -mt-1">
-            用于账号联系与后续找回；邮箱验证功能暂未接入
+            用于账号联系与密码找回
           </p>
         </div>
 

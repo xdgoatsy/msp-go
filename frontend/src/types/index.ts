@@ -28,7 +28,6 @@ export type {
   LearningPath,
   LearningPathNode,
   Course,
-  Assignment,
   Class,
 } from './models';
 
@@ -53,9 +52,6 @@ export type {
   LearningPathResponse,
   CourseListResponse,
   CourseDetailResponse,
-  AssignmentCreateRequest,
-  AssignmentCreateResponse,
-  AssignmentListResponse,
   ClassListResponse,
   ClassDetailResponse,
 } from './api';

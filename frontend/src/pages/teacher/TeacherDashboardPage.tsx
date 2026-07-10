@@ -101,9 +101,6 @@ export const TeacherDashboardPage: React.FC = () => {
               <Download className="w-4 h-4 mr-2" />
               导出报告
             </Button>
-            <Link to="/teacher/assignments">
-              <Button size="sm">发布新作业</Button>
-            </Link>
           </div>
         </div>
 
@@ -332,12 +329,6 @@ export const TeacherDashboardPage: React.FC = () => {
                     <Button variant="outline" className="w-full justify-start">
                       <BarChart3 className="w-4 h-4 mr-2" />
                       学生管理
-                    </Button>
-                  </Link>
-                  <Link to="/teacher/assignments" className="block">
-                    <Button variant="outline" className="w-full justify-start">
-                      <ClipboardList className="w-4 h-4 mr-2" />
-                      作业管理
                     </Button>
                   </Link>
                 </CardContent>

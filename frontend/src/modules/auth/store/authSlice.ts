@@ -13,7 +13,6 @@ export interface AuthState {
     id: string;
     name: string;
     email?: string;
-    email_verified?: boolean;
     role: 'student' | 'teacher' | 'admin';
     avatar?: string;
   } | null;
@@ -48,9 +47,6 @@ function normalizeCachedUser(value: unknown): AuthState['user'] {
   };
   if (typeof value.email === 'string') {
     user.email = value.email;
-  }
-  if (typeof value.email_verified === 'boolean') {
-    user.email_verified = value.email_verified;
   }
   if (typeof value.avatar === 'string') {
     user.avatar = value.avatar;
@@ -116,7 +112,6 @@ export const fetchCurrentUser = createAsyncThunk(
         id: userInfo.id,
         name: userInfo.username,
         email: userInfo.email,
-        email_verified: userInfo.email_verified,
         role: userInfo.role,
       };
     } catch {
