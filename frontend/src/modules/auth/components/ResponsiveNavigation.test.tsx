@@ -95,6 +95,13 @@ describe('ResponsiveNavigation', () => {
     vi.restoreAllMocks();
   });
 
+  it('centers the desktop navigation within the available header space', () => {
+    renderNavigation();
+
+    expect(screen.getByRole('navigation', { name: '主导航' }).parentElement)
+      .toHaveClass('justify-center');
+  });
+
   it('keeps all items visible when they fit and moves trailing items into overflow when narrowed', () => {
     const resize = renderNavigation('/resources');
 

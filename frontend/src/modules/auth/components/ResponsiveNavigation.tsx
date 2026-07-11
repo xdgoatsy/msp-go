@@ -284,7 +284,7 @@ export const ResponsiveNavigation: React.FC<ResponsiveNavigationProps> = ({ item
   const overflowItems = items.slice(clampedVisibleItemCount);
 
   return (
-    <div ref={containerRef} className="relative hidden min-w-0 flex-1 items-center justify-end md:flex">
+    <div ref={containerRef} className="relative hidden min-w-0 flex-1 items-center justify-center md:flex">
       <nav aria-label="主导航" className="flex min-w-0 items-center gap-1">
         {visibleItems.map((item) => (
           <NavigationItemLink
