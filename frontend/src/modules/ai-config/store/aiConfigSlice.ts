@@ -547,40 +547,22 @@ type StateWithAIConfig = { aiConfig?: AIConfigState };
 // 提供商
 export const selectProviders = (state: StateWithAIConfig) =>
   state.aiConfig?.providers ?? [];
-/** @deprecated 使用 '@/store/selectors/aiConfigSelectors' 中的记忆化版本 */
-export const selectActiveProviders = (state: StateWithAIConfig) =>
-  (state.aiConfig?.providers ?? []).filter((p) => p.is_active);
 export const selectProvidersLoading = (state: StateWithAIConfig) =>
   state.aiConfig?.providersLoading ?? 'idle';
 export const selectProvidersError = (state: StateWithAIConfig) =>
   state.aiConfig?.providersError ?? null;
 export const selectSelectedProviderId = (state: StateWithAIConfig) =>
   state.aiConfig?.selectedProviderId ?? null;
-/** @deprecated 使用 '@/store/selectors/aiConfigSelectors' 中的记忆化版本 */
-export const selectSelectedProvider = (state: StateWithAIConfig) =>
-  (state.aiConfig?.providers ?? []).find((p) => p.id === state.aiConfig?.selectedProviderId) || null;
 
 // 模型
 export const selectModels = (state: StateWithAIConfig) =>
   state.aiConfig?.models ?? [];
-/** @deprecated 使用 '@/store/selectors/aiConfigSelectors' 中的记忆化版本 */
-export const selectActiveModels = (state: StateWithAIConfig) =>
-  (state.aiConfig?.models ?? []).filter((m) => m.is_active);
-/** @deprecated 使用 '@/store/selectors/aiConfigSelectors' 中的记忆化版本 */
-export const selectModelsByProvider = (providerId: string) => (state: StateWithAIConfig) =>
-  (state.aiConfig?.models ?? []).filter((m) => m.provider_id === providerId);
 export const selectModelsLoading = (state: StateWithAIConfig) =>
   state.aiConfig?.modelsLoading ?? 'idle';
 export const selectModelsError = (state: StateWithAIConfig) =>
   state.aiConfig?.modelsError ?? null;
 export const selectSelectedModelId = (state: StateWithAIConfig) =>
   state.aiConfig?.selectedModelId ?? null;
-/** @deprecated 使用 '@/store/selectors/aiConfigSelectors' 中的记忆化版本 */
-export const selectSelectedModel = (state: StateWithAIConfig) =>
-  (state.aiConfig?.models ?? []).find((m) => m.id === state.aiConfig?.selectedModelId) || null;
-/** @deprecated 使用 '@/store/selectors/aiConfigSelectors' 中的记忆化版本 */
-export const selectDefaultModel = (state: StateWithAIConfig) =>
-  (state.aiConfig?.models ?? []).find((m) => m.is_default) || null;
 
 // 智能体配置
 export const selectAgentConfigs = (state: StateWithAIConfig) =>

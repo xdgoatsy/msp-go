@@ -32,18 +32,13 @@ import {
   clearAgentConfigsError,
   // Selectors
   selectProviders,
-  selectActiveProviders,
   selectProvidersLoading,
   selectProvidersError,
   selectSelectedProviderId,
-  selectSelectedProvider,
   selectModels,
-  selectActiveModels,
   selectModelsLoading,
   selectModelsError,
   selectSelectedModelId,
-  selectSelectedModel,
-  selectDefaultModel,
   selectAgentConfigs,
   selectAgentTypes,
   selectAgentConfigsLoading,
@@ -52,6 +47,13 @@ import {
   selectTestResult,
   selectTestLoading,
 } from '@/modules/ai-config/store/aiConfigSlice';
+import {
+  selectActiveModels,
+  selectActiveProviders,
+  selectDefaultModel,
+  selectSelectedModel,
+  selectSelectedProvider,
+} from '@/store/selectors/aiConfigSelectors';
 import { aiConfigService } from '@/modules/ai-config/services/aiConfigService';
 import type {
   CreateProviderRequest,
