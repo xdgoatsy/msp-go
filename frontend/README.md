@@ -1,87 +1,40 @@
-# 高等数学智能学习平台 - 前端
+# MathStudyPlatform Frontend
 
-React + TypeScript 前端应用，提供学生、教师、管理员三种角色的 Web 界面。
+React 19 + TypeScript 5.9 + Vite 7 前端应用，按学生、教师、管理员和公共页面划分路由，业务能力集中在 `src/modules/`。
 
-## 技术栈
-
-- **框架**: React 19 + TypeScript
-- **状态管理**: Redux Toolkit
-- **路由**: React Router v7
-- **样式**: TailwindCSS v4
-- **动画**: Framer Motion
-- **数学渲染**: KaTeX
-- **图表**: ECharts + AntV G6
-- **表单**: React Hook Form + Zod
-- **HTTP**: Axios
-
-## 快速开始
+## 常用命令
 
 ```bash
-# 安装依赖
 npm install
-
-# 启动开发服务器
 npm run dev
-
-# 生产构建
-npm run build
-
-# 预览构建产物
-npm run preview
-
-# 代码检查
+npm test
+npm run test:coverage
 npm run lint
+npm run build
+npm run preview
 ```
 
-开发服务器默认运行在 http://localhost:5173
+本地开发服务器默认为 `http://localhost:5173`，API 请求通过 Vite 或 Nginx 配置转发到 Go 后端。
 
-## 目录结构
+## 目录约定
 
-```
+```text
 src/
-├── main.tsx              # 应用入口
-├── App.tsx               # 根组件 (路由 + Provider)
-├── pages/                # 页面组件
-│   ├── common/           # 公共页面
-│   ├── student/          # 学生页面
-│   ├── teacher/          # 教师页面
-│   └── admin/            # 管理员页面
-├── components/           # 通用组件
-│   ├── layout/           # 布局组件
-│   ├── ui/               # 基础 UI 组件
-│   └── charts/           # 图表组件
-├── modules/              # 业务功能模块
-├── store/                # Redux 状态管理
-├── app/                  # 应用层（Provider、路由）
-├── libs/                 # 工具库
-├── hooks/                # 自定义 Hooks
-├── types/                # TypeScript 类型
-└── app/routes/           # 路由配置
+├── app/          # Provider 和路由装配
+├── pages/        # 按角色分组的薄页面组件
+├── modules/      # 业务模块、服务、Hooks、状态和组件
+├── components/   # 跨业务通用组件
+├── store/        # Redux Toolkit 根 Store
+├── libs/         # HTTP、数学渲染、验证和导出等基础能力
+├── hooks/        # 跨模块 Hooks
+└── types/        # 公共类型
 ```
 
-## 主要功能
-
-### 学生端
-- 课程总览、智能刷题、AI 学习会话
-- 错题本、知识图谱、学习路径
-- 学习分析、测验、学习资源
-
-### 教师端
-- 教师仪表盘、学生管理
-- 题库管理、教学分析、资源管理
-
-### 管理员端
-- 管理控制台、账户管理
-- AI 模型配置、系统设置
-
-## 开发规范
-
-- TypeScript 严格模式，禁止隐式 any
-- 使用函数式组件 + Hooks
-- 样式使用 TailwindCSS + `cn()` 工具函数
-- 状态管理使用 `useAppDispatch` / `useAppSelector`
+模块对外接口由各自 `index.ts` 暴露；页面负责组合和布局，业务逻辑放在模块 Hook 或 Service 中；新增代码不再添加旧路径兼容重导出。
 
 ## 相关文档
 
-- [模块详细文档](./CLAUDE.md)
-- [后端 Python 到 Go 重构迁移文档](../docs/backend-python-to-go-refactor.md)
+- [系统架构](../docs/technical/architecture.md)
+- [开发指南](../docs/technical/development.md)
+- [项目待办](../docs/TODO.md)
+- [历史前端架构说明](../docs/archive/architecture/frontend-architecture.md)

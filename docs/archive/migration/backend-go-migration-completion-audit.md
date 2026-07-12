@@ -1,5 +1,7 @@
 # Backend Go Migration Cleanup Audit
 
+> Archive note: this is a point-in-time cleanup audit. Current work is tracked in [项目待办](../../TODO.md), while migration phase evidence remains in [后端迁移跟踪](../../backend-python-to-go-refactor.md).
+
 **Audit date**: 2026-05-07  
 **Capability recheck**: 2026-07-10
 **Status**: CLEANUP COMPLETE, USER-OWNED RUNTIME VALIDATION

@@ -1,5 +1,7 @@
 # 前端架构文档
 
+> 归档说明：本文记录旧版前端架构约定，仅用于追溯。当前说明见 [系统架构](../../technical/architecture.md) 和 [开发指南](../../technical/development.md)。
+
 ## 概述
 
 MathStudyPlatform 前端采用 **Feature-First 模块化架构**，基于 React 19 + TypeScript 5.9 + Vite 7.2 构建。
