@@ -24,14 +24,11 @@ export default defineConfig({
         manualChunks: {
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-redux': ['@reduxjs/toolkit', 'react-redux'],
-          'vendor-echarts': ['echarts', 'echarts-for-react'],
-          'vendor-g6': ['@antv/g6'],
-          'vendor-math': ['katex', 'rehype-katex', 'remark-math', 'remark-gfm', 'react-markdown'],
           'vendor-motion': ['framer-motion'],
           'vendor-form': ['react-hook-form', '@hookform/resolvers', 'zod'],
           'vendor-http': ['axios'],
-          'vendor-utils': ['date-fns', 'clsx', 'tailwind-merge'],
-          'vendor-mammoth': ['mammoth'],
+          'vendor-date': ['date-fns'],
+          'vendor-style-utils': ['clsx', 'tailwind-merge'],
         },
         // 优化文件命名策略
         chunkFileNames: 'assets/[name]-[hash].js',

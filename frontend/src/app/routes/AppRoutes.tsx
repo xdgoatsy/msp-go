@@ -2,7 +2,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAppSelector } from '@/store';
 import { AnimatePresence } from 'framer-motion';
 import { selectIsAuthenticated, selectCurrentUser } from '@/modules/auth/store/authSlice';
-import { ProtectedRoute } from '@/modules/auth';
+import { ProtectedRoute } from '@/modules/auth/components/ProtectedRoute';
 import { routes, notFoundRoute } from './index';
 
 /**

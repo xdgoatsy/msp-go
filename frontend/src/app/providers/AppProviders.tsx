@@ -4,7 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { store } from '@/store';
 import { ToastProvider } from '@/components/ui/Toast';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { XidianReauthProvider } from '@/modules/xidian';
+import { XidianReauthProvider } from '@/modules/xidian/components/XidianReauthProvider';
 import ScrollToTop from '@/components/ScrollToTop';
 import LoadingFallback from '@/components/LoadingFallback';
 import { ThemeProvider } from './ThemeProvider';
