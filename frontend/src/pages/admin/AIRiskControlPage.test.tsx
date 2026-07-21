@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { AIRiskControlPage } from './AIRiskControlPage';
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   listStudents: vi.fn(),
   updateStudentAccess: vi.fn(),
   listEvents: vi.fn(),
+  listAgentTypes: vi.fn(),
 }));
 
 vi.mock('@/modules/admin/components/AdminLayout', () => ({
@@ -19,6 +21,30 @@ vi.mock('@/modules/admin/components/AdminLayout', () => ({
 vi.mock('@/modules/admin/services/aiRiskService', () => ({
   aiRiskService: mocks,
 }));
+
+vi.mock('@/modules/ai-config/services/aiConfigService', () => ({
+  aiConfigService: { listAgentTypes: mocks.listAgentTypes },
+}));
+
+const thresholds = {
+  harassment: 0.98,
+  'harassment/threatening': 0.9,
+  hate: 0.65,
+  'hate/threatening': 0.65,
+  illicit: 0.95,
+  'illicit/violent': 0.95,
+  'self-harm': 0.65,
+  'self-harm/intent': 0.85,
+  'self-harm/instructions': 0.65,
+  sexual: 0.65,
+  'sexual/minors': 0.65,
+  violence: 0.95,
+  'violence/graphic': 0.95,
+};
+
+function renderPage() {
+  return render(<MemoryRouter><AIRiskControlPage /></MemoryRouter>);
+}
 
 describe('AIRiskControlPage', () => {
   beforeEach(() => {
@@ -36,6 +62,8 @@ describe('AIRiskControlPage', () => {
       daily_reply_limit: 5,
       max_concurrent_requests: 2,
       blocked_keywords: ['代考'],
+      model_review_enabled: false,
+      model_review_thresholds: thresholds,
       reset_timezone: 'Asia/Shanghai',
       next_reset_at: '2026-07-22T00:00:00+08:00',
     });
@@ -43,6 +71,8 @@ describe('AIRiskControlPage', () => {
       daily_reply_limit: 8,
       max_concurrent_requests: 2,
       blocked_keywords: ['代考'],
+      model_review_enabled: false,
+      model_review_thresholds: thresholds,
       reset_timezone: 'Asia/Shanghai',
       next_reset_at: '2026-07-22T00:00:00+08:00',
     });
@@ -82,6 +112,10 @@ describe('AIRiskControlPage', () => {
         source: 'session_chat',
         matched_rule: '代考',
         content_excerpt: '请帮我代考',
+        review_model: '',
+        risk_score: null,
+        category_scores: {},
+        review_latency_ms: null,
         actor_id: null,
         created_at: '2026-07-21T04:00:00Z',
       }],
@@ -90,11 +124,14 @@ describe('AIRiskControlPage', () => {
       page_size: 20,
       total_pages: 1,
     });
+    mocks.listAgentTypes.mockResolvedValue({
+      items: [{ type: 'content_moderator', name: '内容审核智能体', configured: true }],
+    });
   });
 
   it('edits uniform settings and controls a student', async () => {
     const user = userEvent.setup();
-    render(<AIRiskControlPage />);
+    renderPage();
 
     expect(await screen.findByRole('heading', { name: '风控中心' })).toBeInTheDocument();
     expect(await screen.findByText('12')).toBeInTheDocument();
@@ -115,11 +152,37 @@ describe('AIRiskControlPage', () => {
 
   it('shows risk events', async () => {
     const user = userEvent.setup();
-    render(<AIRiskControlPage />);
+    renderPage();
     await screen.findByRole('heading', { name: '风控中心' });
 
     await user.click(screen.getByRole('tab', { name: '风险事件' }));
     const excerpt = await screen.findByText('请帮我代考');
     expect(within(excerpt.closest('tr')!).getByText('内容拦截')).toBeInTheDocument();
+  });
+
+  it('enables configured model review and saves category thresholds', async () => {
+    const user = userEvent.setup();
+    mocks.updateSettings.mockImplementation(async (request) => ({
+      daily_reply_limit: request.daily_reply_limit,
+      max_concurrent_requests: request.max_concurrent_requests,
+      blocked_keywords: request.blocked_keywords,
+      model_review_enabled: request.model_review_enabled,
+      model_review_thresholds: request.model_review_thresholds,
+      reset_timezone: 'Asia/Shanghai',
+      next_reset_at: '2026-07-22T00:00:00+08:00',
+    }));
+    renderPage();
+
+    expect(await screen.findByText('审核模型已配置')).toBeInTheDocument();
+    await user.click(screen.getByRole('switch', { name: '启用模型内容审查' }));
+    const thresholdInput = screen.getByLabelText('自残风险阈值');
+    await user.clear(thresholdInput);
+    await user.type(thresholdInput, '0.7');
+    await user.click(screen.getByRole('button', { name: '保存策略' }));
+
+    await waitFor(() => expect(mocks.updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      model_review_enabled: true,
+      model_review_thresholds: expect.objectContaining({ 'self-harm': 0.7 }),
+    })));
   });
 });

@@ -7,10 +7,12 @@ import (
 )
 
 const (
-	DailyReplyLimitKey = "student_ai_daily_reply_limit"
-	MaxConcurrencyKey  = "student_ai_max_concurrency"
-	BlockedKeywordsKey = "student_ai_blocked_keywords"
-	ResetTimezone      = "Asia/Shanghai"
+	DailyReplyLimitKey       = "student_ai_daily_reply_limit"
+	MaxConcurrencyKey        = "student_ai_max_concurrency"
+	BlockedKeywordsKey       = "student_ai_blocked_keywords"
+	ModelReviewEnabledKey    = "student_ai_model_review_enabled"
+	ModelReviewThresholdsKey = "student_ai_model_review_thresholds"
+	ResetTimezone            = "Asia/Shanghai"
 )
 
 var (
@@ -35,18 +37,22 @@ func (e Error) Unwrap() error { return e.Kind }
 
 // Settings applies uniformly to every student.
 type Settings struct {
-	DailyReplyLimit       int      `json:"daily_reply_limit"`
-	MaxConcurrentRequests int      `json:"max_concurrent_requests"`
-	BlockedKeywords       []string `json:"blocked_keywords"`
-	ResetTimezone         string   `json:"reset_timezone"`
-	NextResetAt           string   `json:"next_reset_at"`
+	DailyReplyLimit       int                `json:"daily_reply_limit"`
+	MaxConcurrentRequests int                `json:"max_concurrent_requests"`
+	BlockedKeywords       []string           `json:"blocked_keywords"`
+	ModelReviewEnabled    bool               `json:"model_review_enabled"`
+	ModelReviewThresholds map[string]float64 `json:"model_review_thresholds"`
+	ResetTimezone         string             `json:"reset_timezone"`
+	NextResetAt           string             `json:"next_reset_at"`
 }
 
 // UpdateSettingsRequest stores mutable risk-control settings.
 type UpdateSettingsRequest struct {
-	DailyReplyLimit       int      `json:"daily_reply_limit"`
-	MaxConcurrentRequests int      `json:"max_concurrent_requests"`
-	BlockedKeywords       []string `json:"blocked_keywords"`
+	DailyReplyLimit       int                `json:"daily_reply_limit"`
+	MaxConcurrentRequests int                `json:"max_concurrent_requests"`
+	BlockedKeywords       []string           `json:"blocked_keywords"`
+	ModelReviewEnabled    bool               `json:"model_review_enabled"`
+	ModelReviewThresholds map[string]float64 `json:"model_review_thresholds"`
 }
 
 // SettingUpdate is one system setting mutation.
@@ -139,19 +145,23 @@ type StudentAccessMutation struct {
 
 // RiskEvent stores one content or administrator action event.
 type RiskEvent struct {
-	ID              string    `json:"id"`
-	StudentID       *string   `json:"student_id"`
-	StudentUsername string    `json:"student_username"`
-	EventType       string    `json:"event_type"`
-	Severity        string    `json:"severity"`
-	Action          string    `json:"action"`
-	Source          string    `json:"source"`
-	MatchedRule     string    `json:"matched_rule"`
-	ContentExcerpt  string    `json:"content_excerpt"`
-	ContentHash     string    `json:"-"`
-	ActorID         *string   `json:"actor_id"`
-	EventDate       string    `json:"-"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              string             `json:"id"`
+	StudentID       *string            `json:"student_id"`
+	StudentUsername string             `json:"student_username"`
+	EventType       string             `json:"event_type"`
+	Severity        string             `json:"severity"`
+	Action          string             `json:"action"`
+	Source          string             `json:"source"`
+	MatchedRule     string             `json:"matched_rule"`
+	ContentExcerpt  string             `json:"content_excerpt"`
+	ContentHash     string             `json:"-"`
+	ReviewModel     string             `json:"review_model"`
+	RiskScore       *float64           `json:"risk_score"`
+	CategoryScores  map[string]float64 `json:"category_scores"`
+	ReviewLatencyMS *int               `json:"review_latency_ms"`
+	ActorID         *string            `json:"actor_id"`
+	EventDate       string             `json:"-"`
+	CreatedAt       time.Time          `json:"created_at"`
 }
 
 // EventListFilter stores risk event filters.
@@ -186,6 +196,17 @@ type SlotStore interface {
 // Lease releases one acquired AI concurrency slot.
 type Lease interface {
 	Release(context.Context) error
+}
+
+// ModelReviewResult is the normalized result returned by a moderation provider.
+type ModelReviewResult struct {
+	Model          string
+	CategoryScores map[string]float64
+}
+
+// ContentReviewer evaluates student input before the protected AI request runs.
+type ContentReviewer interface {
+	Review(context.Context, string) (ModelReviewResult, error)
 }
 
 // Repository is the persistence surface required by AI risk control.

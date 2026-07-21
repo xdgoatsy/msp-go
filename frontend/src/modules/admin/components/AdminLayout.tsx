@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppSelector } from '@/store';
 import { selectCurrentUser } from '@/modules/auth/store/authSlice';
@@ -29,12 +29,20 @@ interface AdminLayoutProps {
   className?: string;
 }
 
+const desktopSidebarBreakpoint = 768;
+
+function isDesktopViewport(): boolean {
+  return typeof window === 'undefined' || window.innerWidth >= desktopSidebarBreakpoint;
+}
+
 export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = '' }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAppSelector(selectCurrentUser);
   const { handleLogout, isLoggingOut } = useAuth('/admin');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(isDesktopViewport);
+  const [desktopViewport, setDesktopViewport] = useState(isDesktopViewport);
+  const desktopViewportRef = useRef(desktopViewport);
   const [inboxPendingCount, setInboxPendingCount] = useState(0);
 
   const fetchPendingCount = useCallback(async (signal: AbortSignal) => {
@@ -48,6 +56,26 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = 
     }
   }, []);
   useSerialPolling(fetchPendingCount, 60_000);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const desktop = isDesktopViewport();
+      if (desktop !== desktopViewportRef.current) {
+        desktopViewportRef.current = desktop;
+        setDesktopViewport(desktop);
+        setSidebarOpen(desktop);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const navigateFromSidebar = useCallback((path: string) => {
+    navigate(path);
+    if (!isDesktopViewport()) {
+      setSidebarOpen(false);
+    }
+  }, [navigate]);
 
   const menuItems = [
     {
@@ -88,12 +116,24 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = 
     },
   ];
 
+  const mobileSidebarHidden = !desktopViewport && !sidebarOpen;
+
   return (
     <div className={`min-h-screen bg-surface-50 dark:bg-surface-950 flex ${animationCombos.pageEnter} ${className}`}>
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-30 bg-surface-950/40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="关闭管理导航"
+        />
+      )}
       {/* 侧边栏 */}
       <aside
-        className={`fixed left-0 top-0 h-full bg-white dark:bg-surface-900 border-r border-surface-200 dark:border-surface-800 transition-all duration-300 z-40 ${
-          sidebarOpen ? 'w-64' : 'w-20'
+        aria-hidden={mobileSidebarHidden}
+        inert={mobileSidebarHidden ? true : undefined}
+        className={`fixed left-0 top-0 z-40 h-full w-64 border-r border-surface-200 bg-white transition-all duration-300 dark:border-surface-800 dark:bg-surface-900 md:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0 md:w-64' : '-translate-x-full md:w-20'
         }`}
       >
         {/* Logo 区域 */}
@@ -118,6 +158,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = 
             size="icon"
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className={`h-8 w-8 ${!sidebarOpen && 'mx-auto mt-2'}`}
+            aria-label={sidebarOpen ? '收起管理导航' : '展开管理导航'}
+            title={sidebarOpen ? '收起管理导航' : '展开管理导航'}
           >
             {sidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
           </Button>
@@ -131,7 +173,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = 
             return (
               <button
                 key={index}
-                onClick={() => navigate(item.path)}
+                onClick={() => navigateFromSidebar(item.path)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors relative ${
                   isActive
                     ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400'
@@ -210,13 +252,23 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = 
 
       {/* 主内容区域 */}
       <div
-        className={`flex-1 transition-all duration-300 ${
-          sidebarOpen ? 'ml-64' : 'ml-20'
+        className={`min-w-0 flex-1 transition-all duration-300 ${
+          sidebarOpen ? 'md:ml-64' : 'md:ml-20'
         }`}
       >
         {/* 顶部栏 */}
-        <header className="h-16 bg-white dark:bg-surface-900 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between px-6">
+        <header className="flex h-16 items-center justify-between border-b border-surface-200 bg-white px-4 dark:border-surface-800 dark:bg-surface-900 sm:px-6">
           <div className="flex items-center gap-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 md:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="打开管理导航"
+              title="打开管理导航"
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
             <h2 className="text-lg font-semibold text-surface-900 dark:text-surface-100">
               管理员控制台
             </h2>
@@ -227,7 +279,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, className = 
         </header>
 
         {/* 页面内容 */}
-        <main className="p-6">
+        <main className="p-4 sm:p-6">
           {children}
         </main>
       </div>

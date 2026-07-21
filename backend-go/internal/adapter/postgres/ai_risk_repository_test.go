@@ -312,8 +312,12 @@ func TestAIRiskRepositoryListsAndInsertsRiskEvents(t *testing.T) {
 		*dest[6].(*string) = "session_chat"
 		*dest[7].(*string) = "代考"
 		*dest[8].(*string) = "请帮我代考"
-		*dest[9].(*pgtype.Text) = pgtype.Text{}
-		*dest[10].(*time.Time) = createdAt
+		*dest[9].(*string) = "omni-moderation-latest"
+		*dest[10].(*pgtype.Float8) = pgtype.Float8{Float64: 0.9, Valid: true}
+		*dest[11].(*[]byte) = []byte(`{"self-harm":0.9}`)
+		*dest[12].(*pgtype.Int4) = pgtype.Int4{Int32: 42, Valid: true}
+		*dest[13].(*pgtype.Text) = pgtype.Text{}
+		*dest[14].(*time.Time) = createdAt
 		return nil
 	}}}
 	querier := &recordingAIRiskQuerier{
@@ -333,7 +337,7 @@ func TestAIRiskRepositoryListsAndInsertsRiskEvents(t *testing.T) {
 	if err != nil || total != 1 || len(items) != 1 {
 		t.Fatalf("ListRiskEvents() items=%#v total=%d error=%v", items, total, err)
 	}
-	if items[0].StudentID == nil || *items[0].StudentID != "student-1" || items[0].ActorID != nil {
+	if items[0].StudentID == nil || *items[0].StudentID != "student-1" || items[0].ActorID != nil || items[0].RiskScore == nil || *items[0].RiskScore != 0.9 || items[0].CategoryScores["self-harm"] != 0.9 || items[0].ReviewLatencyMS == nil || *items[0].ReviewLatencyMS != 42 {
 		t.Fatalf("event = %#v", items[0])
 	}
 	for _, fragment := range []string{"ILIKE $1", "event_type = $2", "LIMIT $3 OFFSET $4"} {
@@ -343,11 +347,13 @@ func TestAIRiskRepositoryListsAndInsertsRiskEvents(t *testing.T) {
 	}
 
 	studentID := "student-1"
-	event := airiskapp.RiskEvent{ID: "event-2", StudentID: &studentID, StudentUsername: "alice", EventType: "content_blocked", Severity: "critical", Action: "request_blocked", Source: "session_chat", MatchedRule: "代考", ContentExcerpt: "请帮我代考", ContentHash: "hash", EventDate: "2026-07-21", CreatedAt: createdAt}
+	riskScore := 0.9
+	latency := 42
+	event := airiskapp.RiskEvent{ID: "event-2", StudentID: &studentID, StudentUsername: "alice", EventType: "model_blocked", Severity: "critical", Action: "request_blocked", Source: "session_chat", MatchedRule: "self-harm", ContentExcerpt: "危险内容", ContentHash: "hash", ReviewModel: "omni-moderation-latest", RiskScore: &riskScore, CategoryScores: map[string]float64{"self-harm": 0.9}, ReviewLatencyMS: &latency, EventDate: "2026-07-21", CreatedAt: createdAt}
 	if err := repo.InsertRiskEvent(context.Background(), event); err != nil {
 		t.Fatalf("InsertRiskEvent() error = %v", err)
 	}
-	if len(querier.execSQL) != 1 || !strings.Contains(querier.execSQL[0], "student_ai_risk_events") || len(querier.execArgs[0]) != 13 {
+	if len(querier.execSQL) != 1 || !strings.Contains(querier.execSQL[0], "student_ai_risk_events") || len(querier.execArgs[0]) != 17 || !strings.Contains(querier.execArgs[0][12].(string), `"self-harm":0.9`) {
 		t.Fatalf("insert SQL=%#v args=%#v", querier.execSQL, querier.execArgs)
 	}
 }

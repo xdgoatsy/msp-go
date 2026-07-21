@@ -81,3 +81,36 @@ func TestLoadIncludesStudentAIRiskControlMigration(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadIncludesStudentAIModelModerationMigration(t *testing.T) {
+	migrations, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	var migrationSQL string
+	for _, migration := range migrations {
+		if migration.Version == 5 && migration.Name == "student_ai_model_moderation" {
+			migrationSQL = migration.SQL
+			break
+		}
+	}
+	if migrationSQL == "" {
+		t.Fatal("Load() missing 0005_student_ai_model_moderation")
+	}
+	for _, want := range []string{
+		"student_ai_model_review_enabled",
+		"student_ai_model_review_thresholds",
+		"ADD COLUMN review_model",
+		"ADD COLUMN risk_score",
+		"ADD COLUMN category_scores jsonb",
+		"ADD COLUMN review_latency_ms",
+		"model_blocked",
+		"model_review_error",
+		"ck_student_ai_risk_score",
+	} {
+		if !strings.Contains(migrationSQL, want) {
+			t.Fatalf("migration SQL missing %q", want)
+		}
+	}
+}

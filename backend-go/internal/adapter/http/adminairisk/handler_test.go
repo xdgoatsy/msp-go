@@ -57,7 +57,7 @@ func TestHandlerRoutesForwardValidatedRequests(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/admin/risk-control/overview", ""},
 		{http.MethodGet, "/api/v1/admin/risk-control/settings", ""},
-		{http.MethodPut, "/api/v1/admin/risk-control/settings", `{"daily_reply_limit":80,"max_concurrent_requests":3,"blocked_keywords":["代考"]}`},
+		{http.MethodPut, "/api/v1/admin/risk-control/settings", `{"daily_reply_limit":80,"max_concurrent_requests":3,"blocked_keywords":["代考"],"model_review_enabled":true,"model_review_thresholds":{"self-harm":0.7}}`},
 		{http.MethodGet, "/api/v1/admin/risk-control/students?page=2&page_size=25&search=alice&status=blocked", ""},
 		{http.MethodPatch, "/api/v1/admin/risk-control/students/student-1/access", `{"blocked":true,"reason":"违规"}`},
 		{http.MethodGet, "/api/v1/admin/risk-control/events?page=3&page_size=10&search=alice&event_type=content_blocked", ""},
@@ -69,7 +69,7 @@ func TestHandlerRoutesForwardValidatedRequests(t *testing.T) {
 			t.Fatalf("%s %s status=%d body=%s", test.method, test.path, recorder.Code, recorder.Body.String())
 		}
 	}
-	if service.settingsUpdate.DailyReplyLimit != 80 || len(service.settingsUpdate.BlockedKeywords) != 1 {
+	if service.settingsUpdate.DailyReplyLimit != 80 || len(service.settingsUpdate.BlockedKeywords) != 1 || !service.settingsUpdate.ModelReviewEnabled || service.settingsUpdate.ModelReviewThresholds["self-harm"] != 0.7 {
 		t.Fatalf("settings update = %#v", service.settingsUpdate)
 	}
 	if service.studentFilter.Page != 2 || service.studentFilter.PageSize != 25 || service.studentFilter.Status != "blocked" {

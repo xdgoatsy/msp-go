@@ -261,6 +261,7 @@ export const AgentTypes = {
   PORTRAIT: 'portrait',
   QUESTION_PARSER: 'question_parser',
   QUESTION_GENERATOR: 'question_generator',
+  CONTENT_MODERATOR: 'content_moderator',
 } as const;
 
 export type AgentType = (typeof AgentTypes)[keyof typeof AgentTypes];
@@ -276,6 +277,7 @@ export const AgentTypeDisplayNames: Record<AgentType, string> = {
   [AgentTypes.PORTRAIT]: '学生画像',
   [AgentTypes.QUESTION_PARSER]: '题目解析智能体',
   [AgentTypes.QUESTION_GENERATOR]: '题目生成智能体',
+  [AgentTypes.CONTENT_MODERATOR]: '内容审核智能体',
 };
 
 /**

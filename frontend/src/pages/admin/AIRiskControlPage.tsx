@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   Ban,
+  BrainCircuit,
   CheckCircle2,
   Clock3,
   Gauge,
@@ -10,6 +12,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Settings2,
   ShieldAlert,
   UnlockKeyhole,
   Users,
@@ -17,7 +20,11 @@ import {
 } from 'lucide-react';
 import { AdminLayout } from '@/modules/admin/components/AdminLayout';
 import { aiRiskService } from '@/modules/admin/services/aiRiskService';
+import { aiConfigService } from '@/modules/ai-config/services/aiConfigService';
+import { AgentTypes } from '@/modules/ai-config/types/aiConfig';
 import type {
+  AIModelReviewCategory,
+  AIModelReviewThresholds,
   AIRiskEvent,
   AIRiskEventListResponse,
   AIRiskEventType,
@@ -38,17 +45,70 @@ import { Select } from '@/components/ui/Select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 
 type ViewTab = 'policy' | 'students' | 'events';
+type ModeratorConfigStatus = 'loading' | 'configured' | 'missing' | 'error';
+
+const modelReviewCategoryOrder: AIModelReviewCategory[] = [
+  'harassment',
+  'harassment/threatening',
+  'hate',
+  'hate/threatening',
+  'illicit',
+  'illicit/violent',
+  'self-harm',
+  'self-harm/intent',
+  'self-harm/instructions',
+  'sexual',
+  'sexual/minors',
+  'violence',
+  'violence/graphic',
+];
+
+const defaultModelReviewThresholds: AIModelReviewThresholds = {
+  harassment: 0.98,
+  'harassment/threatening': 0.9,
+  hate: 0.65,
+  'hate/threatening': 0.65,
+  illicit: 0.95,
+  'illicit/violent': 0.95,
+  'self-harm': 0.65,
+  'self-harm/intent': 0.85,
+  'self-harm/instructions': 0.65,
+  sexual: 0.65,
+  'sexual/minors': 0.65,
+  violence: 0.95,
+  'violence/graphic': 0.95,
+};
+
+const modelReviewCategoryLabels: Record<AIModelReviewCategory, string> = {
+  harassment: '骚扰',
+  'harassment/threatening': '威胁性骚扰',
+  hate: '仇恨',
+  'hate/threatening': '威胁性仇恨',
+  illicit: '违法活动',
+  'illicit/violent': '暴力违法',
+  'self-harm': '自残',
+  'self-harm/intent': '自残意图',
+  'self-harm/instructions': '自残指导',
+  sexual: '性内容',
+  'sexual/minors': '未成年人性内容',
+  violence: '暴力',
+  'violence/graphic': '血腥暴力',
+};
 
 interface SettingsDraft {
   dailyReplyLimit: number;
   maxConcurrentRequests: number;
   blockedKeywords: string;
+  modelReviewEnabled: boolean;
+  modelReviewThresholds: AIModelReviewThresholds;
 }
 
 const emptySettingsDraft: SettingsDraft = {
   dailyReplyLimit: 50,
   maxConcurrentRequests: 2,
   blockedKeywords: '',
+  modelReviewEnabled: false,
+  modelReviewThresholds: { ...defaultModelReviewThresholds },
 };
 
 const emptyStudentPage: AIStudentListResponse = {
@@ -68,6 +128,7 @@ const emptyEventPage: AIRiskEventListResponse = {
 };
 
 export const AIRiskControlPage: React.FC = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<ViewTab>('policy');
   const [overview, setOverview] = useState<AIRiskOverview | null>(null);
   const [settings, setSettings] = useState<AIRiskSettings | null>(null);
@@ -86,6 +147,7 @@ export const AIRiskControlPage: React.FC = () => {
   const [accessTarget, setAccessTarget] = useState<AIStudentItem | null>(null);
   const [accessReason, setAccessReason] = useState('');
   const [accessLoading, setAccessLoading] = useState(false);
+  const [moderatorStatus, setModeratorStatus] = useState<ModeratorConfigStatus>('loading');
 
   const applySettings = useCallback((value: AIRiskSettings) => {
     setSettings(value);
@@ -93,7 +155,23 @@ export const AIRiskControlPage: React.FC = () => {
       dailyReplyLimit: value.daily_reply_limit,
       maxConcurrentRequests: value.max_concurrent_requests,
       blockedKeywords: value.blocked_keywords.join('\n'),
+      modelReviewEnabled: value.model_review_enabled ?? false,
+      modelReviewThresholds: {
+        ...defaultModelReviewThresholds,
+        ...(value.model_review_thresholds ?? {}),
+      },
     });
+  }, []);
+
+  const loadModeratorStatus = useCallback(async () => {
+    setModeratorStatus('loading');
+    try {
+      const response = await aiConfigService.listAgentTypes();
+      const moderator = response.items.find((item) => item.type === AgentTypes.CONTENT_MODERATOR);
+      setModeratorStatus(moderator?.configured ? 'configured' : 'missing');
+    } catch {
+      setModeratorStatus('error');
+    }
   }, []);
 
   const loadSummary = useCallback(async () => {
@@ -154,6 +232,10 @@ export const AIRiskControlPage: React.FC = () => {
   }, [loadSummary]);
 
   useEffect(() => {
+    void loadModeratorStatus();
+  }, [loadModeratorStatus]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => void loadStudents(), 250);
     return () => window.clearTimeout(timer);
   }, [loadStudents]);
@@ -164,8 +246,8 @@ export const AIRiskControlPage: React.FC = () => {
   }, [loadEvents]);
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([loadSummary(), loadStudents(), loadEvents()]);
-  }, [loadEvents, loadStudents, loadSummary]);
+    await Promise.all([loadSummary(), loadStudents(), loadEvents(), loadModeratorStatus()]);
+  }, [loadEvents, loadModeratorStatus, loadStudents, loadSummary]);
 
   const saveSettings = async () => {
     const request: UpdateAIRiskSettingsRequest = {
@@ -175,6 +257,8 @@ export const AIRiskControlPage: React.FC = () => {
         .split(/\r?\n/)
         .map((item) => item.trim())
         .filter(Boolean),
+      model_review_enabled: settingsDraft.modelReviewEnabled,
+      model_review_thresholds: settingsDraft.modelReviewThresholds,
     };
     if (request.daily_reply_limit < 1 || request.daily_reply_limit > 10_000) {
       setError('每日回复额度必须在 1 到 10000 之间');
@@ -182,6 +266,14 @@ export const AIRiskControlPage: React.FC = () => {
     }
     if (request.max_concurrent_requests < 1 || request.max_concurrent_requests > 20) {
       setError('每生并发上限必须在 1 到 20 之间');
+      return;
+    }
+    if (request.model_review_enabled && moderatorStatus !== 'configured') {
+      setError('请先在 AI 模型设置中配置内容审核智能体');
+      return;
+    }
+    if (Object.values(request.model_review_thresholds).some((value) => !Number.isFinite(value) || value < 0 || value > 1)) {
+      setError('模型审查阈值必须在 0 到 1 之间');
       return;
     }
     setLoading((current) => ({ ...current, save: true }));
@@ -332,8 +424,10 @@ export const AIRiskControlPage: React.FC = () => {
             <PolicyPanel
               draft={settingsDraft}
               loading={loading.save || loading.summary}
+              moderatorStatus={moderatorStatus}
               onChange={setSettingsDraft}
               onSave={() => void saveSettings()}
+              onConfigureModerator={() => navigate('/admin/ai-models')}
             />
           </TabsContent>
 
@@ -380,14 +474,25 @@ export const AIRiskControlPage: React.FC = () => {
 function PolicyPanel({
   draft,
   loading,
+  moderatorStatus,
   onChange,
   onSave,
+  onConfigureModerator,
 }: {
   draft: SettingsDraft;
   loading: boolean;
+  moderatorStatus: ModeratorConfigStatus;
   onChange: (value: SettingsDraft) => void;
   onSave: () => void;
+  onConfigureModerator: () => void;
 }) {
+  const statusConfig: Record<ModeratorConfigStatus, { label: string; variant: 'secondary' | 'success' | 'warning' | 'destructive' }> = {
+    loading: { label: '检查中', variant: 'secondary' },
+    configured: { label: '审核模型已配置', variant: 'success' },
+    missing: { label: '审核模型未配置', variant: 'warning' },
+    error: { label: '配置状态不可用', variant: 'destructive' },
+  };
+  const currentStatus = statusConfig[moderatorStatus];
   return (
     <section className="rounded-lg border border-surface-200 bg-white p-5 dark:border-surface-700 dark:bg-surface-900">
       <div className="flex flex-col gap-4 border-b border-surface-200 pb-5 dark:border-surface-700 sm:flex-row sm:items-center sm:justify-between">
@@ -444,6 +549,89 @@ function PolicyPanel({
           className="w-full resize-y rounded-md border border-surface-200 bg-white px-3 py-2 text-sm text-surface-900 outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 dark:border-surface-700 dark:bg-surface-800 dark:text-surface-100"
         />
       </label>
+
+      <div className="mt-6 border-t border-surface-200 pt-5 dark:border-surface-700">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300">
+              <BrainCircuit className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold text-surface-950 dark:text-surface-50">模型内容审查</h3>
+                <Badge variant={currentStatus.variant}>{currentStatus.label}</Badge>
+                <Badge variant="outline">前置阻断</Badge>
+                <Badge variant="outline">失败关闭</Badge>
+              </div>
+              <div className="mt-1 text-sm text-surface-500 dark:text-surface-400">
+                OpenAI-compatible Moderations
+              </div>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <Button type="button" variant="outline" size="sm" onClick={onConfigureModerator}>
+              <Settings2 className="mr-2 h-4 w-4" />配置审核模型
+            </Button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={draft.modelReviewEnabled}
+              aria-label="启用模型内容审查"
+              title={draft.modelReviewEnabled ? '关闭模型内容审查' : '启用模型内容审查'}
+              disabled={loading}
+              onClick={() => onChange({ ...draft, modelReviewEnabled: !draft.modelReviewEnabled })}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-50 ${
+                draft.modelReviewEnabled ? 'bg-primary-600' : 'bg-surface-300 dark:bg-surface-600'
+              }`}
+            >
+              <span
+                className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+                  draft.modelReviewEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
+        <fieldset className="mt-5" disabled={loading}>
+          <legend className="sr-only">模型审查风险分类阈值</legend>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="text-sm font-medium text-surface-800 dark:text-surface-200">风险分类阈值</span>
+            <span className="text-xs text-surface-500 dark:text-surface-400">0 - 1</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {modelReviewCategoryOrder.map((category) => (
+              <label
+                key={category}
+                className="grid min-h-20 grid-cols-[minmax(0,1fr)_7rem] items-center gap-3 rounded-md border border-surface-200 px-3 py-2 dark:border-surface-700"
+              >
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-surface-800 dark:text-surface-200">
+                    {modelReviewCategoryLabels[category]}
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs text-surface-400" title={category}>{category}</span>
+                </span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={draft.modelReviewThresholds[category]}
+                  aria-label={`${modelReviewCategoryLabels[category]}风险阈值`}
+                  onChange={(event) => onChange({
+                    ...draft,
+                    modelReviewThresholds: {
+                      ...draft.modelReviewThresholds,
+                      [category]: Number(event.target.value),
+                    },
+                  })}
+                  className="w-28"
+                />
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
     </section>
   );
 }
@@ -602,6 +790,8 @@ function EventsPanel({
           options={[
             { value: 'all', label: '全部事件' },
             { value: 'content_blocked', label: '内容拦截' },
+            { value: 'model_blocked', label: '模型拦截' },
+            { value: 'model_review_error', label: '审查异常' },
             { value: 'admin_blocked', label: '管理员封禁' },
             { value: 'admin_unblocked', label: '管理员解封' },
           ]}
@@ -609,14 +799,14 @@ function EventsPanel({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-[980px] table-fixed text-left text-sm">
+        <table className="min-w-[1080px] table-fixed text-left text-sm">
           <thead className="bg-surface-50 text-xs uppercase text-surface-500 dark:bg-surface-800/70 dark:text-surface-400">
             <tr>
-              <th className="w-[18%] px-4 py-3 font-medium">时间</th>
-              <th className="w-[17%] px-4 py-3 font-medium">学生</th>
-              <th className="w-[15%] px-4 py-3 font-medium">事件</th>
-              <th className="w-[18%] px-4 py-3 font-medium">命中规则</th>
-              <th className="w-[32%] px-4 py-3 font-medium">记录</th>
+              <th className="w-[16%] px-4 py-3 font-medium">时间</th>
+              <th className="w-[15%] px-4 py-3 font-medium">学生</th>
+              <th className="w-[14%] px-4 py-3 font-medium">事件</th>
+              <th className="w-[20%] px-4 py-3 font-medium">命中规则</th>
+              <th className="w-[35%] px-4 py-3 font-medium">记录</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-200 dark:divide-surface-700">
@@ -629,10 +819,19 @@ function EventsPanel({
                 <td className="px-4 py-4 text-surface-600 dark:text-surface-300">{formatDateTime(event.created_at)}</td>
                 <td className="px-4 py-4 font-medium text-surface-900 dark:text-surface-100">{event.student_username || '已删除学生'}</td>
                 <td className="px-4 py-4"><EventBadge event={event} /></td>
-                <td className="px-4 py-4 text-surface-700 dark:text-surface-300">{event.matched_rule || '-'}</td>
+                <td className="px-4 py-4 text-surface-700 dark:text-surface-300">
+                  <div>{matchedRuleLabel(event.matched_rule)}</div>
+                  {event.risk_score !== null && (
+                    <div className="mt-1 text-xs font-medium text-red-600 dark:text-red-300">
+                      得分 {(event.risk_score * 100).toFixed(1)}%
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-4">
                   <div className="line-clamp-2 text-surface-600 dark:text-surface-300" title={event.content_excerpt}>{event.content_excerpt || '-'}</div>
-                  <div className="mt-1 text-xs text-surface-400">{sourceLabel(event.source)}</div>
+                  <div className="mt-1 truncate text-xs text-surface-400" title={event.review_model || undefined}>
+                    {eventMeta(event)}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -648,6 +847,8 @@ function EventsPanel({
 function EventBadge({ event }: { event: AIRiskEvent }) {
   const config: Record<AIRiskEventType, { label: string; variant: 'destructive' | 'warning' | 'success' }> = {
     content_blocked: { label: '内容拦截', variant: 'destructive' },
+    model_blocked: { label: '模型拦截', variant: 'destructive' },
+    model_review_error: { label: '审查异常', variant: 'warning' },
     admin_blocked: { label: '管理员封禁', variant: 'warning' },
     admin_unblocked: { label: '管理员解封', variant: 'success' },
   };
@@ -781,6 +982,19 @@ function sourceLabel(source: string): string {
     admin_risk_center: '管理员操作',
   };
   return labels[source] ?? source;
+}
+
+function matchedRuleLabel(rule: string): string {
+  if (!rule) return '-';
+  if (rule === 'model_review_unavailable') return '审核服务不可用';
+  return modelReviewCategoryLabels[rule as AIModelReviewCategory] ?? rule;
+}
+
+function eventMeta(event: AIRiskEvent): string {
+  const items = [sourceLabel(event.source)];
+  if (event.review_model) items.push(event.review_model);
+  if (event.review_latency_ms !== null) items.push(`${event.review_latency_ms} ms`);
+  return items.join(' · ');
 }
 
 export default AIRiskControlPage;

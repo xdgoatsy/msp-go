@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,37 +23,83 @@ const (
 	maxBlockedKeywords     = 100
 )
 
+var modelReviewCategoryOrder = []string{
+	"harassment",
+	"harassment/threatening",
+	"hate",
+	"hate/threatening",
+	"illicit",
+	"illicit/violent",
+	"self-harm",
+	"self-harm/intent",
+	"self-harm/instructions",
+	"sexual",
+	"sexual/minors",
+	"violence",
+	"violence/graphic",
+}
+
 var shanghaiLocation = time.FixedZone(ResetTimezone, 8*60*60)
 
 // Service implements administrator and runtime AI risk-control use cases.
 type Service struct {
 	repo     Repository
 	slots    SlotStore
+	reviewer ContentReviewer
 	now      func() time.Time
 	newID    func() (string, error)
 	leaseTTL time.Duration
 }
 
+// Option customizes the AI risk-control service.
+type Option func(*Service) error
+
+// WithContentReviewer enables provider-backed model review when the policy switch is on.
+func WithContentReviewer(reviewer ContentReviewer) Option {
+	return func(service *Service) error {
+		if reviewer == nil {
+			return errors.New("AI content reviewer is nil")
+		}
+		service.reviewer = reviewer
+		return nil
+	}
+}
+
 // NewService creates an AI risk-control service.
-func NewService(repo Repository, slots SlotStore) (*Service, error) {
+func NewService(repo Repository, slots SlotStore, options ...Option) (*Service, error) {
 	if repo == nil {
 		return nil, errors.New("AI risk repository is nil")
 	}
 	if slots == nil {
 		return nil, errors.New("AI risk slot store is nil")
 	}
-	return &Service{
+	service := &Service{
 		repo:     repo,
 		slots:    slots,
 		now:      func() time.Time { return time.Now().UTC() },
 		newID:    identifier.NewUUID,
 		leaseTTL: defaultLeaseTTL,
-	}, nil
+	}
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+		if err := option(service); err != nil {
+			return nil, err
+		}
+	}
+	return service, nil
 }
 
 // GetSettings returns the uniform student AI limits.
 func (s *Service) GetSettings(ctx context.Context) (Settings, error) {
-	values, err := s.repo.GetSettings(ctx, []string{DailyReplyLimitKey, MaxConcurrencyKey, BlockedKeywordsKey})
+	values, err := s.repo.GetSettings(ctx, []string{
+		DailyReplyLimitKey,
+		MaxConcurrencyKey,
+		BlockedKeywordsKey,
+		ModelReviewEnabledKey,
+		ModelReviewThresholdsKey,
+	})
 	if err != nil {
 		return Settings{}, fmt.Errorf("get AI risk settings: %w", err)
 	}
@@ -73,11 +120,17 @@ func (s *Service) UpdateSettings(ctx context.Context, input UpdateSettingsReques
 	if err != nil {
 		return Settings{}, fmt.Errorf("marshal blocked keywords: %w", err)
 	}
+	thresholds, err := json.Marshal(settings.ModelReviewThresholds)
+	if err != nil {
+		return Settings{}, fmt.Errorf("marshal model review thresholds: %w", err)
+	}
 	now := s.now()
 	if err := s.repo.UpsertSettings(ctx, []SettingUpdate{
 		{Key: DailyReplyLimitKey, Value: strconv.Itoa(settings.DailyReplyLimit), Description: "每名学生每日可获得的 AI 成功回复数", UpdatedAt: now},
 		{Key: MaxConcurrencyKey, Value: strconv.Itoa(settings.MaxConcurrentRequests), Description: "每名学生可同时执行的 AI 请求数", UpdatedAt: now},
 		{Key: BlockedKeywordsKey, Value: string(keywords), Description: "学生 AI 请求拦截关键词 JSON 数组", UpdatedAt: now},
+		{Key: ModelReviewEnabledKey, Value: strconv.FormatBool(settings.ModelReviewEnabled), Description: "学生 AI 输入模型同步前置审查开关", UpdatedAt: now},
+		{Key: ModelReviewThresholdsKey, Value: string(thresholds), Description: "学生 AI 模型审查分类阈值 JSON 对象", UpdatedAt: now},
 	}); err != nil {
 		return Settings{}, fmt.Errorf("update AI risk settings: %w", err)
 	}
@@ -205,7 +258,12 @@ func UsageDate(now time.Time) string {
 }
 
 func parseSettings(values map[string]string) (Settings, error) {
-	settings := Settings{DailyReplyLimit: defaultDailyReplyLimit, MaxConcurrentRequests: defaultMaxConcurrency, BlockedKeywords: []string{}}
+	settings := Settings{
+		DailyReplyLimit:       defaultDailyReplyLimit,
+		MaxConcurrentRequests: defaultMaxConcurrency,
+		BlockedKeywords:       []string{},
+		ModelReviewThresholds: defaultModelReviewThresholds(),
+	}
 	if raw, ok := values[DailyReplyLimitKey]; ok {
 		value, err := strconv.Atoi(strings.TrimSpace(raw))
 		if err != nil {
@@ -225,10 +283,26 @@ func parseSettings(values map[string]string) (Settings, error) {
 			return Settings{}, fmt.Errorf("parse %s: %w", BlockedKeywordsKey, err)
 		}
 	}
+	if raw, ok := values[ModelReviewEnabledKey]; ok && strings.TrimSpace(raw) != "" {
+		value, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return Settings{}, fmt.Errorf("parse %s: %w", ModelReviewEnabledKey, err)
+		}
+		settings.ModelReviewEnabled = value
+	}
+	if raw, ok := values[ModelReviewThresholdsKey]; ok && strings.TrimSpace(raw) != "" {
+		var thresholds map[string]float64
+		if err := json.Unmarshal([]byte(raw), &thresholds); err != nil {
+			return Settings{}, fmt.Errorf("parse %s: %w", ModelReviewThresholdsKey, err)
+		}
+		settings.ModelReviewThresholds = thresholds
+	}
 	return normalizeSettings(UpdateSettingsRequest{
 		DailyReplyLimit:       settings.DailyReplyLimit,
 		MaxConcurrentRequests: settings.MaxConcurrentRequests,
 		BlockedKeywords:       settings.BlockedKeywords,
+		ModelReviewEnabled:    settings.ModelReviewEnabled,
+		ModelReviewThresholds: settings.ModelReviewThresholds,
 	})
 }
 
@@ -259,11 +333,49 @@ func normalizeSettings(input UpdateSettingsRequest) (Settings, error) {
 		seen[key] = struct{}{}
 		keywords = append(keywords, keyword)
 	}
+	thresholds, err := normalizeModelReviewThresholds(input.ModelReviewThresholds)
+	if err != nil {
+		return Settings{}, err
+	}
 	return Settings{
 		DailyReplyLimit:       input.DailyReplyLimit,
 		MaxConcurrentRequests: input.MaxConcurrentRequests,
 		BlockedKeywords:       keywords,
+		ModelReviewEnabled:    input.ModelReviewEnabled,
+		ModelReviewThresholds: thresholds,
 	}, nil
+}
+
+func defaultModelReviewThresholds() map[string]float64 {
+	return map[string]float64{
+		"harassment":             0.98,
+		"harassment/threatening": 0.90,
+		"hate":                   0.65,
+		"hate/threatening":       0.65,
+		"illicit":                0.95,
+		"illicit/violent":        0.95,
+		"self-harm":              0.65,
+		"self-harm/intent":       0.85,
+		"self-harm/instructions": 0.65,
+		"sexual":                 0.65,
+		"sexual/minors":          0.65,
+		"violence":               0.95,
+		"violence/graphic":       0.95,
+	}
+}
+
+func normalizeModelReviewThresholds(input map[string]float64) (map[string]float64, error) {
+	thresholds := defaultModelReviewThresholds()
+	for category, value := range input {
+		if _, ok := thresholds[category]; !ok {
+			return nil, badRequest("不支持的模型审查分类: " + category)
+		}
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
+			return nil, badRequest("模型审查阈值必须在 0 到 1 之间")
+		}
+		thresholds[category] = value
+	}
+	return thresholds, nil
 }
 
 func normalizeStudentFilter(filter StudentListFilter) (StudentListFilter, error) {
@@ -305,7 +417,7 @@ func normalizeEventFilter(filter EventListFilter) (EventListFilter, error) {
 		filter.EventType = ""
 	}
 	switch filter.EventType {
-	case "", "content_blocked", "admin_blocked", "admin_unblocked":
+	case "", "content_blocked", "model_blocked", "model_review_error", "admin_blocked", "admin_unblocked":
 	default:
 		return EventListFilter{}, badRequest("event_type 参数无效")
 	}

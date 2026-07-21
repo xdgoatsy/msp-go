@@ -33,6 +33,7 @@ import (
 	uploadhttp "mathstudy/backend-go/internal/adapter/http/upload"
 	xidianhttp "mathstudy/backend-go/internal/adapter/http/xidian"
 	einoagent "mathstudy/backend-go/internal/adapter/llm/einoagent"
+	moderationadapter "mathstudy/backend-go/internal/adapter/llm/moderation"
 	adapterpostgres "mathstudy/backend-go/internal/adapter/postgres"
 	adapterredis "mathstudy/backend-go/internal/adapter/redis"
 	storageadapter "mathstudy/backend-go/internal/adapter/storage"
@@ -164,16 +165,6 @@ func main() {
 		logger.Error("configure AI risk slot store", "error", err)
 		os.Exit(1)
 	}
-	aiRiskService, err := airiskapp.NewService(aiRiskRepo, aiRiskSlots)
-	if err != nil {
-		logger.Error("configure AI risk service", "error", err)
-		os.Exit(1)
-	}
-	aiRiskHandler, err := adminairiskhttp.NewHandler(logger, aiRiskService, authService)
-	if err != nil {
-		logger.Error("configure AI risk handler", "error", err)
-		os.Exit(1)
-	}
 	progressRepo, err := adapterpostgres.NewProgressRepository(dbPool)
 	if err != nil {
 		logger.Error("configure progress repository", "error", err)
@@ -216,6 +207,21 @@ func main() {
 	adminAIConfigHandler, err := adminaiconfighthttp.NewHandler(logger, adminAIConfigService, authService)
 	if err != nil {
 		logger.Error("configure admin AI config handler", "error", err)
+		os.Exit(1)
+	}
+	contentReviewer, err := moderationadapter.NewReviewer(adminAIConfigService)
+	if err != nil {
+		logger.Error("configure AI content reviewer", "error", err)
+		os.Exit(1)
+	}
+	aiRiskService, err := airiskapp.NewService(aiRiskRepo, aiRiskSlots, airiskapp.WithContentReviewer(contentReviewer))
+	if err != nil {
+		logger.Error("configure AI risk service", "error", err)
+		os.Exit(1)
+	}
+	aiRiskHandler, err := adminairiskhttp.NewHandler(logger, aiRiskService, authService)
+	if err != nil {
+		logger.Error("configure AI risk handler", "error", err)
 		os.Exit(1)
 	}
 	portraitRepo, err := adapterpostgres.NewPortraitRepository(dbPool)

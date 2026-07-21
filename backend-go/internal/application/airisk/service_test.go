@@ -15,6 +15,9 @@ func TestNewServiceValidatesDependencies(t *testing.T) {
 	if _, err := NewService(&fakeRepository{}, nil); err == nil {
 		t.Fatal("NewService(nil slots) error = nil")
 	}
+	if _, err := NewService(&fakeRepository{}, &fakeSlotStore{}, WithContentReviewer(nil)); err == nil {
+		t.Fatal("NewService(nil reviewer) error = nil")
+	}
 }
 
 func TestSettingsDefaultsUpdateAndValidation(t *testing.T) {
@@ -25,7 +28,7 @@ func TestSettingsDefaultsUpdateAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettings() error = %v", err)
 	}
-	if settings.DailyReplyLimit != 50 || settings.MaxConcurrentRequests != 2 || settings.ResetTimezone != ResetTimezone {
+	if settings.DailyReplyLimit != 50 || settings.MaxConcurrentRequests != 2 || settings.ModelReviewEnabled || len(settings.ModelReviewThresholds) != len(modelReviewCategoryOrder) || settings.ResetTimezone != ResetTimezone {
 		t.Fatalf("GetSettings() = %#v", settings)
 	}
 	if settings.NextResetAt != "2026-07-22T00:00:00+08:00" {
@@ -36,6 +39,8 @@ func TestSettingsDefaultsUpdateAndValidation(t *testing.T) {
 		DailyReplyLimit:       80,
 		MaxConcurrentRequests: 3,
 		BlockedKeywords:       []string{"  代考 ", "代考", "HACK", "hack", ""},
+		ModelReviewEnabled:    true,
+		ModelReviewThresholds: map[string]float64{"self-harm": 0.5},
 	})
 	if err != nil {
 		t.Fatalf("UpdateSettings() error = %v", err)
@@ -43,7 +48,10 @@ func TestSettingsDefaultsUpdateAndValidation(t *testing.T) {
 	if len(updated.BlockedKeywords) != 2 || updated.BlockedKeywords[0] != "代考" || updated.BlockedKeywords[1] != "HACK" {
 		t.Fatalf("normalized keywords = %#v", updated.BlockedKeywords)
 	}
-	if len(repo.updates) != 3 || !strings.Contains(repo.updates[2].Value, "代考") {
+	if !updated.ModelReviewEnabled || updated.ModelReviewThresholds["self-harm"] != 0.5 {
+		t.Fatalf("model review settings = %#v", updated)
+	}
+	if len(repo.updates) != 5 || !strings.Contains(repo.updates[2].Value, "代考") || repo.updates[3].Value != "true" || !strings.Contains(repo.updates[4].Value, `"self-harm":0.5`) {
 		t.Fatalf("setting updates = %#v", repo.updates)
 	}
 
@@ -51,6 +59,8 @@ func TestSettingsDefaultsUpdateAndValidation(t *testing.T) {
 		{DailyReplyLimit: 0, MaxConcurrentRequests: 1},
 		{DailyReplyLimit: 1, MaxConcurrentRequests: 21},
 		{DailyReplyLimit: 1, MaxConcurrentRequests: 1, BlockedKeywords: []string{strings.Repeat("a", 65)}},
+		{DailyReplyLimit: 1, MaxConcurrentRequests: 1, ModelReviewThresholds: map[string]float64{"unknown": 0.5}},
+		{DailyReplyLimit: 1, MaxConcurrentRequests: 1, ModelReviewThresholds: map[string]float64{"self-harm": 1.1}},
 	}
 	for _, request := range invalid {
 		if _, err := service.UpdateSettings(context.Background(), request); !errors.Is(err, ErrBadRequest) {
@@ -64,6 +74,14 @@ func TestGetSettingsRejectsCorruptStoredValues(t *testing.T) {
 	service := newFakeService(t, repo, &fakeSlotStore{})
 	if _, err := service.GetSettings(context.Background()); err == nil {
 		t.Fatal("GetSettings() error = nil")
+	}
+	repo.settings = map[string]string{
+		DailyReplyLimitKey:       "50",
+		MaxConcurrencyKey:        "2",
+		ModelReviewThresholdsKey: "not-json",
+	}
+	if _, err := service.GetSettings(context.Background()); err == nil {
+		t.Fatal("GetSettings(corrupt thresholds) error = nil")
 	}
 }
 
@@ -107,6 +125,9 @@ func TestAdminOverviewStudentsEventsAndAccess(t *testing.T) {
 	}
 	if _, err := service.ListRiskEvents(context.Background(), EventListFilter{EventType: "unknown"}); !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("ListRiskEvents(invalid) error = %v", err)
+	}
+	if _, err := service.ListRiskEvents(context.Background(), EventListFilter{EventType: "model_blocked"}); err != nil {
+		t.Fatalf("ListRiskEvents(model_blocked) error = %v", err)
 	}
 	if _, err := service.UpdateStudentAccess(context.Background(), "student-1", "admin-1", UpdateStudentAccessRequest{Blocked: true}); !errors.Is(err, ErrBadRequest) {
 		t.Fatalf("UpdateStudentAccess(no reason) error = %v", err)
@@ -199,6 +220,95 @@ func TestAcquireFailsClosedWhenDependenciesFail(t *testing.T) {
 	}
 }
 
+func TestAcquireRunsModelReviewAfterLeaseAndRecordsDecisions(t *testing.T) {
+	ctx := context.Background()
+	repo := &fakeRepository{
+		settings: map[string]string{
+			DailyReplyLimitKey:       "5",
+			MaxConcurrencyKey:        "2",
+			BlockedKeywordsKey:       `[]`,
+			ModelReviewEnabledKey:    "true",
+			ModelReviewThresholdsKey: `{}`,
+		},
+		access:      StudentAccess{StudentID: "student-1", Username: "alice", IsStudent: true},
+		accessFound: true,
+	}
+	slots := &fakeSlotStore{}
+	reviewer := &fakeContentReviewer{result: ModelReviewResult{Model: "omni-moderation-latest", CategoryScores: safeModelScores()}}
+	service := newFakeServiceWithOptions(t, repo, slots, WithContentReviewer(reviewer))
+
+	lease, err := service.Acquire(ctx, "student-1", "session_chat", "请解释极限", true)
+	if err != nil {
+		t.Fatalf("Acquire(review allowed) error = %v", err)
+	}
+	if reviewer.calls != 1 || slots.acquireCalls != 1 || reviewer.content != "请解释极限" || len(repo.insertedEvents) != 0 {
+		t.Fatalf("review calls=%d slots=%d content=%q events=%#v", reviewer.calls, slots.acquireCalls, reviewer.content, repo.insertedEvents)
+	}
+	if err := lease.Release(ctx); err != nil {
+		t.Fatalf("Release(allowed) error = %v", err)
+	}
+
+	reviewer.result.CategoryScores["self-harm"] = 0.9
+	if _, err := service.Acquire(ctx, "student-1", "session_chat", "危险内容", true); !errors.Is(err, ErrContentBlocked) {
+		t.Fatalf("Acquire(review blocked) error = %v", err)
+	}
+	if slots.releaseCalls != 2 || len(repo.insertedEvents) != 1 {
+		t.Fatalf("release calls=%d events=%#v", slots.releaseCalls, repo.insertedEvents)
+	}
+	blocked := repo.insertedEvents[0]
+	if blocked.EventType != "model_blocked" || blocked.MatchedRule != "self-harm" || blocked.ReviewModel != "omni-moderation-latest" || blocked.RiskScore == nil || *blocked.RiskScore != 0.9 || blocked.ReviewLatencyMS == nil || blocked.ContentHash == "" {
+		t.Fatalf("blocked event = %#v", blocked)
+	}
+
+	reviewer.err = errors.New("upstream token=secret")
+	if _, err := service.Acquire(ctx, "student-1", "session_chat", "普通内容", true); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Acquire(review error) error = %v", err)
+	}
+	if slots.releaseCalls != 3 || len(repo.insertedEvents) != 2 || repo.insertedEvents[1].EventType != "model_review_error" {
+		t.Fatalf("release calls=%d events=%#v", slots.releaseCalls, repo.insertedEvents)
+	}
+}
+
+func TestAcquireModelReviewFailsClosedWhenReviewerMissingOrResponseIncomplete(t *testing.T) {
+	repo := &fakeRepository{
+		settings: map[string]string{
+			DailyReplyLimitKey:    "5",
+			MaxConcurrencyKey:     "2",
+			BlockedKeywordsKey:    `[]`,
+			ModelReviewEnabledKey: "true",
+		},
+		access:      StudentAccess{StudentID: "student-1", Username: "alice", IsStudent: true},
+		accessFound: true,
+	}
+	slots := &fakeSlotStore{}
+	service := newFakeService(t, repo, slots)
+	if _, err := service.Acquire(context.Background(), "student-1", "session_chat", "hello", true); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Acquire(no reviewer) error = %v", err)
+	}
+	if slots.releaseCalls != 1 || len(repo.insertedEvents) != 1 || repo.insertedEvents[0].EventType != "model_review_error" {
+		t.Fatalf("release calls=%d events=%#v", slots.releaseCalls, repo.insertedEvents)
+	}
+
+	reviewer := &fakeContentReviewer{result: ModelReviewResult{Model: "moderator", CategoryScores: map[string]float64{"self-harm": 0.1}}}
+	service = newFakeServiceWithOptions(t, repo, slots, WithContentReviewer(reviewer))
+	if _, err := service.Acquire(context.Background(), "student-1", "session_chat", "hello", true); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Acquire(incomplete review) error = %v", err)
+	}
+	if repo.insertedEvents[len(repo.insertedEvents)-1].EventType != "model_review_error" {
+		t.Fatalf("events = %#v", repo.insertedEvents)
+	}
+
+	reviewer.calls = 0
+	lease, err := service.Acquire(context.Background(), "student-1", "portrait_generate", "", false)
+	if err != nil {
+		t.Fatalf("Acquire(empty content) error = %v", err)
+	}
+	if reviewer.calls != 0 {
+		t.Fatalf("reviewer calls for empty content = %d", reviewer.calls)
+	}
+	_ = lease.Release(context.Background())
+}
+
 func TestContentExcerptRemovesControlsAndBoundsRunes(t *testing.T) {
 	got := contentExcerpt(" 你好\x00世界测试 ", 4)
 	if got != "你好世界" {
@@ -210,8 +320,12 @@ func TestContentExcerptRemovesControlsAndBoundsRunes(t *testing.T) {
 }
 
 func newFakeService(t *testing.T, repo Repository, slots SlotStore) *Service {
+	return newFakeServiceWithOptions(t, repo, slots)
+}
+
+func newFakeServiceWithOptions(t *testing.T, repo Repository, slots SlotStore, options ...Option) *Service {
 	t.Helper()
-	service, err := NewService(repo, slots)
+	service, err := NewService(repo, slots, options...)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
@@ -244,6 +358,7 @@ type fakeRepository struct {
 	eventTotal     int
 	eventFilter    EventListFilter
 	insertedEvents []RiskEvent
+	insertErr      error
 }
 
 func (r *fakeRepository) GetSettings(context.Context, []string) (map[string]string, error) {
@@ -280,7 +395,7 @@ func (r *fakeRepository) SetStudentAccess(_ context.Context, mutation StudentAcc
 
 func (r *fakeRepository) InsertRiskEvent(_ context.Context, event RiskEvent) error {
 	r.insertedEvents = append(r.insertedEvents, event)
-	return nil
+	return r.insertErr
 }
 
 func (r *fakeRepository) ListRiskEvents(_ context.Context, filter EventListFilter) ([]RiskEvent, int, error) {
@@ -313,4 +428,25 @@ func (s *fakeSlotStore) Acquire(_ context.Context, _, _ string, _ int, dailyLimi
 func (s *fakeSlotStore) Release(context.Context, string, string) error {
 	s.releaseCalls++
 	return s.err
+}
+
+type fakeContentReviewer struct {
+	result  ModelReviewResult
+	err     error
+	calls   int
+	content string
+}
+
+func (r *fakeContentReviewer) Review(_ context.Context, content string) (ModelReviewResult, error) {
+	r.calls++
+	r.content = content
+	return r.result, r.err
+}
+
+func safeModelScores() map[string]float64 {
+	scores := make(map[string]float64, len(modelReviewCategoryOrder))
+	for _, category := range modelReviewCategoryOrder {
+		scores[category] = 0
+	}
+	return scores
 }

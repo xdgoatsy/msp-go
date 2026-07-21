@@ -1,5 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { aiRiskService } from './aiRiskService';
+import type { AIModelReviewThresholds } from '@/modules/admin/types/aiRisk';
+
+const modelReviewThresholds: AIModelReviewThresholds = {
+  harassment: 0.98,
+  'harassment/threatening': 0.9,
+  hate: 0.65,
+  'hate/threatening': 0.65,
+  illicit: 0.95,
+  'illicit/violent': 0.95,
+  'self-harm': 0.65,
+  'self-harm/intent': 0.85,
+  'self-harm/instructions': 0.65,
+  sexual: 0.65,
+  'sexual/minors': 0.65,
+  violence: 0.95,
+  'violence/graphic': 0.95,
+};
 
 const apiClientMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -35,6 +52,8 @@ describe('aiRiskService', () => {
       daily_reply_limit: 80,
       max_concurrent_requests: 3,
       blocked_keywords: ['代考'],
+      model_review_enabled: true,
+      model_review_thresholds: modelReviewThresholds,
     });
     await aiRiskService.updateStudentAccess('student-1', { blocked: true, reason: '违规' });
 

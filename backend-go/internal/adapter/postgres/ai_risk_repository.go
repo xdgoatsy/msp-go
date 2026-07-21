@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -337,7 +338,15 @@ func (r AIRiskRepository) InsertRiskEvent(ctx context.Context, event airiskapp.R
 }
 
 func (r AIRiskRepository) insertRiskEvent(ctx context.Context, event airiskapp.RiskEvent) error {
-	_, err := r.DB().Exec(ctx, `
+	categoryScores := event.CategoryScores
+	if categoryScores == nil {
+		categoryScores = map[string]float64{}
+	}
+	categoryScoresJSON, err := json.Marshal(categoryScores)
+	if err != nil {
+		return fmt.Errorf("marshal AI risk category scores: %w", err)
+	}
+	_, err = r.DB().Exec(ctx, `
 		INSERT INTO public.student_ai_risk_events (
 			id,
 			student_id,
@@ -349,11 +358,15 @@ func (r AIRiskRepository) insertRiskEvent(ctx context.Context, event airiskapp.R
 			matched_rule,
 			content_excerpt,
 			content_hash,
+			review_model,
+			risk_score,
+			category_scores,
+			review_latency_ms,
 			actor_id,
 			event_date,
 			created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16::date, $17)`,
 		event.ID,
 		event.StudentID,
 		event.StudentUsername,
@@ -364,6 +377,10 @@ func (r AIRiskRepository) insertRiskEvent(ctx context.Context, event airiskapp.R
 		event.MatchedRule,
 		event.ContentExcerpt,
 		event.ContentHash,
+		event.ReviewModel,
+		event.RiskScore,
+		string(categoryScoresJSON),
+		event.ReviewLatencyMS,
 		event.ActorID,
 		event.EventDate,
 		event.CreatedAt,
@@ -378,7 +395,7 @@ func (r AIRiskRepository) ListRiskEvents(ctx context.Context, filter airiskapp.E
 	if filter.Search != "" {
 		args = append(args, "%"+filter.Search+"%")
 		placeholder := fmt.Sprintf("$%d", len(args))
-		conditions = append(conditions, "(student_username ILIKE "+placeholder+" OR matched_rule ILIKE "+placeholder+" OR content_excerpt ILIKE "+placeholder+")")
+		conditions = append(conditions, "(student_username ILIKE "+placeholder+" OR matched_rule ILIKE "+placeholder+" OR content_excerpt ILIKE "+placeholder+" OR review_model ILIKE "+placeholder+")")
 	}
 	if filter.EventType != "" {
 		args = append(args, filter.EventType)
@@ -403,6 +420,10 @@ func (r AIRiskRepository) ListRiskEvents(ctx context.Context, filter airiskapp.E
 			source,
 			matched_rule,
 			content_excerpt,
+			review_model,
+			risk_score,
+			category_scores,
+			review_latency_ms,
 			actor_id,
 			created_at
 		FROM public.student_ai_risk_events
@@ -419,6 +440,9 @@ func (r AIRiskRepository) ListRiskEvents(ctx context.Context, filter airiskapp.E
 	for rows.Next() {
 		var event airiskapp.RiskEvent
 		var studentID, actorID pgtype.Text
+		var riskScore pgtype.Float8
+		var reviewLatency pgtype.Int4
+		var categoryScoresJSON []byte
 		if err := rows.Scan(
 			&event.ID,
 			&studentID,
@@ -429,6 +453,10 @@ func (r AIRiskRepository) ListRiskEvents(ctx context.Context, filter airiskapp.E
 			&event.Source,
 			&event.MatchedRule,
 			&event.ContentExcerpt,
+			&event.ReviewModel,
+			&riskScore,
+			&categoryScoresJSON,
+			&reviewLatency,
 			&actorID,
 			&event.CreatedAt,
 		); err != nil {
@@ -436,6 +464,20 @@ func (r AIRiskRepository) ListRiskEvents(ctx context.Context, filter airiskapp.E
 		}
 		event.StudentID = textPtr(studentID)
 		event.ActorID = textPtr(actorID)
+		if riskScore.Valid {
+			score := riskScore.Float64
+			event.RiskScore = &score
+		}
+		if reviewLatency.Valid {
+			latency := int(reviewLatency.Int32)
+			event.ReviewLatencyMS = &latency
+		}
+		event.CategoryScores = map[string]float64{}
+		if len(categoryScoresJSON) > 0 {
+			if err := json.Unmarshal(categoryScoresJSON, &event.CategoryScores); err != nil {
+				return nil, 0, fmt.Errorf("decode AI risk category scores: %w", err)
+			}
+		}
 		items = append(items, event)
 	}
 	return items, total, rows.Err()

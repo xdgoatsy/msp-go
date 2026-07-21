@@ -1,7 +1,26 @@
+export type AIModelReviewCategory =
+  | 'harassment'
+  | 'harassment/threatening'
+  | 'hate'
+  | 'hate/threatening'
+  | 'illicit'
+  | 'illicit/violent'
+  | 'self-harm'
+  | 'self-harm/intent'
+  | 'self-harm/instructions'
+  | 'sexual'
+  | 'sexual/minors'
+  | 'violence'
+  | 'violence/graphic';
+
+export type AIModelReviewThresholds = Record<AIModelReviewCategory, number>;
+
 export interface AIRiskSettings {
   daily_reply_limit: number;
   max_concurrent_requests: number;
   blocked_keywords: string[];
+  model_review_enabled: boolean;
+  model_review_thresholds: AIModelReviewThresholds;
   reset_timezone: string;
   next_reset_at: string;
 }
@@ -10,6 +29,8 @@ export interface UpdateAIRiskSettingsRequest {
   daily_reply_limit: number;
   max_concurrent_requests: number;
   blocked_keywords: string[];
+  model_review_enabled: boolean;
+  model_review_thresholds: AIModelReviewThresholds;
 }
 
 export interface AIRiskOverview {
@@ -65,7 +86,12 @@ export interface AIStudentAccessResponse {
   blocked_at: string | null;
 }
 
-export type AIRiskEventType = 'content_blocked' | 'admin_blocked' | 'admin_unblocked';
+export type AIRiskEventType =
+  | 'content_blocked'
+  | 'model_blocked'
+  | 'model_review_error'
+  | 'admin_blocked'
+  | 'admin_unblocked';
 
 export interface AIRiskEvent {
   id: string;
@@ -77,6 +103,10 @@ export interface AIRiskEvent {
   source: string;
   matched_rule: string;
   content_excerpt: string;
+  review_model: string;
+  risk_score: number | null;
+  category_scores: Record<string, number>;
+  review_latency_ms: number | null;
   actor_id: string | null;
   created_at: string;
 }

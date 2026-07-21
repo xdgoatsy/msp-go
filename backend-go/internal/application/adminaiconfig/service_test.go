@@ -76,7 +76,7 @@ func TestUpdateAgentConfigValidatesModelAndBuildsRuntimeConfig(t *testing.T) {
 	}
 }
 
-func TestListAgentTypesIncludesOCRAndQuestionGeneratorInStableOrder(t *testing.T) {
+func TestListAgentTypesIncludesOperationalAgentsInStableOrder(t *testing.T) {
 	modelID := "model-1"
 	repo := &fakeRepo{
 		agentConfigs: map[string]AgentModelConfig{
@@ -90,7 +90,7 @@ func TestListAgentTypesIncludesOCRAndQuestionGeneratorInStableOrder(t *testing.T
 	if err != nil {
 		t.Fatalf("ListAgentTypes() error = %v", err)
 	}
-	wantTypes := []string{"math_solver", "ocr", "tutor", "diagnostician", "portrait", "question_parser", "question_generator"}
+	wantTypes := []string{"math_solver", "ocr", "tutor", "diagnostician", "portrait", "question_parser", "question_generator", "content_moderator"}
 	if len(response.Items) != len(wantTypes) {
 		t.Fatalf("items = %#v", response.Items)
 	}
@@ -103,9 +103,13 @@ func TestListAgentTypesIncludesOCRAndQuestionGeneratorInStableOrder(t *testing.T
 	if ocr.Name != "图片识别智能体" || !ocr.Configured {
 		t.Fatalf("OCR info = %#v", ocr)
 	}
-	last := response.Items[len(response.Items)-1]
-	if last.Name != "题目生成智能体" || !last.Configured {
-		t.Fatalf("question generator info = %#v", last)
+	questionGenerator := response.Items[len(response.Items)-2]
+	if questionGenerator.Name != "题目生成智能体" || !questionGenerator.Configured {
+		t.Fatalf("question generator info = %#v", questionGenerator)
+	}
+	moderator := response.Items[len(response.Items)-1]
+	if moderator.Name != "内容审核智能体" || moderator.Configured {
+		t.Fatalf("content moderator info = %#v", moderator)
 	}
 }
 
