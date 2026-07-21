@@ -7,7 +7,7 @@
 | 文档 | 定位 |
 |------|------|
 | [系统架构](technical/architecture.md) | 当前技术栈、系统边界、模块分层和关键运行契约 |
-| [开发指南](technical/development.md) | 本地开发、测试、代码组织和迁移流程 |
+| [开发指南](technical/development.md) | 本地开发、临时测试、代码组织和迁移流程 |
 | [部署指南](technical/deployment.md) | Docker Compose、生产配置、验证和回滚 |
 | [项目待办](TODO.md) | 唯一当前待办清单，包含优先级和完成条件 |
 
@@ -21,7 +21,7 @@
 | [后端 Python 到 Go 迁移跟踪](backend-python-to-go-refactor.md) | 仓库规则要求保留的迁移阶段记录和验证证据 |
 | [前端说明](../frontend/README.md) | 前端常用命令和目录约定 |
 | [第三方声明](../frontend/THIRD_PARTY_NOTICES.md) | 前端第三方素材与许可证声明 |
-| [协作规则](../AGENTS.md) | 代码质量、测试、Git 和迁移文档约束 |
+| [协作规则](../AGENTS.md) | 代码质量、临时测试清理、Git 和迁移文档约束 |
 
 ## 历史归档
 
@@ -33,4 +33,3 @@
 2. 当前架构、开发或部署行为变化时，更新 `technical/` 下对应文档。
 3. 已完成且只具备追溯价值的方案、审计和报告移入 `archive/`，并在归档索引登记。
 4. 后端迁移阶段发生开始、阻塞、恢复或完成时，仍必须同步更新 `backend-python-to-go-refactor.md`。
-

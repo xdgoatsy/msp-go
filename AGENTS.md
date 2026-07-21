@@ -22,11 +22,12 @@
 
 ### Testing
 
-- Test all public functions.
-- Test edge cases and error conditions.
-- Mock external dependencies.
-- Target 80%+ coverage for core business logic where practical.
-- Record phase-level verification evidence in the migration tracker.
+- Do not keep or commit test case source files in the repository. This includes `*_test.go`, `*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `__tests__/`, `test/`, and `tests/`.
+- Finish the production implementation first, then create only the temporary tests needed to verify it.
+- Temporary tests must cover public behavior, edge cases, error conditions, and external dependency failure paths; mock or isolate external dependencies.
+- Run the temporary tests and record the commands and results. Target 80%+ coverage for core business logic where practical while those tests exist.
+- Delete all temporary test sources and test-only fixtures before staging or committing. Test runner configuration and dependencies may remain so later work can repeat this workflow.
+- Record phase-level verification evidence in the migration tracker without retaining the test source files.
 
 ### Error Handling
 
@@ -39,7 +40,7 @@
 
 ### Incremental Progress
 
-- Make small, testable changes.
+- Make small, independently verifiable changes.
 - Commit or checkpoint working code frequently when git metadata is available.
 - Build on previous subtasks and keep context continuous.
 
@@ -47,7 +48,7 @@
 
 - Study 3+ similar patterns before implementing.
 - Match project style exactly.
-- Verify behavior with existing code, tests, or documented contracts.
+- Verify behavior with existing code, temporary tests, runtime checks, or documented contracts.
 
 ### Pragmatic Execution
 
@@ -59,13 +60,14 @@
 
 - Reuse established migration decisions.
 - Maintain module boundaries already documented in the migration tracker.
-- Test integration between completed phases and newly migrated phases.
+- Temporarily test integration between completed phases and newly migrated phases, record the result, and remove the test sources before commit.
 
 ## Git Operations and Parallel Task Safety
 
 - Only stage or commit files directly produced by the current task.
 - Use `git add <specific-files>` instead of `git add .`.
 - Verify staged files before committing.
+- Never stage or commit test case source files or test-only fixtures; remove them after their verification run.
 - Never touch unrelated changes or other task outputs.
 - Treat pre-existing uncommitted changes as intentional work in progress.
 - If the task conflicts with existing uncommitted changes, stop and report the conflict instead of overwriting.
@@ -101,12 +103,13 @@ If those MCP tools are unavailable in the current environment, use fast shell to
 ### During
 
 - Follow existing patterns.
-- Write or update tests alongside code when behavior changes.
-- Run relevant tests after changes.
+- After production code is complete, create or update temporary tests for the changed behavior.
+- Run relevant temporary tests, record their commands and results, then delete the test sources before staging.
 - Keep the migration tracker current for backend Go rewrite work.
 
 ### After
 
-- Ensure relevant tests pass or report why they were not run.
+- Ensure relevant temporary tests pass or report why they were not run, and ensure their source files have been removed.
+- Confirm no test case source file is staged or tracked before handoff.
 - Ensure expected deliverables are complete.
 - Update documentation and phase status when a migration phase changes.

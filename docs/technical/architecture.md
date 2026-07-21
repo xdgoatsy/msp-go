@@ -63,11 +63,12 @@ backend-go/
 ├── internal/adapter/storage/   # 本地、七牛和 S3 存储
 ├── internal/integration/       # 西电账户验证等外部集成
 ├── internal/platform/          # 配置、HTTP 公共能力、缓存、指标和安全基础设施
-├── migrations/                 # Go forward migrations
-└── tests/contract/             # 路由、前端调用面和 AI 边界契约
+└── migrations/                 # Go forward migrations
 ```
 
 依赖方向以应用层接口为中心：HTTP 适配器负责协议转换，PostgreSQL、Redis、存储、LLM 和外部服务通过适配器接入，应用服务负责业务规则与事务编排。
+
+测试源码不属于永久目录结构。每次变更在生产代码完成后创建临时单元、集成或契约测试，验证并记录结果后删除；测试运行器配置可保留供后续重复使用。
 
 ## 核心领域
 

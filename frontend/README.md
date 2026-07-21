@@ -7,14 +7,14 @@ React 19 + TypeScript 5.9 + Vite 7 前端应用，按学生、教师、管理员
 ```bash
 npm install
 npm run dev
-npm test
-npm run test:coverage
 npm run lint
 npm run build
 npm run preview
 ```
 
 本地开发服务器默认为 `http://localhost:5173`，API 请求通过 Vite 或 Nginx 配置转发到 Go 后端。
+
+Vitest 和 Testing Library 配置继续保留，用于代码完成后的临时验证。临时测试可通过 `npm test -- <temporary-test-path>` 或 `npm run test:coverage -- <temporary-test-path>` 运行；通过后必须记录结果并删除测试源码及专用 fixture/mock，禁止提交 `*.test.*`、`*.spec.*`、`__tests__/` 或 `test/`。完整规则见 [开发指南](../docs/technical/development.md)。
 
 ## 目录约定
 

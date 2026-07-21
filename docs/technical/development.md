@@ -42,9 +42,8 @@ Go 后端：
 
 ```powershell
 Set-Location backend-go
-go test ./... -count=1
-go test ./tests/contract -count=1
 go vet ./...
+go build ./...
 gofmt -w <changed-go-files>
 ```
 
@@ -52,8 +51,6 @@ gofmt -w <changed-go-files>
 
 ```powershell
 Set-Location frontend
-npm test
-npm run test:coverage
 npm run lint
 npm run build
 ```
@@ -65,7 +62,29 @@ git diff --check
 git status --short
 ```
 
-测试范围应覆盖公共行为、边界输入、错误条件和外部依赖降级。修改共享契约时同时运行 Go 契约测试和对应前端测试。
+## 临时测试规则
+
+仓库不永久保留或提交测试用例源码。生产代码完成后，才按本次变更创建临时 `*_test.go`、`*.test.ts(x)` 或 `*.spec.ts(x)`；测试范围覆盖公共行为、边界输入、错误条件和外部依赖降级，修改共享契约时同时做 Go 与前端临时契约验证。
+
+测试运行器配置和依赖可以保留。临时测试存在时按需运行：
+
+```powershell
+# Go：只运行受影响包，必要时再扩大范围
+Set-Location backend-go
+go test <affected-packages> -count=1
+
+# 前端：传入本次创建的临时测试文件
+Set-Location ../frontend
+npm test -- <temporary-test-path>
+npm run test:coverage -- <temporary-test-path>
+```
+
+测试通过后先记录命令、结果和必要覆盖率，再按明确路径删除本次临时测试及其专用 fixture/mock；禁止使用宽泛递归删除。提交前在仓库根目录确认以下命令没有输出：
+
+```powershell
+git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.test.js" "*.test.jsx" "*.spec.ts" "*.spec.tsx" "*.spec.js" "*.spec.jsx" "test_*.py" "*_test.py"
+git diff --cached --name-only --diff-filter=ACMR | Select-String -Pattern '(_test\.go|\.(test|spec)\.(ts|tsx|js|jsx)|(^|/)test_.*\.py|_test\.py)$'
+```
 
 ## 代码组织
 
@@ -82,7 +101,7 @@ git status --short
 - `adapter/http` 负责请求解析、鉴权、响应和协议错误映射。
 - `adapter/postgres` 负责 SQL、扫描和持久化语义。
 - `platform` 只承载跨领域基础能力，不放业务规则。
-- 新外部依赖通过接口和适配器接入，并在测试中替换为 fake 或 mock。
+- 新外部依赖通过接口和适配器接入，并在临时测试中替换为 fake 或 mock。
 
 完整协作约束见 [AGENTS.md](../../AGENTS.md)。
 
@@ -93,7 +112,7 @@ git status --short
 ```powershell
 Set-Location backend-go
 go run ./cmd/migrate
-go test ./migrations -count=1
+go run ./cmd/migrate  # 重复执行应无待应用版本
 ```
 
 不要重建或修改 `0001_initial_schema.up.sql` 来承载增量变化。生产回滚依赖备份恢复或经过评审的补偿性 forward migration，详见 [迁移策略](../../backend-go/migrations/README.md)。

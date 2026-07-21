@@ -222,7 +222,7 @@ backend-go/
 | P5 内容与教学管理域 | DONE | 迁移题库、资源、班级、教师统计、知识点 | `/questions`、`/resources`、`/classes`、`/teacher`、`/admin/knowledge` | 12.6 |
 | P6 AI and Agent capabilities | IN_PROGRESS | Integrate the new Eino-based AI/Agent architecture and remove explicit TODO/placeholders incrementally | Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR Agent and admin config loop wired; OCR/general-math slice delivered; token streaming and live provider quality acceptance pending | 12.7 |
 | P7 集成与运维域 | IN_PROGRESS | 维护西电账户绑定、上传、系统设置、安全日志、监控和管理员辅助能力 | `/xidian`、`/upload`、`/admin/settings`、`/admin/security-logs`、`/admin/inbox`、`/admin/stats`、`/metrics` | 12.8 |
-| P8 静态契约验证与用户验收交接 | DONE | 保留 Go 静态契约守卫，运行时双跑和业务验收由用户自行执行 | Contract tests、用户验收交接记录 | 12.9 |
+| P8 静态契约验证与用户验收交接 | DONE | 完成 Go 静态契约验证并保留证据，运行时双跑和业务验收由用户自行执行 | 历史契约验证记录、用户验收交接记录 | 12.9 |
 | P9 流量切换与 Python 下线 | DONE | 切换默认生产入口并删除旧 Python 后端目录 | 部署配置、下线记录、删除清单 | 12.10 |
 
 ---
@@ -454,33 +454,36 @@ backend-go/
 
 ### 9.1 测试层级
 
+以下测试层级仍是迁移验收要求，但测试源码只在生产实现完成后临时创建。运行通过并记录命令、结果和必要覆盖率后，必须在提交前删除，不作为永久交付物。
+
 | 层级 | 目标 |
 |------|------|
-| 单元测试 | 覆盖领域规则、错误分支、输入校验 |
-| Repository 集成测试 | 验证 SQL、事务、约束、回滚 |
-| API 契约测试 | 验证请求、响应、状态码、错误码 |
-| 双跑测试 | 同输入比较 Python 与 Go 输出 |
-| 端到端测试 | 覆盖学生、教师、管理员核心流程 |
-| 性能测试 | 对比延迟、吞吐、内存、连接池行为 |
+| 临时单元测试 | 覆盖领域规则、错误分支、输入校验 |
+| 临时 Repository 集成测试 | 验证 SQL、事务、约束、回滚 |
+| 临时 API 契约测试 | 验证请求、响应、状态码、错误码 |
+| 临时双跑测试 | 同输入比较 Python 与 Go 输出；仅适用于仍有基线的历史阶段 |
+| 运行时验收 | 覆盖学生、教师、管理员核心流程 |
+| 临时性能验证 | 对比延迟、吞吐、内存、连接池行为 |
 
 ### 9.2 最低验收门槛
 
-- 新增 Go 公共函数必须有测试。
-- 每个迁移阶段至少包含对应 API 契约测试。
-- 核心业务模块覆盖正常路径、权限失败、输入错误和依赖失败。
+- 新增 Go 公共函数必须在实现完成后通过临时测试验证。
+- 每个迁移阶段至少执行对应的临时 API 契约验证，并记录命令和结果。
+- 核心业务模块的临时测试覆盖正常路径、权限失败、输入错误和依赖失败。
 - 外部依赖必须 mock 或使用隔离测试环境。
-- 覆盖率目标沿用项目要求：核心逻辑 80%+。
+- 临时测试存在期间，核心逻辑覆盖率目标仍为 80%+。
+- `*_test.go`、`*.test.*`、`*.spec.*`、`test/`、`tests/`、`__tests__/` 及测试专用 fixture/mock 不得提交；测试运行器配置和依赖可保留。
 
 ### 9.3 建议验证命令占位
 
-具体命令在 P1 技术选型后补齐：
+生产代码完成并创建临时测试后，按变更范围执行：
 
 ```powershell
-# Go 单元测试
-go test ./...
+# Go 临时测试
+go test <affected-packages> -count=1
 
 # Go 格式化检查
-gofmt -w .
+gofmt -w <changed-go-files>
 
 # Go 静态检查
 go vet ./...
@@ -488,15 +491,17 @@ go vet ./...
 # Go 数据迁移
 go run ./cmd/migrate
 
-# PostgreSQL Repository/迁移集成测试（需要测试库）
+# PostgreSQL Repository/迁移临时集成测试（需要隔离数据库）
 $env:MSP_GO_TEST_DATABASE_URL="postgres://postgres:postgres@localhost:5432/math_platform_test"
-go test ./internal/platform/migration -run TestPostgresStoreIntegration
+go test <temporary-integration-test-package> -count=1
 
-# Python 基线测试
-pytest
+# 前端临时测试
+Set-Location ../frontend
+npm test -- <temporary-test-path>
 
-# API 契约测试
-# TODO: P0/P1 后补齐
+# 记录结果后按明确路径删除临时测试，再确认没有测试源码被跟踪
+Set-Location ..
+git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx" "test_*.py" "*_test.py"
 ```
 
 ---
@@ -571,6 +576,7 @@ pytest
 | R65 | 个人中心邮箱验证/换绑按钮必然本地抛错，手机绑定按钮无事件，且 `email_verified` 无 Go 数据来源 | 用户被长期显示为“未验证”并进入必败或无响应交互，前端缓存维护不存在的服务端状态 | MITIGATED | 2026-07-10 删除邮箱绑定/验证弹窗、占位 service/test、`email_verified` 缓存字段和无事件手机绑定行；注册邮箱保留只读展示并继续用于账户联系与密码找回；未来恢复自助换绑需先补完整 Go 安全边界 |
 | R66 | 学生 AI 内容风控的关键词规则和可选上游模型审查仍存在语义边界 | 模型审查关闭时，变体、谐音、拆字、多语言或隐含意图可能绕过关键词；启用后仍依赖上游分类语义、13 类固定分类和人工设定阈值，可能误拦正常学习讨论或漏过教育场景特有风险 | MITIGATED | 2026-07-21 首版关键词命中时不调用模型并记录规则、内容摘要和哈希；version 5 新增可配置 `content_moderator` 同步前置审查、13 类阈值、模型失败关闭和分类分数审计。模型审查默认关闭，管理员需先配置审核 Agent 再启用；规则版本、申诉/人工复核、误报/漏报指标和教育场景阈值校准仍待补齐 |
 | R67 | 学生 AI 并发与在途额度预留依赖 Redis，且数据库用量账本与 Redis 租约不存在跨系统事务 | Redis 故障会暂时拒绝全部受控 AI 请求；回复持久化失败或租约释放失败时可能在 TTL 内少一个可用槽位 | MITIGATED | 2026-07-21 风控采用 fail-closed，禁止 Redis 故障时绕过封禁/并发/额度；每个租约有 10 分钟 TTL，释放幂等，数据库以单条 CTE 原子写入成功回复和不可回退的额度账本。后续应增加 Redis 可用性告警、租约拒绝指标和多节点故障演练；当前 key 设计仅按单节点 Redis 验证，未声明 Redis Cluster 兼容 |
+| R68 | 仓库不再永久保留测试用例源码 | 后续变更缺少持续回归守卫，历史用例无法直接重复运行，缺陷可能在临时验证未覆盖时回归 | ACCEPTED | 2026-07-21 按用户要求改为“实现完成后创建临时测试、运行并记录、提交前删除”；保留 Go/Vitest 测试运行能力，以 `.gitignore` 和提交前检查阻止测试源码入库，并要求迁移批次保存验证命令、结果、覆盖率与残余风险。该策略不能提供永久回归保护，需用更严格的变更级临时测试、静态检查、构建和运行时验收补偿 |
 | R9 | 当前机器未配置可连接 PostgreSQL 测试库且 Docker CLI 不可用 | P2 数据库迁移/Repository 集成验收不能在本机闭环 | CLOSED | 已使用本地 PostgreSQL `math_platform` 执行清库、Go 迁移、重复迁移和迁移集成测试；Docker CLI 仍不可用但不阻塞 P2 |
 
 ---
@@ -710,8 +716,8 @@ pytest
 - 负责人：Codex
 - 验证命令：`gofmt -w backend-go/tests/contract/response_shape_surface_test.go`、`gofmt -w backend-go/tests/contract/request_shape_surface_test.go`、`gofmt -w backend-go/tests/contract/error_body_surface_test.go`、`gofmt -w backend-go/internal/application/mistake/service.go backend-go/internal/application/mistake/service_test.go backend-go/internal/adapter/http/mistake/handler.go backend-go/internal/adapter/http/mistake/handler_test.go backend-go/tests/contract/response_shape_surface_test.go`、`go test ./internal/application/mistake ./internal/adapter/http/mistake ./tests/contract -count=1`、`go test ./tests/contract -count=1`、`go test ./... -count=1`、`go vet ./...`、`git diff --check -- ...`、`npm install`、`npm run build`
 - 验证结果：新增 route-surface contract test，静态解析 legacy FastAPI `@router.*` 装饰器和 Go `mux.HandleFunc` 注册，逐模块比较非 AI `/api/v1` 路由；当时 `/admin/ai-config` 作为 AI 范围跳过等价实现检查，并要求 Go 存在精确路径和子路径 TODO placeholder（2026-06-29 已替换为真实配置路由）。追加 success-status、explicit error-status、error-body、frontend route audit、response-shape 和 request-shape contract tests；覆盖 Go 路由注册、前端 API 调用、稳定错误字段、非 AI 顶层请求/响应字段和 AI TODO 边界。2026-05-07 用户确认运行时双跑和比对由用户自行测试，P8 不再阻塞 Python 后端删除。
-- 交付物链接：`backend-go/tests/contract/route_surface_test.go`、`backend-go/tests/contract/error_body_surface_test.go`、`backend-go/tests/contract/frontend_route_surface_test.go`、`docs/archive/migration/backend-go-migration-completion-audit.md`、`backend-go/internal/application/mistake/service.go`、`backend-go/internal/application/mistake/service_test.go`、`backend-go/internal/adapter/http/mistake/handler.go`、`backend-go/internal/adapter/http/mistake/handler_test.go`、`backend-go/internal/adapter/http/question/handler.go`、`backend-go/internal/adapter/http/knowledge/handler.go`
-- 遗留风险：当前 P8 保留 Go 路由注册、前端 API 覆盖、错误响应字段和 AI 能力边界等静态守卫。2026-05-07 用户明确确认“不用双跑，不用比对，用户自行测试”，因此真实运行时 smoke、Docker/Compose 实机验证、业务流程回归、性能基线、动态响应细节和外部服务 live 集成不再阻塞 Python 下线，由用户验收承担。历史前端例外清单已在后续切片逐项收敛；2026-07-10 邮箱与作业的剩余假 UI 已删除，不再作为产品侧待决入口。
+- 历史交付物链接：`backend-go/tests/contract/route_surface_test.go`、`backend-go/tests/contract/error_body_surface_test.go`、`backend-go/tests/contract/frontend_route_surface_test.go`、`docs/archive/migration/backend-go-migration-completion-audit.md`、`backend-go/internal/application/mistake/service.go`、`backend-go/internal/application/mistake/service_test.go`、`backend-go/internal/adapter/http/mistake/handler.go`、`backend-go/internal/adapter/http/mistake/handler_test.go`、`backend-go/internal/adapter/http/question/handler.go`、`backend-go/internal/adapter/http/knowledge/handler.go`；其中测试源码已于 2026-07-21 按仓库策略删除，路径仅保留为历史证据。
+- 遗留风险：P8 曾以 Go 路由注册、前端 API 覆盖、错误响应字段和 AI 能力边界等静态守卫完成验证；这些守卫源码已于 2026-07-21 按用户要求删除，后续变更必须临时重建对应契约验证，持续回归保护弱于永久测试。2026-05-07 用户明确确认“不用双跑，不用比对，用户自行测试”，因此真实运行时 smoke、Docker/Compose 实机验证、业务流程回归、性能基线、动态响应细节和外部服务 live 集成不再阻塞 Python 下线，由用户验收承担。历史前端例外清单已在后续切片逐项收敛；2026-07-10 邮箱与作业的剩余假 UI 已删除，不再作为产品侧待决入口。
 
 ### 12.10 P9 流量切换与 Python 下线
 
@@ -728,7 +734,7 @@ pytest
 
 ## 13. 后续待补充
 
-- P0 后补充实际 OpenAPI 导出路径和契约测试入口。
+- P0 后补充实际 OpenAPI 导出路径和临时契约验证流程。
 - P1 后补充 Go 技术栈版本和标准命令。
 - P2 已补充数据库迁移工具、目录和回滚命令；后续变更按 Go forward migration 追加。
 - P6 后补充 AI/Agent 详细设计。
@@ -750,7 +756,7 @@ pytest
 
 用户明确表示“不用双跑，不用比对，我自己会测试”，因此以下运行时验收不再阻塞 `backend/` 清理：
 
-1. Go 后端全量测试、vet 和集成测试。
+1. Go 后端变更级临时测试、vet、构建和必要集成验证；测试源码在记录结果后删除。
 2. Docker/Compose 镜像构建、`msp-migrate` 实机烟测和迁移幂等验证。
 3. 浏览器/API flow smoke、核心业务读写流程和性能基线。
 4. 外部对象存储、西电账户绑定 live 验证等外部服务集成验证。
@@ -1421,3 +1427,12 @@ pytest
 - 浏览器验收结果：`1707x899` 桌面视口和 `390x844` 移动视口均完整显示 13 个阈值控件且无横向溢出；模型审查开关和移动抽屉交互通过，最终刷新无新增控制台错误或警告。验收截图为 `ai-risk-model-review-desktop.png` 和 `ai-risk-model-review-mobile.png`。
 - 交付物：`backend-go/internal/adapter/llm/moderation/`、`backend-go/internal/application/airisk/`、`backend-go/internal/application/adminaiconfig/service.go`、`backend-go/internal/adapter/postgres/ai_risk_repository.go`、`backend-go/cmd/api/main.go`、`backend-go/migrations/0005_student_ai_model_moderation.up.sql`、`frontend/src/pages/admin/AIRiskControlPage.tsx`、`frontend/src/modules/admin/components/AdminLayout.tsx`、相关类型与测试，以及本迁移追踪记录。
 - 残余风险：模型审查默认关闭，未显式配置并启用时仍只有关键词规则；OpenAI-compatible provider 对 `/v1/moderations` 的支持和分类语义并不完全一致，启用不兼容 provider 会按设计暂停受控请求。13 类默认阈值参考通用审核模型，尚未以真实学生输入完成教育场景校准；申诉/人工复核、规则版本、误报/漏报与成本指标、事件自动保留/脱敏周期仍待实现。本轮未执行真实外部审核 provider 的成本/质量压测或多实例 Redis 故障演练；预存 `backend/` 继续阻断唯一 Go-only 目录契约。
+
+- 仓库测试源码保留策略清理（P8 治理收尾）启动状态：`IN_PROGRESS`；启动日期：2026-07-21；最终状态：`DONE`；完成日期：2026-07-21。P8 阶段状态仍为 `DONE`，本次只调整后续验证和交付策略，不修改 API、数据库 schema、部署行为或迁移范围。
+- 本批次范围：按用户要求删除仓库内全部测试用例源码和测试专用 setup，移除空测试目录及本地 coverage/uploads-test 产物；将协作规则改为生产代码完成后创建临时测试、运行并记录、提交前删除，测试运行器配置和依赖继续保留。
+- 删除前验证命令：后端 `GOCACHE=E:\code\msp-go\.gocache go test ./... -count=1 -skip '^TestLegacyPythonBackendDirectoryIsAbsent$'`；前端 `npm test -- --reporter=dot --silent`。
+- 删除前验证结果：Go 全仓除既有 `backend/` 目录守卫外全部通过；前端 61 个测试文件、374 个用例全部通过。随后删除 131 个 Go `*_test.go`、61 个前端 `*.test.ts(x)` 和 `frontend/src/test/setup.ts`，共 193 个已跟踪文件；同时删除 15 个空测试目录、空 `uploads-test/` 和 763 个约 17 MB 的旧 coverage 生成文件。
+- 清理后验证命令：后端 `go test ./... -count=1`、`go vet ./...`、`go build ./...`；前端 `npm test -- --passWithNoTests --reporter=dot`、`npm run lint`、`npm run build`；仓库根目录测试源码 `rg --files -uu` 定向扫描和 `git diff --check`。
+- 清理后验证结果：所有 Go 包均报告 `[no test files]` 并成功编译，vet 与 build 通过；Vitest 确认零测试文件并以 code 0 退出，前端 lint 0 error，TypeScript 与 Vite 生产构建通过；定向扫描无剩余测试源码，`git diff --check` 通过。coverage 产物删除前 lint 的 6 条既有 warning 随产物一并消失。
+- 交付物：删除上述 193 个测试相关源码；更新 `.gitignore`、`AGENTS.md`、`README.md`、`frontend/vitest.config.ts`、`frontend/README.md`、`docs/README.md`、`docs/TODO.md`、`docs/technical/architecture.md`、`docs/technical/development.md`、`docs/technical/deployment.md` 和本迁移追踪记录。
+- 残余风险：永久测试和静态契约守卫删除后，仓库不再提供可直接重复运行的回归套件，验证质量依赖每次变更重新编写足够的临时测试并准确记录结果；默认 `npm test` 在零用例时会非零退出，需要清洁工作区验证测试运行器时显式传入 `--passWithNoTests`。`.gitignore` 只能阻止未跟踪测试源码被默认加入，强制添加仍可绕过，因此提交前仍必须检查 staged 文件；Go/Vitest 配置与依赖保留，不属于测试用例交付物。

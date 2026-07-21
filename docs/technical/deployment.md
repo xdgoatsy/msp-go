@@ -94,14 +94,14 @@ docker compose logs --tail 200 backend
 6. 分别提交真实 PNG、JPEG 图片和空白/低对比图片，确认成功路径只产生一次 attempt，并各执行一次 session、DKT 和 profile 更新；OCR/数学不确定或失败路径的这些写入均为零。图片 OCR 当前只接受 PNG、JPEG 和 GIF。
 7. 验证通用数学判定的 `correct`、`incorrect`、`indeterminate` 响应，以及解析生成不可用、超时、取消、无效输出和验证失败的 `failure.stage`、`failure.code`、`retryable` 契约。
 
-仓库内非网络验收覆盖真实 PNG/JPEG 的上传、存储回读、多模态 Base64 传递和学习状态写入边界：
+仓库不永久保留验收测试源码。发布前按 [开发指南](development.md) 临时创建非网络验收用例，覆盖真实 PNG/JPEG 的上传、存储回读、多模态 Base64 传递和学习状态写入边界，运行并记录结果后删除：
 
 ```powershell
 Set-Location backend-go
 go test ./internal/adapter/llm/einoagent -run 'TestAnswerImageSubmission' -count=1 -v
 ```
 
-发布环境还应使用目标视觉 provider 执行 live OCR 质量验收。测试包含 `x+1`、`42`、空白 PNG 和低对比 JPEG；凭据只通过环境变量提供，不写入仓库：
+发布环境还应使用目标视觉 provider 执行 live OCR 质量验收。临时用例包含 `x+1`、`42`、空白 PNG 和低对比 JPEG；凭据只通过环境变量提供，不写入仓库，用例通过后立即删除：
 
 ```powershell
 $env:MSP_LIVE_OCR_ACCEPTANCE = '1'
@@ -111,7 +111,7 @@ $env:MSP_OCR_ACCEPTANCE_MODEL = '<vision-model>'
 go test ./internal/adapter/llm/einoagent -run 'TestLiveAnswerOCR' -count=1 -v
 ```
 
-目标 Math Solver provider 的通用题型质量验收使用独立开关，覆盖三角恒等、极限、不定积分、方程解集、矩阵、证明和错误步骤拒绝：
+目标 Math Solver provider 的通用题型质量验收使用独立开关和临时用例，覆盖三角恒等、极限、不定积分、方程解集、矩阵、证明和错误步骤拒绝；记录结果后删除用例源码：
 
 ```powershell
 $env:MSP_LIVE_MATH_ACCEPTANCE = '1'
