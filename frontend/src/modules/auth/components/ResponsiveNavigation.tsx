@@ -284,41 +284,47 @@ export const ResponsiveNavigation: React.FC<ResponsiveNavigationProps> = ({ item
   const overflowItems = items.slice(clampedVisibleItemCount);
 
   return (
-    <div ref={containerRef} className="relative hidden min-w-0 flex-1 items-center justify-center md:flex">
-      <nav aria-label="主导航" className="flex min-w-0 items-center gap-1">
-        {visibleItems.map((item) => (
-          <NavigationItemLink
-            key={item.href}
-            item={item}
-            isActive={isNavigationItemActive(pathname, item.href)}
-            isTeacher={isTeacher}
-          />
-        ))}
-        {overflowItems.length > 0 && (
-          <OverflowNavigationMenu
-            items={overflowItems}
-            pathname={pathname}
-            isTeacher={isTeacher}
-          />
-        )}
+    <>
+      <nav aria-label="主导航" className="shrink-0 md:hidden">
+        <OverflowNavigationMenu items={items} pathname={pathname} isTeacher={isTeacher} />
       </nav>
 
-      <div
-        ref={measurementRef}
-        aria-hidden="true"
-        className="invisible pointer-events-none absolute left-0 top-0 flex w-max items-center gap-1"
-      >
-        {items.map((item) => (
-          <NavigationItemLink
-            key={item.href}
-            item={item}
-            isActive={false}
-            isTeacher={isTeacher}
-            measurement
-          />
-        ))}
-        <OverflowTrigger isActive={false} isTeacher={isTeacher} measurement />
+      <div ref={containerRef} className="relative hidden min-w-0 flex-1 items-center justify-center md:flex">
+        <nav aria-label="主导航" className="flex min-w-0 items-center gap-1">
+          {visibleItems.map((item) => (
+            <NavigationItemLink
+              key={item.href}
+              item={item}
+              isActive={isNavigationItemActive(pathname, item.href)}
+              isTeacher={isTeacher}
+            />
+          ))}
+          {overflowItems.length > 0 && (
+            <OverflowNavigationMenu
+              items={overflowItems}
+              pathname={pathname}
+              isTeacher={isTeacher}
+            />
+          )}
+        </nav>
+
+        <div
+          ref={measurementRef}
+          aria-hidden="true"
+          className="invisible pointer-events-none absolute left-0 top-0 flex w-max items-center gap-1"
+        >
+          {items.map((item) => (
+            <NavigationItemLink
+              key={item.href}
+              item={item}
+              isActive={false}
+              isTeacher={isTeacher}
+              measurement
+            />
+          ))}
+          <OverflowTrigger isActive={false} isTeacher={isTeacher} measurement />
+        </div>
       </div>
-    </div>
+    </>
   );
 };

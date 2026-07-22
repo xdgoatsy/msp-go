@@ -29,10 +29,8 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps):
     switch (role) {
       case 'admin':
         return '/admin/dashboard';
-      case 'teacher':
-        return '/teacher/dashboard';
       default:
-        return '/my-class';
+        return '/home';
     }
   };
 

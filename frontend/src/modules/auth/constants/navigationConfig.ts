@@ -1,4 +1,5 @@
 import {
+  Home,
   GraduationCap,
   LayoutDashboard,
   MessageSquare,
@@ -26,6 +27,7 @@ export interface NavItem {
  * - 单一职责: 只负责导航配置，不包含业务逻辑
  */
 export const studentNavItems: NavItem[] = [
+  { label: '首页', href: '/home', icon: Home },
   { label: '我的班级', href: '/my-class', icon: Users },
   { label: '智能刷题', href: '/exercise', icon: GraduationCap },
   { label: 'AI 辅导', href: '/session/new', icon: MessageSquare },
@@ -39,6 +41,7 @@ export const studentNavItems: NavItem[] = [
  * 教师导航菜单配置
  */
 export const teacherNavItems: NavItem[] = [
+  { label: '首页', href: '/home', icon: Home },
   { label: '教学概览', href: '/teacher/dashboard', icon: LayoutDashboard },
   { label: '班级管理', href: '/teacher/classes', icon: Users },
   { label: '学生管理', href: '/teacher/students', icon: Users },

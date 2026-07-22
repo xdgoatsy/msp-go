@@ -145,12 +145,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess, onSwitchToRegis
         onSuccess();
       }
 
-      // Navigate based on role
-      if (response.user.role === 'teacher') {
-        navigate('/teacher/dashboard');
-      } else {
-        navigate('/my-class');
-      }
+      navigate('/home');
     } catch (err) {
       authLogger.security('Login failed', {
         username: data.username,

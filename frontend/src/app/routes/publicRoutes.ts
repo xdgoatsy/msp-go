@@ -3,6 +3,7 @@ import type { RouteConfig } from './index';
 
 // 公共页面懒加载
 const WelcomePage = lazy(() => import('@/pages/common/WelcomePage').then(m => ({ default: m.WelcomePage })));
+const PersonalHomePage = lazy(() => import('@/pages/common/PersonalHomePage').then(m => ({ default: m.PersonalHomePage })));
 const ProfilePage = lazy(() => import('@/pages/common/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const PrivacyPolicyPage = lazy(() => import('@/pages/common/PrivacyPolicyPage').then(m => ({ default: m.PrivacyPolicyPage })));
 const TermsOfServicePage = lazy(() => import('@/pages/common/TermsOfServicePage').then(m => ({ default: m.TermsOfServicePage })));
@@ -15,6 +16,7 @@ const ContactPage = lazy(() => import('@/pages/common/ContactPage').then(m => ({
  */
 export const publicRoutes: RouteConfig[] = [
   { path: '/welcome', component: WelcomePage, title: '欢迎', protected: false },
+  { path: '/home', component: PersonalHomePage, title: '首页', protected: true },
   { path: '/privacy-policy', component: PrivacyPolicyPage, title: '隐私政策', protected: false },
   { path: '/terms-of-service', component: TermsOfServicePage, title: '服务条款', protected: false },
   { path: '/guide', component: GuidePage, title: '使用指南', protected: false },

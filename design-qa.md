@@ -1,89 +1,97 @@
-# Operations Dashboard Design QA
+# Personal Home Design QA
 
 ## Comparison Target
 
-- Source visual truth: `C:/Users/Administrator/AppData/Local/Temp/codex-clipboard-8630c0b6-8932-465d-8913-a1df9502c26c.png`.
-- User-reported before state: `C:/Users/Administrator/AppData/Local/Temp/codex-clipboard-8369a514-9062-4cf4-8120-df8d11393f4e.png`.
-- Implementation URL: `http://localhost:5173/admin/dashboard`.
-- Desktop implementation screenshot: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f8567-5822-7fe3-a66a-2bb543ff73b7/ops-dashboard/operations-dashboard-desktop-final.png`.
-- Mobile implementation screenshot: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f8567-5822-7fe3-a66a-2bb543ff73b7/ops-dashboard/operations-dashboard-mobile-final.png`.
-- Reset confirmation desktop screenshot: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f8567-5822-7fe3-a66a-2bb543ff73b7/ops-dashboard/operations-reset-confirm-desktop.png`.
-- Reset confirmation mobile screenshot: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f8567-5822-7fe3-a66a-2bb543ff73b7/ops-dashboard/operations-reset-confirm-mobile.png`.
-- Business overview screenshot: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f8567-5822-7fe3-a66a-2bb543ff73b7/ops-dashboard/business-overview-mobile-final.png`.
-- Combined comparison evidence: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f8567-5822-7fe3-a66a-2bb543ff73b7/ops-dashboard/reference-vs-implementation.png`.
-- Checked viewports: 1440 x 1000 desktop and 390 x 844 mobile.
-- State: authenticated administrator, light theme, `/admin/dashboard`, operations tab selected by default.
-
-The reference is an information-density and monitoring-hierarchy source, not a pixel-copy target. The user explicitly requested a project-specific adaptation. Filters, alert-rule configuration, host-wide resource values, token/TPS metrics, and fullscreen controls from the reference are intentionally omitted because this project does not currently provide those contracts.
+- Source visual truth: `E:/code/msp-go/.tmp/personal-home-concept-1.png` (1487 x 1058).
+- User-reported desktop crop: `C:/Users/Administrator/AppData/Local/Temp/codex-clipboard-a0d57afe-a195-4e30-aac1-80c952fd0c4e.png`.
+- Student desktop implementation: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-student-final.png`.
+- Teacher desktop implementation: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-teacher-final.png`.
+- Student dark implementation: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-student-dark-final.png`.
+- Student mobile implementation: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-student-mobile-final.png`.
+- Mobile navigation state: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-mobile-menu-final.png`.
+- Crop-fix wide desktop: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-hero-crop-fixed-wide.png`.
+- Crop-fix 1440 desktop: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-hero-crop-fixed-1440.png`.
+- Crop-fix dark desktop: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-hero-crop-fixed-dark-1440.png`.
+- Implementation URL: `http://127.0.0.1:5173/home` after student or teacher login.
+- Desktop state: authenticated student and teacher fixtures, light theme, 1440 x 1024 browser viewport. The Browser viewport could not reproduce the source's exact 1487 x 1058 inner viewport, so the 1432 x 1018 screenshot was proportionally normalized for comparison.
+- Mobile state: authenticated student fixture, light theme, 390 x 844 browser viewport.
 
 ## Full-View Comparison Evidence
 
-- The previous page opened with four account cards and hid operations behind the fourth tab. The implementation now makes operations the first page signal and default selected tab.
-- The reference's health summary, traffic metrics, dependency status, and resource strip are preserved as information architecture while using this project's existing sidebar, surface tokens, typography, and icon family.
-- Project-specific data replaces reference-only concepts: online learners, active learning sessions, Go runtime, Goroutines, PostgreSQL pool, Redis pool reuse, and API process uptime.
-- At 1440 x 1000 the first viewport contains health, six traffic metrics, six resource/dependency metrics, service probes, and runtime summary without horizontal scrolling.
-- At 390 x 844 the hierarchy collapses to a single column, keeps the two primary tabs and refresh controls usable, and reports no horizontal overflow.
+- Combined comparison: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-comparison-final.png`.
+- The source and implementation were placed in one normalized side-by-side image before judgment; the comparison was also inspected with `view_image` alongside the source and latest screenshot.
+- First-viewport balance is preserved: greeting and CTA on the left, calculus surface and notebook visual on the right, four-metric strip below, and a two-column continuation area.
+- The implementation keeps the existing product header, role badge, navigation density, theme control, and icon family instead of introducing a second app shell.
+- Student and teacher pages share one visual system while the data, copy, CTA, actions, recent activity, and affiliation adapt to role.
 
 ## Focused Region Comparison Evidence
 
-- Header and tab region: page, top-bar, and sidebar titles consistently read “运维控制台”; only “运维监控 / 业务概览” remain, with operations selected after a fresh reload.
-- Refresh controls: browser geometry verified the 20 px switch thumb remains inside the 44 px track in both checked states. The original QA pass found the thumb outside the track and the patch added an explicit left anchor.
-- Reset control: “重置指标” sits beside refresh controls with a RotateCcw icon. Its confirmation states exactly which traffic metrics reset, which live/process values remain, and that no business or database data is deleted.
-- Dependency strip: PostgreSQL and Redis values remain readable at desktop width and become two-column cells on mobile without clipped labels or values.
-- Business overview: the mobile screenshot verifies account cards, refresh action, tab selected state, and responsive stacking. A separate crop was unnecessary because the native screenshots keep all relevant type, icons, borders, and controls readable.
+- Hero and metrics: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-comparison-hero-final.png`.
+- Content sections: `C:/Users/Administrator/.codex/visualizations/2026/07/21/019f86ea-94de-7ac3-a546-0601a2ff12bd/personal-home-comparison-sections-final.png`.
+- The focused hero pass verified the H1, supporting sentence, CTA label/icon, continuation copy, image crop, metric labels, metric icons, and vertical spacing.
+- The focused content pass verified headings, list density, progress treatment, timestamps, card radii, borders, icon alignment, and affiliation action placement.
 
 ## Required Fidelity Surfaces
 
-- Fonts and typography: the existing project sans-serif stack, weight scale, and zero letter spacing are preserved. Page, section, metric, label, and hint hierarchy remains distinct; no visible text clips or overlaps at checked viewports.
-- Spacing and layout rhythm: restrained 4/5/6 spacing steps, 8 px panel radii, single-level cards, borders, and full-width bands match the existing admin system. Stable grid tracks prevent metric changes from resizing the layout.
-- Colors and visual tokens: existing surface/primary tokens are used with emerald, amber, and red reserved for semantic health states. Light-theme contrast is clear and the page does not copy the reference's background treatment.
-- Image quality and asset fidelity: the target is an operational UI with no required product imagery. All interface icons use the repository's existing Lucide dependency; there are no placeholder images, custom SVG substitutes, CSS illustrations, or emoji icons.
-- Copy and content: copy describes this project's real measurements and distinguishes process-level values from host-level monitoring. Reference-only claims and controls are not reproduced.
-- Icons: status, latency, CPU, storage, database, Redis, server, navigation, refresh, and security actions use one consistent stroke family and aligned optical sizes.
-- States and interactions: default tab selection, operations/business tab switching, auto-refresh on/off, manual refresh, scoped metrics reset, stale/error/loading components, mobile navigation open/close, and desktop/mobile layouts are implemented. Browser checks exercised reset cancellation, confirmation, success feedback, window-start refresh, tab switching, switch state, and mobile navigation.
-- Accessibility: semantic headings/regions/tabs, labelled switch and icon buttons, selected/checked ARIA state, visible focus rings, 40 px control targets, and inert hidden mobile navigation are present.
+- Fonts and typography: the project sans-serif stack is retained; the H1, section headings, metrics, labels, metadata, and controls have explicit sizes and weights with zero letter spacing. Long usernames and API-derived hero context use `overflow-wrap:anywhere`.
+- Spacing and layout rhythm: the max-width, hero split, four-column metric strip, two-column content grid, 8 px radii, single-level cards, and restrained shadows preserve the source hierarchy without nested cards.
+- Colors and visual tokens: the source's white, blue, violet, emerald, and coral balance maps to existing project tokens. The primary CTA now uses `primary-700` so white text passes AA in both themes.
+- Image quality and asset fidelity: dedicated 69 KB light and 81 KB dark WebP assets preserve the calculus surface, notebook, pen, subject scale, and background integration. Both loaded at their natural dimensions with no placeholder, CSS drawing, inline SVG illustration, or broken crop.
+- Copy and content: the source H1, student supporting sentence, CTA, and continuation context match. `累计学习` intentionally replaces the source's `本周学习` because the real overview API returns cumulative study time.
+- Icons: all interface icons use the existing Lucide family with consistent outline weight, optical size, color, and alignment.
+- States and interactions: student, teacher, light, dark, loading, partial failure, empty data, retry, theme toggle, mobile navigation open/close, and role-specific destinations are implemented.
+- Accessibility: semantic headings and regions, labelled navigation, focus rings, status live region, reduced-motion handling, sufficient text contrast, mobile menu `aria-expanded`, and Escape dismissal are present.
+
+## Above-The-Fold Copy Diff
+
+- Matched: `早上好，林同学`, `坚持每天进步一点点，数学思维终将成就你的无限可能。`, `继续学习`, and the last-learning context.
+- Intentional product additions: the existing role badge and authenticated user greeting remain in the header.
+- Intentional data correction: `累计学习` reflects the backend contract; using `本周学习` would misrepresent cumulative minutes.
+- Teacher copy is role-specific because the selected source only depicted the student state.
 
 ## Findings
 
 No actionable P0, P1, or P2 findings remain.
 
+## Intentional Deviations
+
+- The source's scheduled times were not implemented because the product has no schedule contract. The same area uses real mastery data and common learning actions, avoiding fabricated times while preserving the two-column hierarchy and three-item rhythm.
+- Existing project navigation includes `我的班级` and a role badge that were not shown in the concept. These are required product controls and remain visually consistent.
+- The generated hero asset omits the source's freestanding formula annotation but preserves the mathematical surface, notebook, pen, palette, crop, and visual weight.
+
 ## Patches Made During QA
 
-- Promoted operations from a hidden fourth tab to the default dashboard view.
-- Moved account metrics, recent activity, and growth into “业务概览”.
-- Removed duplicate placeholder tabs for account management and AI models.
-- Renamed the dashboard route, sidebar item, top bar, and page heading to “运维控制台”.
-- Removed the unauthenticated temporary operations preview route and page.
-- Fixed the auto-refresh thumb positioning so it no longer leaves the track or covers the label.
-- Added a scoped “重置指标” action with destructive confirmation, explicit data-retention copy, failure feedback, and immediate post-reset refresh.
+- Routed student and teacher login, root, logo, and role fallback paths to `/home`; administrators remain on `/admin/dashboard`.
+- Added independent `Promise.allSettled` data regions so request failures do not become false zero or empty states.
+- Corrected cumulative study-time labeling and converted student mastery ratios from `0..1` to `0..100` display percentages.
+- Corrected teacher class-request failure copy and added an unexpected-payload fallback that exits loading and supports retry.
+- Added light/dark calculus assets, role-aware sections, entrance/progress/float motion, and reduced-motion support for Framer Motion and skeleton pulses.
+- Replaced the desktop hero image's `object-cover` plus 1.3x zoom with a 340 px media frame and right-aligned `object-contain` at 1.05x, keeping the calculus peaks visible without weakening the notebook and pen composition.
+- Raised CTA and small-text contrast, added the partial-failure live region, and protected long dynamic hero text from clipping.
+- Added a semantic mobile navigation landmark and a working overflow menu with Escape dismissal.
+- Removed temporary preview and temporary test sources before handoff.
 
 ## Verification
 
-- Page identity: passed at `http://localhost:5173/admin/dashboard` with the expected application title.
-- Meaningful render and framework overlay: passed; the authenticated operations dashboard rendered and no Vite/React error overlay appeared.
-- Console health: passed; no application error or warning entries after reload and interactions.
-- Desktop: passed at 1440 x 1000 with 1424 px document width and no horizontal overflow.
-- Mobile: passed at 390 x 844 with 374 px document width, no horizontal overflow, and no off-screen visible elements.
-- Interaction proof: operations selected on fresh reload; business tab became selected and visible; auto-refresh changed `aria-checked` true -> false -> true; mobile navigation opened and closed.
-- Reset proof: controlled Chrome API fixtures verified cancel does not call reset, confirm updates “本轮统计自”, zeroes traffic/error-rate values, and shows success feedback. The 1440 x 1000 and 390 x 844 confirmation states had no horizontal overflow or console error/warning; the mobile dialog measured 342 x 394 px and its confirm target 96 x 40 px.
-- Build gates: `go test ./... -count=1`, `go vet ./...`, `go build ./...`, `npm test -- --passWithNoTests`, `npm run lint`, and `npm run build` passed.
+- Browser/IAB desktop: student light, teacher light, and student dark rendered meaningful content with loaded assets, no horizontal overflow, and no new console warning/error entries after a clean preview reload.
+- Browser responsive check: 390 x 844 mobile had no document-level horizontal overflow; the hero, image, metric cards, and text stayed within the viewport. The calculus image intentionally crops inside its overflow-hidden media frame.
+- Desktop crop follow-up: the 2180 x 900 and 1440 x 1024 browser checks rendered a 672 x 340 media frame with `object-fit: contain`, `object-position: 100% 50%`, and `scale: 1.05`; every calculus peak remained inside the frame and the light asset loaded at its natural 1694 px width.
+- Dark-theme crop follow-up: the dark asset loaded at its natural 1774 px width in the same 672 x 340 frame, with the peaks, notebook, and pen all visible.
+- Mobile regression follow-up: the implementation diff is limited to `lg:` classes, so the base `object-cover`, `scale-[1.15]`, and `sm:scale-125` behavior shown in the existing real 390 x 844 mobile screenshot is unchanged. A current 382 px-wide DOM geometry check also reported `object-fit: cover`, `scale: 1.15`, and a 374 px document inside the 382 px viewport. Its browser screenshot output was truncated to 382 x 272 and is intentionally excluded from visual evidence.
+- Console follow-up: the two existing data-request warnings were present before the style change and did not increase after reload, viewport changes, or theme interaction; no framework overlay or hero-related warning/error appeared.
+- Interaction proof: theme toggled light/dark; mobile navigation changed `aria-expanded` from `false` to `true`, exposed all role links, and returned to `false` on Escape.
+- Route protection: unauthenticated `/home` redirected to `/welcome`.
+- Temporary contract tests: 2/2 passed for student mastery `0.72 -> 72%`, cumulative labeling, and teacher class-request failure semantics; the temporary test file was deleted.
+- Earlier production-data helper verification: 18/18 temporary tests passed with 98.57% statements, 83.72% branches, 100% functions, and 100% lines for `homeData.ts`; those temporary sources were deleted as required.
+- `npm.cmd run lint`: passed.
+- `npm.cmd run build`: passed; only pre-existing Browserslist age and large-chunk advisory warnings remain.
+- `git diff --check`: passed with line-ending notices only.
+- Repository scan: no test/spec source, temporary preview entry, preview token, or test-only fixture remains.
 
 ## Residual Risk
 
 - Safari and Firefox were not separately exercised.
-- Host-wide CPU/memory, multi-instance aggregation, business cache hit ratio, and long-term trends are intentionally outside this page's current backend contract.
-- Real PostgreSQL/Redis outage switching and high-load behavior were not induced during visual QA; the implemented loading, stale, degraded, and unavailable states were covered by temporary component/service tests before their required deletion.
-- The irreversible reset was not executed against a production administrator session during visual QA. Browser interaction used controlled API fixtures; temporary Go tests covered the real handler authorization, service response, reset boundary, and Prometheus lifetime behavior before their required deletion.
-
-## Implementation Checklist
-
-- [x] Operations is the default first visual signal.
-- [x] Project-specific online, traffic, runtime, PostgreSQL, and Redis data is visible.
-- [x] Business statistics remain available in a dedicated tab.
-- [x] Desktop and mobile responsive states have no horizontal overflow.
-- [x] Refresh, tabs, and mobile navigation are functional.
-- [x] Reset is scoped to traffic metrics, requires confirmation, and refreshes into a visibly new statistics window.
-- [x] Temporary preview route and test sources are absent.
-- [x] Source and implementation were opened together in a combined comparison board.
+- Real backend outage transitions were isolated in temporary tests and code review rather than induced against a live production account.
+- Source and implementation viewport sizes differ slightly because the in-app browser's inner viewport could not be set to the source's exact dimensions; the comparison uses proportional normalization and an additional exact 390 x 844 responsive check.
 
 final result: passed

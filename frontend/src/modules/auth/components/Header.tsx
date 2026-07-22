@@ -36,6 +36,7 @@ export const Header: React.FC<HeaderProps> = ({ variant = 'default', onLoginClic
   // 获取导航菜单配置
   const navItems = getNavItemsByRole(user?.role);
   const isTeacher = user?.role === 'teacher';
+  const homePath = user?.role === 'admin' ? '/admin/dashboard' : '/home';
 
   const isDark = variant === 'dark' || variant === 'transparent';
 
@@ -49,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({ variant = 'default', onLoginClic
     )}>
       <div className="container mx-auto flex h-16 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         {/* Logo */}
-        <Link to={isLoggedIn ? (isTeacher ? '/teacher/dashboard' : '/my-class') : '/'} className="group flex shrink-0 items-center space-x-2">
+        <Link to={isLoggedIn ? homePath : '/'} className="group flex shrink-0 items-center space-x-2">
           <div className={cn(
             "h-8 w-8 rounded-lg flex items-center justify-center text-white shadow-lg",
             animationCombos.buttonHover,
