@@ -20,11 +20,14 @@ import (
 	adminuserhttp "mathstudy/backend-go/internal/adapter/http/adminuser"
 	authhttp "mathstudy/backend-go/internal/adapter/http/auth"
 	classroomhttp "mathstudy/backend-go/internal/adapter/http/classroom"
+	conversationhttp "mathstudy/backend-go/internal/adapter/http/conversation"
 	exercisehttp "mathstudy/backend-go/internal/adapter/http/exercise"
 	knowledgehttp "mathstudy/backend-go/internal/adapter/http/knowledge"
 	mistakehttp "mathstudy/backend-go/internal/adapter/http/mistake"
+	noticehttp "mathstudy/backend-go/internal/adapter/http/notice"
 	portraithttp "mathstudy/backend-go/internal/adapter/http/portrait"
 	progresshttp "mathstudy/backend-go/internal/adapter/http/progress"
+	qathreadhttp "mathstudy/backend-go/internal/adapter/http/qathread"
 	questionhttp "mathstudy/backend-go/internal/adapter/http/question"
 	resourcehttp "mathstudy/backend-go/internal/adapter/http/resource"
 	securityloghttp "mathstudy/backend-go/internal/adapter/http/securitylog"
@@ -46,11 +49,14 @@ import (
 	answerocrapp "mathstudy/backend-go/internal/application/answerocr"
 	authapp "mathstudy/backend-go/internal/application/auth"
 	classroomapp "mathstudy/backend-go/internal/application/classroom"
+	conversationapp "mathstudy/backend-go/internal/application/conversation"
 	exerciseapp "mathstudy/backend-go/internal/application/exercise"
 	knowledgeapp "mathstudy/backend-go/internal/application/knowledge"
 	mistakeapp "mathstudy/backend-go/internal/application/mistake"
+	noticeapp "mathstudy/backend-go/internal/application/notice"
 	portraitapp "mathstudy/backend-go/internal/application/portrait"
 	progressapp "mathstudy/backend-go/internal/application/progress"
+	qathreadapp "mathstudy/backend-go/internal/application/qathread"
 	questionapp "mathstudy/backend-go/internal/application/question"
 	resourceapp "mathstudy/backend-go/internal/application/resource"
 	securitylogapp "mathstudy/backend-go/internal/application/securitylog"
@@ -472,6 +478,57 @@ func main() {
 		logger.Error("configure teacher handler", "error", err)
 		os.Exit(1)
 	}
+	// Message center: conversations
+	conversationRepo, err := adapterpostgres.NewConversationRepository(dbPool)
+	if err != nil {
+		logger.Error("configure conversation repository", "error", err)
+		os.Exit(1)
+	}
+	conversationService, err := conversationapp.NewService(conversationRepo)
+	if err != nil {
+		logger.Error("configure conversation service", "error", err)
+		os.Exit(1)
+	}
+	conversationHandler, err := conversationhttp.NewHandler(logger, conversationService, authService)
+	if err != nil {
+		logger.Error("configure conversation handler", "error", err)
+		os.Exit(1)
+	}
+
+	// Message center: notices
+	noticeRepo, err := adapterpostgres.NewNoticeRepository(dbPool)
+	if err != nil {
+		logger.Error("configure notice repository", "error", err)
+		os.Exit(1)
+	}
+	noticeService, err := noticeapp.NewService(noticeRepo)
+	if err != nil {
+		logger.Error("configure notice service", "error", err)
+		os.Exit(1)
+	}
+	noticeHandler, err := noticehttp.NewHandler(logger, noticeService, authService)
+	if err != nil {
+		logger.Error("configure notice handler", "error", err)
+		os.Exit(1)
+	}
+
+	// Message center: Q&A threads
+	qaThreadRepo, err := adapterpostgres.NewQAThreadRepository(dbPool)
+	if err != nil {
+		logger.Error("configure qathread repository", "error", err)
+		os.Exit(1)
+	}
+	qaThreadService, err := qathreadapp.NewService(qaThreadRepo)
+	if err != nil {
+		logger.Error("configure qathread service", "error", err)
+		os.Exit(1)
+	}
+	qaThreadHandler, err := qathreadhttp.NewHandler(logger, qaThreadService, authService)
+	if err != nil {
+		logger.Error("configure qathread handler", "error", err)
+		os.Exit(1)
+	}
+
 	knowledgeRepo, err := adapterpostgres.NewKnowledgeRepository(dbPool)
 	if err != nil {
 		logger.Error("configure knowledge repository", "error", err)
@@ -631,6 +688,9 @@ func main() {
 			questionHandler.Register(mux, cfg.APIV1Prefix+"/questions")
 			classHandler.Register(mux, cfg.APIV1Prefix+"/classes")
 			teacherHandler.Register(mux, cfg.APIV1Prefix+"/teacher")
+			conversationHandler.Register(mux, cfg.APIV1Prefix+"/conversations")
+			noticeHandler.Register(mux, cfg.APIV1Prefix+"/notices")
+			qaThreadHandler.Register(mux, cfg.APIV1Prefix+"/qa-threads")
 			adminUserHandler.Register(mux, cfg.APIV1Prefix+"/admin/users")
 			aiRiskHandler.Register(mux, cfg.APIV1Prefix+"/admin/risk-control")
 			adminInboxHandler.Register(mux, cfg.APIV1Prefix+"/admin/inbox")
