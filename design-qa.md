@@ -95,3 +95,75 @@ No actionable P0, P1, or P2 findings remain.
 - Source and implementation viewport sizes differ slightly because the in-app browser's inner viewport could not be set to the source's exact dimensions; the comparison uses proportional normalization and an additional exact 390 x 844 responsive check.
 
 final result: passed
+
+---
+
+# AI Channel Editor Design QA
+
+## Comparison Target
+
+- Source visual truth: `C:/Users/Administrator/AppData/Local/Temp/codex-clipboard-3c66d366-71c5-45e9-9060-52b519e3b02d.png`, `C:/Users/Administrator/AppData/Local/Temp/codex-clipboard-f2a5d23d-c859-4a11-9610-c919f7d17837.png`, and `C:/Users/Administrator/AppData/Local/Temp/codex-clipboard-491549e2-9c11-4d56-b905-7f6063d72c2f.png`.
+- Desktop implementation: `C:/Users/Administrator/AppData/Local/Temp/msp-channel-desktop-final.png`, captured at 1568 x 1454 in the create-channel, OpenAI (Completion), light-theme state.
+- Mobile implementation: `C:/Users/Administrator/AppData/Local/Temp/msp-channel-mobile-final.png`, captured at 390 x 844 in the same create-channel state.
+- Mobile multi-key state: `C:/Users/Administrator/AppData/Local/Temp/msp-channel-mobile-multi.png`, captured at 390 x 844 after switching to multi-key mode.
+- Default viewport model-section state: `C:/Users/Administrator/AppData/Local/Temp/msp-channel-model-section.png`, captured at 1280 x 720 with the model section and fixed footer visible.
+- Implementation URL: `http://127.0.0.1:5173/admin/ai-models`; normal unauthenticated navigation redirects to the administrator login page.
+
+## Full-View Comparison Evidence
+
+- Combined desktop comparison: `C:/Users/Administrator/AppData/Local/Temp/msp-channel-desktop-comparison-final.png`.
+- The reference and implementation were placed in one side-by-side image before judgment. The comparison covers the drawer frame, fixed header and footer, left step navigation, main form grid, section sequence, credential card, model area, typography hierarchy, and overall density.
+- The implementation preserves the New API composition while fitting the existing product shell: a nearly full-width right drawer, restrained 8 px-or-less surfaces, a 306 px desktop step rail, and a 1440 px constrained content area.
+
+## Focused Region Comparison Evidence
+
+- Credential-region comparison: `C:/Users/Administrator/AppData/Local/Temp/msp-channel-credentials-comparison-final.png`.
+- The focused pass verifies the credential section icon and heading, API address label/help copy, mode selector, key input proportions, borders, spacing, and the transition into the model section at readable scale.
+- Additional implementation states were inspected in the desktop, mobile, mobile multi-key, and default-viewport captures because the source images do not show responsive collapse, key strategy controls, or keyboard states.
+
+## Required Fidelity Surfaces
+
+- Fonts and typography: the implementation intentionally retains the project's established sans-serif stack, weights, line heights, and zero letter spacing. The reference uses larger and denser UI type; matching it exactly would create a second typography system inside the admin product. Labels, helper text, placeholders, buttons, and long model/provider values wrap or truncate without overlap.
+- Spacing and layout rhythm: the drawer width, fixed regions, step rail, two-column basic-information grid, full-width section dividers, compact cards, and vertical rhythm match the source hierarchy. The desktop width was increased to `calc(100vw - 3rem)` with a 1600 px maximum, and the content area was widened to 1440 px during QA.
+- Colors and visual tokens: neutral surfaces, subtle borders, cyan primary controls, green credentials, and magenta model accents map the reference intent to existing project tokens. Active, focus, disabled, and destructive states retain sufficient visual distinction without introducing gradients or decorative effects.
+- Image quality and asset fidelity: the target is a form-based operational interface and contains no photographic or illustrative assets. Provider and section marks use the project's installed icon family; no placeholder imagery, CSS drawing, emoji, custom inline SVG illustration, or generated raster asset is used.
+- Copy and content: visible labels follow the reference where supported, including create/edit titles, paste connection information, basic information, credentials, models and groups, and advanced settings. The OpenAI Organization field shown in one reference is intentionally omitted because the current backend contract has no organization identifier or header support.
+- Icons: provider, section, action, close, copy, fetch, and save controls use a consistent library and stroke weight. Unfamiliar icon-only controls expose a tooltip or title; the mobile paste button also has an accessible name.
+- States and interactions: single-key, batch-create, and multi-key modes work; duplicate keys are removed; round-robin and random strategies switch; connection information can be pasted; models can be preset, fetched, copied, cleared, and mapped visually or as JSON; Escape closes the drawer; Tab and Shift+Tab remain trapped inside it; partial batch failures retain only the keys that still need retrying.
+- Responsiveness: the desktop step rail becomes a compact mobile flow, fields collapse to one column, the fixed footer remains reachable, and the 390 x 844 captures show no document-level horizontal scrollbar or incoherent overlap. The 1280 x 720 state keeps the primary actions visible while the form body scrolls independently.
+- Accessibility: semantic labels, required-field markers, visible focus treatment, labelled icon controls, Escape dismissal, keyboard focus containment, stable tap targets, and non-overlapping wrapped text are present. Reduced viewport width does not hide the close or primary action controls.
+
+## Findings
+
+No actionable P0, P1, or P2 findings remain.
+
+## Intentional Deviations
+
+- The implementation keeps the existing admin typography and control density instead of copying the reference's larger type one-for-one; the information hierarchy and scan order remain equivalent.
+- The OpenAI Organization field is not rendered because there is no corresponding backend persistence or outbound-header contract. Adding a visual-only field would imply unsupported behavior.
+- Product-specific provider icons and labels follow the current provider catalog rather than hard-coding every option visible in New API.
+
+## Patches Made During QA
+
+- Expanded the desktop drawer and content proportions so the step navigation no longer consumes excessive horizontal space relative to the form.
+- Removed mobile document-level horizontal overflow with an explicit `overflow-x-hidden` boundary.
+- Added `aria-label` and `title` to the compact mobile paste-connection button.
+- Verified and retained fixed header/footer behavior, keyboard focus trapping, and responsive section navigation after the layout changes.
+
+## Verification
+
+- Desktop browser check: the 1568 x 1454 create-channel state rendered meaningful content, the fixed header/footer and four-step rail remained stable, and the clean preview produced no new console error or warning.
+- Default viewport check: at 1280 x 720, the model section could be reached while the footer actions remained visible.
+- Mobile browser check: at 390 x 844, the drawer, fields, section headings, footer actions, and multi-key controls stayed within the viewport with no visible horizontal scrollbar.
+- Keyboard check: Escape closed and reopening restored the drawer; Tab from the final action wrapped to the first drawer control, and Shift+Tab from the first control wrapped to the submit action.
+- Credential behavior check: duplicate keys were removed, repeated `api_key` connection lines were retained before de-duplication, and round-robin/random strategy switching updated the form state.
+- Temporary directed tests passed for duplicate connection keys and malformed keyring handling; all temporary test sources and fixtures were removed afterward.
+- `npm.cmd test -- --passWithNoTests --reporter=dot`, `npm.cmd run lint`, `npm.cmd run build`, `go test ./... -count=1`, and `go vet ./...` passed. The frontend build only reported the existing Browserslist age and large-chunk advisories.
+
+## Residual Risk
+
+- Safari and Firefox were not separately exercised.
+- Real external providers were not used to validate rate limits, cost distribution, or response quality across several keys.
+- A future OpenAI Organization feature requires an explicit backend contract before the reference-only field can be added honestly.
+
+final result: passed

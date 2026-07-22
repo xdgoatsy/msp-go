@@ -2,8 +2,8 @@
 
 > 文档定位：本文是仓库规则要求保留的迁移阶段跟踪与验证证据，不作为通用路线图。当前跨模块未完成事项统一维护在 [项目待办](TODO.md)；任何迁移阶段的开始、阻塞、恢复或完成仍必须同步更新本文。
 
-**Document status**: P4 in progress; P5 done; P6 AI/Agent in progress (Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR/Content Moderator Agents, admin LLM/Agent config loop, and uniform student AI risk center wired; OCR, general-math, student AI risk-control, and model-moderation slices delivered, token streaming and live external-provider quality acceptance pending); P7 in progress; P8 static contract handoff done; P9 Python backend removed by user confirmation; repository-wide quality cleanup batch done 2026-07-12
-**Last updated**: 2026-07-21
+**Document status**: P4 in progress; P5 done; P6 AI/Agent in progress (Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR/Content Moderator Agents, admin LLM/Agent config loop, and uniform student AI risk center wired; OCR, general-math, student AI risk-control, model-moderation, and multi-key channel-management slices delivered, token streaming and live external-provider quality acceptance pending); P7 in progress; P8 static contract handoff done; P9 Python backend removed by user confirmation; repository-wide quality cleanup batch done 2026-07-12
+**Last updated**: 2026-07-22
 **适用范围**：原 `backend/` Python FastAPI 后端整体迁移到 Go 后端；`backend/` 已从当前工作区删除
 **重构原则**：接口兼容、数据连续、分阶段验收、每阶段完成必须更新本文档
 
@@ -47,7 +47,7 @@
 - Go 后端承接所有非 AI `/api/v1` 业务接口、健康检查、监控指标和文件访问入口。
 - Python 后端不再承载线上业务流量。
 - 数据库迁移、缓存、对象存储、鉴权和审计能力在 Go 后端中具备等价实现。
-- AI/Agent、LLM、OCR 和数学求解质量能力不沿旧 Python 实现迁移；P6 已接入 Go/Eino 会话导师、画像、错因诊断、通用数学求解、题目解析、题目生成和 OCR Agent，并完成后台 LLM/Agent 配置闭环。P6 剩余范围是 token 级流式和真实外部 provider 质量验收。
+- AI/Agent、LLM、OCR 和数学求解质量能力不沿旧 Python 实现迁移；P6 已接入 Go/Eino 会话导师、画像、错因诊断、通用数学求解、题目解析、题目生成和 OCR Agent，并完成支持同类型多渠道、批量密钥与加密密钥环的后台 LLM/Agent 配置闭环。P6 剩余范围是 token 级流式和真实外部 provider 质量验收。
 - 旧 Python 服务已按用户确认从当前工作区删除。
 
 ### 2.2 非目标
@@ -220,7 +220,7 @@ backend-go/
 | P3 鉴权与用户域 | DONE | 迁移认证、用户、密码、权限基础能力 | `/auth`、用户上下文、管理员初始化 | 12.4 |
 | P4 核心学习域 | IN_PROGRESS | 迁移会话、练习、错题、进度、画像 | `/session`、`/exercise`、`/mistakes`、`/progress`、`/portrait` | 12.5 |
 | P5 内容与教学管理域 | DONE | 迁移题库、资源、班级、教师统计、知识点 | `/questions`、`/resources`、`/classes`、`/teacher`、`/admin/knowledge` | 12.6 |
-| P6 AI and Agent capabilities | IN_PROGRESS | Integrate the new Eino-based AI/Agent architecture and remove explicit TODO/placeholders incrementally | Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR Agent and admin config loop wired; OCR/general-math slice delivered; token streaming and live provider quality acceptance pending | 12.7 |
+| P6 AI and Agent capabilities | IN_PROGRESS | Integrate the new Eino-based AI/Agent architecture and remove explicit TODO/placeholders incrementally | Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR Agent, admin config loop, and same-type multi-channel/multi-key management wired; OCR/general-math slice delivered; token streaming and live provider quality acceptance pending | 12.7 |
 | P7 集成与运维域 | IN_PROGRESS | 维护西电账户绑定、上传、系统设置、安全日志、监控和管理员辅助能力 | `/xidian`、`/upload`、`/admin/settings`、`/admin/security-logs`、`/admin/inbox`、`/admin/stats`、`/metrics` | 12.8 |
 | P8 静态契约验证与用户验收交接 | DONE | 完成 Go 静态契约验证并保留证据，运行时双跑和业务验收由用户自行执行 | 历史契约验证记录、用户验收交接记录 | 12.9 |
 | P9 流量切换与 Python 下线 | DONE | 切换默认生产入口并删除旧 Python 后端目录 | 部署配置、下线记录、删除清单 | 12.10 |
@@ -339,6 +339,7 @@ backend-go/
 - 已落地 Go/Eino 错因诊断 Diagnostician Agent：`/exercise/submit` 对错误答案优先读取持久化 `diagnostician` Agent 配置生成结构化 C/P/L/S-Type 诊断；没有后台配置、模型不可用、JSON 格式无效或生成空内容时保留本地基础诊断降级。
 - 已落地 Go/Eino 题目解析 Question Parser Agent：`/questions/ai-parse` 优先读取持久化 `question_parser` Agent 配置抽取题目候选；没有后台配置、模型不可用、JSON 格式无效或必填字段缺失时保留确定性形状兼容解析降级。
 - `/admin/ai-config/*` 已实现管理员鉴权后的 provider/model/Agent 配置闭环，支持 provider/model CRUD、provider test、模型拉取、provider 模型列表替换和 Agent 配置 CRUD；前端 AI 模型设置页已具备后端闭环，并支持配置内容审核 `content_moderator` Agent。
+- Provider 渠道允许同一 `code` 创建多个独立实例；创建/更新契约支持 `api_keys`、`key_strategy` 和 `is_active`，多密钥以加密密钥环保存并按轮询或加密随机策略选择，旧单密钥加密格式继续兼容。测试连接和模型拉取固定使用首个密钥，避免一次管理操作推进运行时轮询状态。
 - 已落地管理员学生 AI 风控中心：所有学生共享系统级每日成功聊天回复额度和每生并发上限，不提供单生差异化额度；额度按 `Asia/Shanghai` 自然日统计，仅成功持久化的真实 Tutor 回复计数，欢迎语、模型失败/空回复降级、取消和风控拦截不计数。会话聊天、AI 出题、判题、解析和画像生成共享 AI 独立封禁、管理员解封、关键词内容拦截、可选模型同步前置审查和 Redis 分布式并发租约；非聊天 AI 能力按产品口径不消耗回复额度。
 - 已落地学生 AI 模型内容审查：复用加密 provider/model/Agent 配置调用 OpenAI-compatible `/v1/moderations`，严格校验 13 类风险分数并按管理员阈值 fail-closed 前置阻断；模型未配置、调用失败或响应不完整时同样拒绝请求并记录审查异常。该能力默认关闭，需先配置 `content_moderator` Agent 再由管理员显式启用。
 - 已落地 Go/Eino 图片答案 OCR：`/exercise/submit` 从当前 Local/Qiniu/S3 存储可信命名空间回读并完整解码 PNG/JPEG/GIF，以多模态 Base64 调用 `ocr` Agent；文本与图片同时提交时文本优先。授权、OCR、数学判定和诊断都在事务前完成，任何不确定、超时、不可用或无效响应均不创建 attempt、diagnosis、learning session，不更新 DKT/profile。
@@ -359,7 +360,7 @@ backend-go/
 - Eino Diagnostician Agent 配置选择、诊断 prompt 构造、结构化 JSON 解析、taxonomy 校验和本地降级路径测试通过。
 - Eino Question Parser Agent 配置选择、题目解析 prompt 构造、结构化 JSON 解析、必填字段校验和确定性解析降级路径测试通过。
 - OCR 成功、不可读、低置信度、超时、不可用、非法图片和题目并发变化均有稳定 HTTP/前端契约；解析成功及确定判题前的 attempt、diagnosis、learning session、DKT/profile 写入增量为零。
-- LLM provider/model CRUD、provider test/fetch、Agent 配置 CRUD 与前端 AI 模型设置页联通。
+- LLM provider/model CRUD、同类型多渠道、单密钥/批量创建/多密钥、轮询/随机选择、provider test/fetch、Agent 配置 CRUD 与前端 AI 模型设置页联通。
 - Agent 配置可被运行时选择使用，而不是仅依赖 `EINO_*` 单组环境变量。
 - OCR、通用数学求解和教学反馈 Agent 的正常路径、失败路径、超时、限流、降级路径测试通过。
 
@@ -680,6 +681,12 @@ git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx" "test
 - 2026-07-15 切片验证结果：真实 PNG/JPEG 非网络验收通过，覆盖 `upload.Service -> LocalStorage -> 完整图片解码 -> Eino 多模态 Base64 -> exercise HTTP/application`；成功路径仅写入一次 attempt、session update、DKT/profile，空白 PNG、低对比 JPEG、截断图片、WebP、低置信度、OCR/数学不可用、超时、取消、无效/重复/缺失 JSON 字段、无效选择题 reference 和题目并发变化均在事务前失败，学习状态写入增量为零。事务内题目复核使用 PostgreSQL `FOR SHARE` 持锁到全部学习状态写入提交，阻断比较后的教师更新/软删除窗口；应用层锁调用和 SQL 形状测试通过。Math Solver 覆盖本地三态比较、通用 answer check、独立 solution generation、答案验证和步骤二次验证；正确最终答案携带错误步骤时不返回解析。受影响 Go 包、race、vet 和排除已知目录守卫后的契约测试通过；statement coverage：mathsolver 92.9%、answerocr 91.1%、exercise 82.5%、storage 81.0%。前端 60 个测试文件、404 个用例和 coverage 运行通过，核心改动文件 line coverage 为 84.0% 至 100%；TypeScript/生产构建通过；lint 无 error，仅已有 `coverage/` 报告文件产生 6 条 unused-disable warning。浏览器已覆盖桌面 `indeterminate -> retry -> correct` 和 390x844 移动布局，无控制台 error/warn。`go test ./... -count=1` 的业务包全部通过，唯一失败是任务前已存在的空目录 `backend/uploads` 触发 `TestLegacyPythonBackendDirectoryIsAbsent`；未删除用户工作目录。live OCR/Math Solver 测试入口编译通过，但当前环境未设置验收 API key/model，按预期 skip；PostgreSQL 锁并发测试入口编译通过，但未设置 `MSP_GO_TEST_DATABASE_URL`，按预期 skip。
 - 2026-07-15 切片交付物：`backend-go/internal/application/answerocr/`、`backend-go/internal/application/mathsolver/`、`backend-go/internal/application/exercise/`、`backend-go/internal/application/question/`、`backend-go/internal/adapter/llm/einoagent/ocr.go`、`backend-go/internal/adapter/llm/einoagent/ocr_submission_acceptance_test.go`、`backend-go/internal/adapter/llm/einoagent/math_solver_live_acceptance_test.go`、`backend-go/internal/adapter/storage/image_loader.go`、`backend-go/internal/adapter/http/exercise/`、`backend-go/cmd/api/main.go`、`frontend/src/modules/exercise/`、`frontend/src/pages/student/ExercisePage.tsx`、`README.md`、`docs/technical/architecture.md`、`docs/technical/deployment.md`、`docs/TODO.md`。
 - 2026-07-15 切片残余风险：OCR 当前只接受能由运行时完整解码的 PNG/JPEG/GIF，WebP 在 OCR 链路显式拒绝；真实视觉/数学 provider 的模型质量和 OpenAI-compatible 差异必须在部署目标模型上运行 env-gated live 验收，归入独立“外部 provider 真实运行质量验收”待办；真实 PostgreSQL `FOR SHARE` 并发测试需在配置 `MSP_GO_TEST_DATABASE_URL` 的环境执行；历史图片作答污染扫描/清理仍为独立待办；P6 总体仍有 Tutor token 级流式；任务前 `backend/uploads` 空目录仍会触发 legacy 目录契约守卫。
+
+- 2026-07-22 智能体渠道管理切片：`COMPLETED`（P6 总体保持 `IN_PROGRESS`）。完成日期：2026-07-22。范围包括参考 New API 的抽屉式渠道编辑器、单密钥/批量创建/多密钥三种凭证模式、轮询/随机策略、连接信息粘贴、模型预设与上游拉取、可视化/JSON 模型映射、高级设置、同类型多渠道，以及 Go 运行时加密密钥环选择与 legacy 单密钥兼容。
+- 2026-07-22 切片验证命令：frontend `npm.cmd test -- --passWithNoTests --reporter=dot`、`npm.cmd run lint`、`npm.cmd run build`；backend-go `gofmt` 定向格式化、`GOCACHE=E:\code\msp-go\.gocache go test ./... -count=1`、`GOCACHE=E:\code\msp-go\.gocache go vet ./...`、连续两次 `GOCACHE=E:\code\msp-go\.gocache go run ./cmd/migrate`；repository root `git diff --check`、测试源码扫描和临时预览标记扫描；内置浏览器桌面、默认视口和 390x844 移动端视觉及键盘交互验收。
+- 2026-07-22 切片验证结果：临时 Vitest 覆盖重复 `api_key` 行收集与去重并 1/1 通过；临时 Go 定向测试覆盖损坏/截断密钥环拒绝和 legacy 单密钥兼容并 2/2 通过，所有临时测试源码随后删除。前端测试命令确认仓库无保留测试文件，lint 0 error，生产构建通过；Go 全量测试和 vet 通过。版本 7 迁移首次执行 `applied_count=1`，第二次执行 `applied_count=0`。浏览器确认抽屉固定头尾、步骤导航、密钥模式与策略、模型区、Escape 关闭、双向 Tab 焦点陷阱均可用；390x844 无文档级横向滚动，默认 1280x720 底部操作栏可见，干净加载无新增 console error/warn。
+- 2026-07-22 切片交付物：`backend-go/internal/application/adminaiconfig/service.go`、`backend-go/internal/adapter/postgres/admin_ai_config_repository.go`、`backend-go/migrations/0007_allow_multiple_llm_provider_channels.up.sql`、`frontend/src/modules/admin/components/ChannelFormModal.tsx`、`ChannelBasicFields.tsx`、`ChannelApiConfig.tsx`、`ChannelModelSelector.tsx`、`ChannelFormActions.tsx`、`ChannelAdvancedSettings.tsx`、`ChannelEditorSidebar.tsx`、`ChannelProviderIcon.tsx`、`ChannelSectionHeader.tsx`、`channelFormUtils.ts`、`frontend/src/modules/ai-config/types/aiConfig.ts`、`frontend/src/pages/admin/AIModelSettingsPage.tsx`、`design-qa.md`。
+- 2026-07-22 切片残余风险：轮询游标仅保存在单进程内存，进程重启会重置且多实例之间不共享；批量创建为逐渠道请求，成功项不会因后续失败回滚；版本 7 使用普通 `CREATE INDEX`，大表迁移时可能短暂持有写锁；尚未用真实外部 provider 验收多密钥下的 429、成本和模型质量行为；非 OpenAI-compatible provider 仍可能需要专用协议适配。P6 总体仍有 Tutor token 级流式和真实外部 provider 质量验收。
 
 - Status: IN_PROGRESS
 - Start date: 2026-05-08 (Go 501 placeholders were added on 2026-05-06; Eino framework integration started on 2026-05-08 under /goal)

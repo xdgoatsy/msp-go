@@ -74,24 +74,6 @@ func (r AdminAIConfigRepository) GetProvider(ctx context.Context, providerID str
 	return provider, true, nil
 }
 
-// GetProviderByCode returns one provider by provider code including its encrypted API key.
-func (r AdminAIConfigRepository) GetProviderByCode(ctx context.Context, code string) (adminaiconfigapp.StoredProvider, bool, error) {
-	row := r.DB().QueryRow(ctx, `
-		SELECT id, name, code, base_url, encrypted_api_key, is_active, description, created_at, updated_at
-		FROM public.llm_providers
-		WHERE code = $1`,
-		code,
-	)
-	provider, err := scanStoredProvider(row)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return adminaiconfigapp.StoredProvider{}, false, nil
-		}
-		return adminaiconfigapp.StoredProvider{}, false, err
-	}
-	return provider, true, nil
-}
-
 // CreateProvider inserts one LLM provider.
 func (r AdminAIConfigRepository) CreateProvider(ctx context.Context, input adminaiconfigapp.ProviderInput, now time.Time) (adminaiconfigapp.LLMProvider, error) {
 	row := r.DB().QueryRow(ctx, `
@@ -842,7 +824,7 @@ func normalizeAIConfigPGError(err error) error {
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
 		case "23505":
-			return adminaiconfigapp.Error{Kind: adminaiconfigapp.ErrConflict, Message: "AI 配置名称、编码或模型已存在"}
+			return adminaiconfigapp.Error{Kind: adminaiconfigapp.ErrConflict, Message: "AI 配置名称或模型已存在"}
 		case "23503":
 			return adminaiconfigapp.Error{Kind: adminaiconfigapp.ErrBadRequest, Message: "关联的渠道或模型不存在"}
 		}

@@ -30,6 +30,8 @@ export interface LLMProvider {
   updated_at: string;
 }
 
+export type ProviderKeyStrategy = 'round_robin' | 'random';
+
 /**
  * 创建提供商请求
  */
@@ -38,6 +40,9 @@ export interface CreateProviderRequest {
   code: string;
   base_url: string;
   api_key: string;
+  api_keys?: string[];
+  key_strategy?: ProviderKeyStrategy;
+  is_active?: boolean;
   description?: string;
 }
 
@@ -57,6 +62,9 @@ export interface CreateProviderWithModelsRequest {
   code: string;
   base_url: string;
   api_key: string;
+  api_keys?: string[];
+  key_strategy?: ProviderKeyStrategy;
+  is_active?: boolean;
   description?: string;
   models: ModelCreateSimple[];
 }
@@ -77,6 +85,8 @@ export interface UpdateProviderRequest {
   name?: string;
   base_url?: string;
   api_key?: string;
+  api_keys?: string[];
+  key_strategy?: ProviderKeyStrategy;
   is_active?: boolean;
   description?: string;
 }
