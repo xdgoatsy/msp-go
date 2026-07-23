@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Users,
   FileText,
+  Mail,
 } from 'lucide-react';
 
 /**
@@ -31,6 +32,7 @@ export const studentNavItems: NavItem[] = [
   { label: '我的班级', href: '/my-class', icon: Users },
   { label: '智能刷题', href: '/exercise', icon: GraduationCap },
   { label: 'AI 辅导', href: '/session/new', icon: MessageSquare },
+  { label: '消息中心', href: '/messages', icon: Mail },
   { label: '错题本', href: '/mistake-book', icon: FileText },
   { label: '知识图谱', href: '/knowledge-graph', icon: GitBranch },
   { label: '学习统计', href: '/analytics', icon: BarChart3 },
@@ -45,6 +47,7 @@ export const teacherNavItems: NavItem[] = [
   { label: '教学概览', href: '/teacher/dashboard', icon: LayoutDashboard },
   { label: '班级管理', href: '/teacher/classes', icon: Users },
   { label: '学生管理', href: '/teacher/students', icon: Users },
+  { label: '消息中心', href: '/teacher/messages', icon: Mail },
   { label: '题库管理', href: '/teacher/question-bank', icon: FileText },
   { label: '资源管理', href: '/teacher/resources', icon: FolderOpen },
 ];
