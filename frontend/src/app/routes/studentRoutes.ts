@@ -11,6 +11,7 @@ const DiagnosisReportPage = lazy(() => import('@/pages/student/DiagnosisReportPa
 const AnalyticsPage = lazy(() => import('@/pages/student/AnalyticsPage').then(m => ({ default: m.AnalyticsPage })));
 const ResourcesPage = lazy(() => import('@/pages/student/ResourcesPage').then(m => ({ default: m.ResourcesPage })));
 const MyClassPage = lazy(() => import('@/pages/student/MyClassPage').then(m => ({ default: m.MyClassPage })));
+const MessageCenterPage = lazy(() => import('@/pages/student/MessageCenterPage').then(m => ({ default: m.MessageCenterPage })));
 
 /**
  * 学生路由 - 需要登录 + student 角色
@@ -20,6 +21,7 @@ export const studentRoutes: RouteConfig[] = [
   { path: '/exercise', component: ExercisePage, title: '智能刷题', protected: true, requiredRole: 'student' },
   { path: '/session/new', component: SessionChatPage, title: '新建学习会话', protected: true, requiredRole: 'student' },
   { path: '/session/:sessionId', component: SessionChatPage, title: '学习会话', protected: true, requiredRole: 'student' },
+  { path: '/messages', component: MessageCenterPage, title: '消息中心', protected: true, requiredRole: 'student' },
   { path: '/mistake-book', component: MistakeBookPage, title: '错题本', protected: true, requiredRole: 'student' },
   { path: '/knowledge-graph', component: KnowledgeGraphPage, title: '知识图谱', protected: true, requiredRole: 'student' },
   { path: '/learning-path', component: LearningPathPage, title: '学习路径', protected: true, requiredRole: 'student' },

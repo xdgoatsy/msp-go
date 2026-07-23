@@ -3,14 +3,19 @@ package adminaiconfig
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	"mathstudy/backend-go/internal/application/llmrouting"
 	"mathstudy/backend-go/internal/platform/httpjson"
 	"mathstudy/backend-go/internal/platform/outbound"
 	"mathstudy/backend-go/internal/platform/ptrutil"
@@ -18,9 +23,17 @@ import (
 )
 
 const (
-	defaultTemperature = 0.7
-	defaultTimeout     = 60
-	defaultMaxRetries  = 2
+	defaultTemperature       = 0.7
+	defaultTimeout           = 60
+	defaultMaxRetries        = 2
+	providerKeyringPrefix    = "msp-provider-keyring:v1:"
+	defaultProviderKeyMethod = "round_robin"
+	maxProviderAPIKeys       = 100
+	maxProviderAPIKeyBytes   = 64 << 10
+	maxProviderKeyringBytes  = 512 << 10
+	defaultChannelPriority   = 0
+	defaultChannelWeight     = 100
+	maxChannelRoutingValue   = 1000
 )
 
 var (
@@ -46,7 +59,6 @@ var orderedAgentTypes = []string{"math_solver", "ocr", "tutor", "diagnostician",
 type Repository interface {
 	ListProviders(context.Context, bool) ([]LLMProvider, error)
 	GetProvider(context.Context, string) (StoredProvider, bool, error)
-	GetProviderByCode(context.Context, string) (StoredProvider, bool, error)
 	CreateProvider(context.Context, ProviderInput, time.Time) (LLMProvider, error)
 	UpdateProvider(context.Context, string, ProviderUpdate, time.Time) (LLMProvider, bool, error)
 	DeleteProvider(context.Context, string) (bool, error)
@@ -57,6 +69,7 @@ type Repository interface {
 	DeleteModel(context.Context, string) (bool, error)
 	SetDefaultModel(context.Context, string, time.Time) (bool, error)
 	ReplaceProviderModels(context.Context, string, []ModelInput, time.Time) (ModelsUpdateResult, error)
+	ListRuntimeCandidates(context.Context, string) ([]RuntimeCandidate, error)
 	ListAgentConfigs(context.Context) ([]AgentModelConfig, error)
 	GetAgentConfig(context.Context, string) (AgentModelConfig, bool, error)
 	UpsertAgentConfig(context.Context, AgentConfigInput, time.Time) (AgentModelConfig, error)
@@ -81,6 +94,7 @@ type Service struct {
 	httpClient HTTPDoer
 	now        func() time.Time
 	newID      func() (string, error)
+	keyCursors sync.Map
 }
 
 // NewService creates an admin AI config service.
@@ -112,6 +126,8 @@ type LLMProvider struct {
 	Name        string    `json:"name"`
 	Code        string    `json:"code"`
 	BaseURL     string    `json:"base_url"`
+	Priority    int       `json:"priority"`
+	Weight      int       `json:"weight"`
 	IsActive    bool      `json:"is_active"`
 	Description *string   `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -147,6 +163,7 @@ type AgentModelConfig struct {
 	ID                  string         `json:"id"`
 	AgentType           string         `json:"agent_type"`
 	ModelID             *string        `json:"model_id"`
+	ModelKey            *string        `json:"model_key"`
 	TemperatureOverride *float64       `json:"temperature_override"`
 	MaxTokensOverride   *int           `json:"max_tokens_override"`
 	TopPOverride        *float64       `json:"top_p_override"`
@@ -218,6 +235,8 @@ type ProviderInput struct {
 	Code            string
 	BaseURL         string
 	EncryptedAPIKey string
+	Priority        int
+	Weight          int
 	Description     *string
 	IsActive        bool
 }
@@ -226,6 +245,8 @@ type ProviderUpdate struct {
 	Name            *string
 	BaseURL         *string
 	EncryptedAPIKey *string
+	Priority        *int
+	Weight          *int
 	IsActive        *bool
 	Description     *string
 	DescriptionSet  bool
@@ -273,6 +294,7 @@ type AgentConfigInput struct {
 	ID                  string
 	AgentType           string
 	ModelID             string
+	ModelKey            string
 	TemperatureOverride *float64
 	MaxTokensOverride   *int
 	TopPOverride        *float64
@@ -283,11 +305,16 @@ type AgentConfigInput struct {
 }
 
 type CreateProviderRequest struct {
-	Name        string `json:"name"`
-	Code        string `json:"code"`
-	BaseURL     string `json:"base_url"`
-	APIKey      string `json:"api_key"`
-	Description string `json:"description"`
+	Name        string   `json:"name"`
+	Code        string   `json:"code"`
+	BaseURL     string   `json:"base_url"`
+	APIKey      string   `json:"api_key"`
+	APIKeys     []string `json:"api_keys,omitempty"`
+	KeyStrategy string   `json:"key_strategy,omitempty"`
+	Priority    *int     `json:"priority,omitempty"`
+	Weight      *int     `json:"weight,omitempty"`
+	IsActive    *bool    `json:"is_active,omitempty"`
+	Description string   `json:"description"`
 }
 
 type CreateProviderWithModelsRequest struct {
@@ -295,16 +322,25 @@ type CreateProviderWithModelsRequest struct {
 	Code        string              `json:"code"`
 	BaseURL     string              `json:"base_url"`
 	APIKey      string              `json:"api_key"`
+	APIKeys     []string            `json:"api_keys,omitempty"`
+	KeyStrategy string              `json:"key_strategy,omitempty"`
+	Priority    *int                `json:"priority,omitempty"`
+	Weight      *int                `json:"weight,omitempty"`
+	IsActive    *bool               `json:"is_active,omitempty"`
 	Description string              `json:"description"`
 	Models      []ModelCreateSimple `json:"models"`
 }
 
 type UpdateProviderRequest struct {
-	Name        *string `json:"name"`
-	BaseURL     *string `json:"base_url"`
-	APIKey      *string `json:"api_key"`
-	IsActive    *bool   `json:"is_active"`
-	Description *string `json:"description"`
+	Name        *string  `json:"name"`
+	BaseURL     *string  `json:"base_url"`
+	APIKey      *string  `json:"api_key"`
+	APIKeys     []string `json:"api_keys,omitempty"`
+	KeyStrategy string   `json:"key_strategy,omitempty"`
+	Priority    *int     `json:"priority"`
+	Weight      *int     `json:"weight"`
+	IsActive    *bool    `json:"is_active"`
+	Description *string  `json:"description"`
 }
 
 type CreateModelRequest struct {
@@ -338,7 +374,8 @@ type ModelsUpdateRequest struct {
 }
 
 type UpdateAgentConfigRequest struct {
-	ModelID             string         `json:"model_id"`
+	ModelID             string         `json:"model_id,omitempty"`
+	ModelKey            string         `json:"model_key,omitempty"`
 	TemperatureOverride *float64       `json:"temperature_override"`
 	MaxTokensOverride   *int           `json:"max_tokens_override"`
 	TopPOverride        *float64       `json:"top_p_override"`
@@ -354,17 +391,27 @@ type FetchModelsByCredentialsRequest struct {
 
 // RuntimeConfig stores the provider/model settings used by an agent runtime.
 type RuntimeConfig struct {
+	ChannelID     string
 	ProviderCode  string
 	ProviderName  string
 	BaseURL       string
 	APIKey        string
 	Model         string
+	LogicalModel  string
+	Priority      int
+	Weight        int
 	Temperature   float64
 	MaxTokens     int
 	TopP          *float64
 	Timeout       time.Duration
 	MaxRetries    int
 	MaxIterations int
+}
+
+// RuntimeCandidate binds one logical model capability to a concrete channel.
+type RuntimeCandidate struct {
+	Model    LLMModel
+	Provider StoredProvider
 }
 
 func (s *Service) ListProviders(ctx context.Context, includeInactive bool) (ListResponse[LLMProvider], error) {
@@ -403,6 +450,11 @@ func (s *Service) CreateProviderWithModels(ctx context.Context, request CreatePr
 		Code:        request.Code,
 		BaseURL:     request.BaseURL,
 		APIKey:      request.APIKey,
+		APIKeys:     request.APIKeys,
+		KeyStrategy: request.KeyStrategy,
+		Priority:    request.Priority,
+		Weight:      request.Weight,
+		IsActive:    request.IsActive,
 		Description: request.Description,
 	})
 	if err != nil {
@@ -443,8 +495,32 @@ func (s *Service) UpdateProvider(ctx context.Context, providerID string, request
 		}
 		update.BaseURL = &value
 	}
-	if request.APIKey != nil && strings.TrimSpace(*request.APIKey) != "" {
-		encrypted, err := s.cipher.Encrypt(strings.TrimSpace(*request.APIKey))
+	if request.Priority != nil {
+		if err := validateChannelPriority(*request.Priority); err != nil {
+			return LLMProvider{}, err
+		}
+		update.Priority = request.Priority
+	}
+	if request.Weight != nil {
+		if err := validateChannelWeight(*request.Weight); err != nil {
+			return LLMProvider{}, err
+		}
+		update.Weight = request.Weight
+	}
+	hasCredentialUpdate := (request.APIKey != nil && strings.TrimSpace(*request.APIKey) != "") || len(request.APIKeys) > 0
+	if !hasCredentialUpdate && strings.TrimSpace(request.KeyStrategy) != "" {
+		return LLMProvider{}, badRequest("更新 key_strategy 时必须同时提供 API 密钥")
+	}
+	if hasCredentialUpdate {
+		apiKey := ""
+		if request.APIKey != nil {
+			apiKey = *request.APIKey
+		}
+		credential, err := encodeProviderCredential(apiKey, request.APIKeys, request.KeyStrategy)
+		if err != nil {
+			return LLMProvider{}, err
+		}
+		encrypted, err := s.cipher.Encrypt(credential)
 		if err != nil {
 			return LLMProvider{}, fmt.Errorf("encrypt provider api key: %w", err)
 		}
@@ -468,13 +544,15 @@ func (s *Service) UpdateProvider(ctx context.Context, providerID string, request
 }
 
 func (s *Service) DeleteProvider(ctx context.Context, providerID string) (SuccessResponse, error) {
-	ok, err := s.repo.DeleteProvider(ctx, strings.TrimSpace(providerID))
+	providerID = strings.TrimSpace(providerID)
+	ok, err := s.repo.DeleteProvider(ctx, providerID)
 	if err != nil {
 		return SuccessResponse{}, err
 	}
 	if !ok {
 		return SuccessResponse{}, ErrNotFound
 	}
+	s.keyCursors.Delete(providerID)
 	return SuccessResponse{Success: true, Message: "渠道已删除"}, nil
 }
 
@@ -588,7 +666,7 @@ func (s *Service) ListAgentTypes(ctx context.Context) (AgentTypesResponse, error
 	}
 	configured := map[string]bool{}
 	for _, config := range configs {
-		configured[config.AgentType] = config.ModelID != nil && config.IsActive
+		configured[config.AgentType] = (config.ModelKey != nil || config.ModelID != nil) && config.IsActive
 	}
 	items := make([]AgentTypeInfo, 0, len(orderedAgentTypes))
 	for _, agentType := range orderedAgentTypes {
@@ -621,19 +699,47 @@ func (s *Service) UpdateAgentConfig(ctx context.Context, agentType string, reque
 	if err != nil {
 		return AgentModelConfig{}, err
 	}
+	modelKey := strings.TrimSpace(request.ModelKey)
 	modelID := strings.TrimSpace(request.ModelID)
-	if modelID == "" {
-		return AgentModelConfig{}, badRequest("model_id 不能为空")
+	if modelKey == "" && modelID == "" {
+		return AgentModelConfig{}, badRequest("model_key 不能为空")
 	}
-	model, ok, err := s.repo.GetModel(ctx, modelID)
+	if modelKey != "" {
+		if err := validateModelKey(modelKey); err != nil {
+			return AgentModelConfig{}, err
+		}
+		if modelID != "" {
+			model, found, getErr := s.repo.GetModel(ctx, modelID)
+			if getErr != nil {
+				return AgentModelConfig{}, getErr
+			}
+			if found && strings.TrimSpace(model.Name) != modelKey {
+				return AgentModelConfig{}, badRequest("model_id 与 model_key 不匹配")
+			}
+		}
+	} else {
+		model, ok, err := s.repo.GetModel(ctx, modelID)
+		if err != nil {
+			return AgentModelConfig{}, err
+		}
+		if !ok {
+			return AgentModelConfig{}, badRequest("model_id 不存在")
+		}
+		modelKey = strings.TrimSpace(model.Name)
+	}
+	candidates, err := s.repo.ListRuntimeCandidates(ctx, modelKey)
 	if err != nil {
 		return AgentModelConfig{}, err
 	}
-	if !ok {
-		return AgentModelConfig{}, badRequest("model_id 不存在")
+	if len(candidates) == 0 {
+		return AgentModelConfig{}, badRequest("所选逻辑模型没有可用渠道")
 	}
-	if !model.IsActive {
-		return AgentModelConfig{}, badRequest("不能选择已禁用模型")
+	representativeModelID := candidates[0].Model.ID
+	for _, candidate := range candidates {
+		if candidate.Model.ID == modelID {
+			representativeModelID = modelID
+			break
+		}
 	}
 	if err := validateOptionalGenerationOverrides(request.TemperatureOverride, request.MaxTokensOverride, request.TopPOverride, request.TimeoutOverride, request.MaxRetriesOverride); err != nil {
 		return AgentModelConfig{}, err
@@ -645,7 +751,8 @@ func (s *Service) UpdateAgentConfig(ctx context.Context, agentType string, reque
 	input := AgentConfigInput{
 		ID:                  id,
 		AgentType:           agentType,
-		ModelID:             modelID,
+		ModelID:             representativeModelID,
+		ModelKey:            modelKey,
 		TemperatureOverride: request.TemperatureOverride,
 		MaxTokensOverride:   request.MaxTokensOverride,
 		TopPOverride:        request.TopPOverride,
@@ -680,8 +787,8 @@ func (s *Service) TestProvider(ctx context.Context, providerID string, requested
 	if !ok {
 		return ProviderTestResult{}, ErrNotFound
 	}
-	apiKey, err := s.cipher.Decrypt(provider.EncryptedAPIKey)
-	if err != nil || strings.TrimSpace(apiKey) == "" {
+	apiKey, err := s.firstProviderAPIKey(provider.EncryptedAPIKey)
+	if err != nil {
 		return ProviderTestResult{Success: false, Message: "API 密钥不可用", LatencyMS: 0}, nil
 	}
 	modelID := strings.TrimSpace(requestedModelID)
@@ -724,7 +831,7 @@ func (s *Service) FetchAvailableModels(ctx context.Context, providerID string) (
 	if !ok {
 		return FetchModelsResponse{}, ErrNotFound
 	}
-	apiKey, err := s.cipher.Decrypt(provider.EncryptedAPIKey)
+	apiKey, err := s.firstProviderAPIKey(provider.EncryptedAPIKey)
 	if err != nil {
 		return FetchModelsResponse{Success: false, Models: []string{}, Message: "API 密钥不可用"}, nil
 	}
@@ -748,38 +855,96 @@ func (s *Service) FetchModelsByCredentials(ctx context.Context, request FetchMod
 }
 
 func (s *Service) RuntimeConfig(ctx context.Context, agentType string) (RuntimeConfig, bool, error) {
+	configs, ok, err := s.RuntimeConfigs(ctx, agentType)
+	if err != nil || !ok || len(configs) == 0 {
+		return RuntimeConfig{}, false, err
+	}
+	return configs[0], true, nil
+}
+
+// RuntimeConfigs resolves the ordered, bounded channel attempts for one agent.
+func (s *Service) RuntimeConfigs(ctx context.Context, agentType string) ([]RuntimeConfig, bool, error) {
 	agentType, err := normalizeAgentType(agentType)
 	if err != nil {
-		return RuntimeConfig{}, false, err
+		return nil, false, err
 	}
 	config, ok, err := s.repo.GetAgentConfig(ctx, agentType)
 	if err != nil {
-		return RuntimeConfig{}, false, err
+		return nil, false, err
 	}
-	if !ok || !config.IsActive || config.ModelID == nil {
-		return RuntimeConfig{}, false, nil
+	if !ok || !config.IsActive {
+		return nil, false, nil
 	}
-	model, ok, err := s.repo.GetModel(ctx, *config.ModelID)
+	modelKey := ""
+	if config.ModelKey != nil {
+		modelKey = strings.TrimSpace(*config.ModelKey)
+	}
+	if modelKey == "" && config.ModelID != nil {
+		model, found, getErr := s.repo.GetModel(ctx, *config.ModelID)
+		if getErr != nil {
+			return nil, false, getErr
+		}
+		if found {
+			modelKey = strings.TrimSpace(model.Name)
+		}
+	}
+	if modelKey == "" {
+		return nil, false, nil
+	}
+	candidates, err := s.repo.ListRuntimeCandidates(ctx, modelKey)
 	if err != nil {
-		return RuntimeConfig{}, false, err
+		return nil, false, err
 	}
-	if !ok || !model.IsActive {
-		return RuntimeConfig{}, false, nil
+	routable := make([]llmrouting.Candidate[RuntimeCandidate], 0, len(candidates))
+	seenChannels := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if _, exists := seenChannels[candidate.Provider.ID]; exists {
+			continue
+		}
+		seenChannels[candidate.Provider.ID] = struct{}{}
+		routable = append(routable, llmrouting.Candidate[RuntimeCandidate]{
+			Value:    candidate,
+			Priority: candidate.Provider.Priority,
+			Weight:   candidate.Provider.Weight,
+		})
 	}
-	provider, ok, err := s.repo.GetProvider(ctx, model.ProviderID)
+	ordered, err := llmrouting.Order(routable, nil)
 	if err != nil {
-		return RuntimeConfig{}, false, err
+		return nil, false, fmt.Errorf("order runtime channels: %w", err)
 	}
-	if !ok || !provider.IsActive {
-		return RuntimeConfig{}, false, nil
+	if len(ordered) == 0 {
+		return nil, false, nil
 	}
+	retries := ordered[0].Model.DefaultMaxRetries
+	if config.MaxRetriesOverride != nil {
+		retries = *config.MaxRetriesOverride
+	}
+	retries = min(max(retries, 0), 10)
+	attempts := retries + 1
+	configs := make([]RuntimeConfig, 0, attempts)
+	for attempt := 0; attempt < attempts; attempt++ {
+		candidate := ordered[attempt%len(ordered)]
+		runtime, usable := s.runtimeConfigFromCandidate(config, candidate, modelKey, retries)
+		if usable {
+			configs = append(configs, runtime)
+		}
+	}
+	if len(configs) == 0 {
+		return nil, false, nil
+	}
+	return configs, true, nil
+}
+
+func (s *Service) runtimeConfigFromCandidate(config AgentModelConfig, candidate RuntimeCandidate, modelKey string, retries int) (RuntimeConfig, bool) {
+	model := candidate.Model
+	provider := candidate.Provider
 	baseURL, err := normalizeBaseURL(provider.BaseURL)
 	if err != nil {
-		return RuntimeConfig{}, false, err
+		return RuntimeConfig{}, false
 	}
-	apiKey, err := s.cipher.Decrypt(provider.EncryptedAPIKey)
-	if err != nil || strings.TrimSpace(apiKey) == "" {
-		return RuntimeConfig{}, false, nil
+	apiKey, err := s.nextProviderAPIKey(provider.ID, provider.EncryptedAPIKey)
+	if err != nil {
+		return RuntimeConfig{}, false
 	}
 	temperature := model.DefaultTemperature
 	if config.TemperatureOverride != nil {
@@ -800,23 +965,23 @@ func (s *Service) RuntimeConfig(ctx context.Context, agentType string) (RuntimeC
 	if config.TimeoutOverride != nil {
 		timeoutSeconds = *config.TimeoutOverride
 	}
-	retries := model.DefaultMaxRetries
-	if config.MaxRetriesOverride != nil {
-		retries = *config.MaxRetriesOverride
-	}
 	return RuntimeConfig{
+		ChannelID:     provider.ID,
 		ProviderCode:  provider.Code,
 		ProviderName:  provider.Name,
 		BaseURL:       baseURL,
 		APIKey:        apiKey,
 		Model:         model.ModelID,
+		LogicalModel:  modelKey,
+		Priority:      provider.Priority,
+		Weight:        provider.Weight,
 		Temperature:   temperature,
 		MaxTokens:     maxTokens,
 		TopP:          topP,
 		Timeout:       time.Duration(timeoutSeconds) * time.Second,
 		MaxRetries:    retries,
 		MaxIterations: max(1, retries+1),
-	}, true, nil
+	}, true
 }
 
 func (s *Service) providerInput(request CreateProviderRequest) (ProviderInput, error) {
@@ -832,16 +997,34 @@ func (s *Service) providerInput(request CreateProviderRequest) (ProviderInput, e
 	if err != nil {
 		return ProviderInput{}, err
 	}
-	apiKey := strings.TrimSpace(request.APIKey)
-	if apiKey == "" {
-		return ProviderInput{}, badRequest("api_key 不能为空")
+	credential, err := encodeProviderCredential(request.APIKey, request.APIKeys, request.KeyStrategy)
+	if err != nil {
+		return ProviderInput{}, err
 	}
-	encrypted, err := s.cipher.Encrypt(apiKey)
+	encrypted, err := s.cipher.Encrypt(credential)
 	if err != nil {
 		return ProviderInput{}, fmt.Errorf("encrypt provider api key: %w", err)
 	}
 	id, err := s.newID()
 	if err != nil {
+		return ProviderInput{}, err
+	}
+	isActive := true
+	if request.IsActive != nil {
+		isActive = *request.IsActive
+	}
+	priority := defaultChannelPriority
+	if request.Priority != nil {
+		priority = *request.Priority
+	}
+	if err := validateChannelPriority(priority); err != nil {
+		return ProviderInput{}, err
+	}
+	weight := defaultChannelWeight
+	if request.Weight != nil {
+		weight = *request.Weight
+	}
+	if err := validateChannelWeight(weight); err != nil {
 		return ProviderInput{}, err
 	}
 	return ProviderInput{
@@ -850,8 +1033,10 @@ func (s *Service) providerInput(request CreateProviderRequest) (ProviderInput, e
 		Code:            code,
 		BaseURL:         baseURL,
 		EncryptedAPIKey: encrypted,
+		Priority:        priority,
+		Weight:          weight,
 		Description:     optionalTrimmedString(request.Description, 500),
-		IsActive:        true,
+		IsActive:        isActive,
 	}, nil
 }
 
@@ -886,6 +1071,152 @@ func (s *Service) modelInputFromRequest(request CreateModelRequest) (ModelInput,
 		IsActive:           true,
 		IsDefault:          false,
 	}, nil
+}
+
+type providerKeyring struct {
+	Strategy string   `json:"strategy"`
+	Keys     []string `json:"keys"`
+}
+
+func encodeProviderCredential(apiKey string, apiKeys []string, strategy string) (string, error) {
+	if len(apiKeys) > 0 && strings.TrimSpace(apiKey) != "" && strings.TrimSpace(apiKey) != strings.TrimSpace(apiKeys[0]) {
+		return "", badRequest("api_key 必须与 api_keys 的首个密钥一致")
+	}
+	keys, err := normalizeProviderAPIKeys(apiKey, apiKeys)
+	if err != nil {
+		return "", err
+	}
+	if len(apiKeys) > 0 && len(keys) < 2 {
+		return "", badRequest("api_keys 至少需要两个不同的密钥")
+	}
+	if len(keys) == 1 && !strings.HasPrefix(keys[0], providerKeyringPrefix) {
+		return keys[0], nil
+	}
+	method, err := normalizeProviderKeyStrategy(strategy)
+	if err != nil {
+		return "", err
+	}
+	payload, err := json.Marshal(providerKeyring{Strategy: method, Keys: keys})
+	if err != nil {
+		return "", errors.New("encode provider keyring")
+	}
+	if len(payload) > maxProviderKeyringBytes {
+		return "", badRequest("api_keys 总长度过大")
+	}
+	return providerKeyringPrefix + string(payload), nil
+}
+
+func normalizeProviderAPIKeys(apiKey string, apiKeys []string) ([]string, error) {
+	values := apiKeys
+	if len(values) == 0 {
+		values = []string{apiKey}
+	}
+	if len(values) > maxProviderAPIKeys {
+		return nil, badRequest("api_keys 数量不能超过 100")
+	}
+	seen := make(map[string]struct{}, len(values))
+	keys := make([]string, 0, len(values))
+	totalBytes := 0
+	for _, rawValue := range values {
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			continue
+		}
+		if len(value) > maxProviderAPIKeyBytes {
+			return nil, badRequest("单个 API 密钥长度过大")
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		keys = append(keys, value)
+		totalBytes += len(value)
+	}
+	if len(keys) == 0 {
+		return nil, badRequest("api_key 不能为空")
+	}
+	if totalBytes > maxProviderKeyringBytes {
+		return nil, badRequest("api_keys 总长度过大")
+	}
+	return keys, nil
+}
+
+func normalizeProviderKeyStrategy(strategy string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(strategy))
+	if value == "" {
+		return defaultProviderKeyMethod, nil
+	}
+	if value != defaultProviderKeyMethod && value != "random" {
+		return "", badRequest("key_strategy 仅支持 round_robin 或 random")
+	}
+	return value, nil
+}
+
+func decodeProviderCredential(credential string) (providerKeyring, error) {
+	value := strings.TrimSpace(credential)
+	if value == "" {
+		return providerKeyring{}, errors.New("provider credential is empty")
+	}
+	if !strings.HasPrefix(value, providerKeyringPrefix) {
+		return providerKeyring{Strategy: defaultProviderKeyMethod, Keys: []string{value}}, nil
+	}
+	payload := strings.TrimPrefix(value, providerKeyringPrefix)
+	if payload == "" || len(payload) > maxProviderKeyringBytes {
+		return providerKeyring{}, errors.New("provider keyring is invalid")
+	}
+	var keyring providerKeyring
+	if err := json.Unmarshal([]byte(payload), &keyring); err != nil {
+		return providerKeyring{}, errors.New("provider keyring is invalid")
+	}
+	keys, err := normalizeProviderAPIKeys("", keyring.Keys)
+	if err != nil {
+		return providerKeyring{}, errors.New("provider keyring is invalid")
+	}
+	method, err := normalizeProviderKeyStrategy(keyring.Strategy)
+	if err != nil {
+		return providerKeyring{}, errors.New("provider keyring is invalid")
+	}
+	return providerKeyring{Strategy: method, Keys: keys}, nil
+}
+
+func (s *Service) decryptProviderKeyring(encryptedCredential string) (providerKeyring, error) {
+	credential, err := s.cipher.Decrypt(encryptedCredential)
+	if err != nil {
+		return providerKeyring{}, err
+	}
+	return decodeProviderCredential(credential)
+}
+
+func (s *Service) firstProviderAPIKey(encryptedCredential string) (string, error) {
+	keyring, err := s.decryptProviderKeyring(encryptedCredential)
+	if err != nil || len(keyring.Keys) == 0 {
+		return "", errors.New("provider API key is unavailable")
+	}
+	return keyring.Keys[0], nil
+}
+
+func (s *Service) nextProviderAPIKey(providerID string, encryptedCredential string) (string, error) {
+	keyring, err := s.decryptProviderKeyring(encryptedCredential)
+	if err != nil || len(keyring.Keys) == 0 {
+		return "", errors.New("provider API key is unavailable")
+	}
+	if len(keyring.Keys) == 1 {
+		return keyring.Keys[0], nil
+	}
+	if keyring.Strategy == "random" {
+		index, randomErr := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(keyring.Keys))))
+		if randomErr != nil {
+			return "", errors.New("select random provider API key")
+		}
+		return keyring.Keys[index.Int64()], nil
+	}
+	cursorValue, _ := s.keyCursors.LoadOrStore(providerID, &atomic.Uint64{})
+	cursor, ok := cursorValue.(*atomic.Uint64)
+	if !ok {
+		return "", errors.New("provider API key cursor is unavailable")
+	}
+	index := (cursor.Add(1) - 1) % uint64(len(keyring.Keys))
+	return keyring.Keys[index], nil
 }
 
 func (s *Service) modelInputs(providerID string, models []ModelCreateSimple) ([]ModelInput, error) {
@@ -1032,6 +1363,9 @@ func normalizeBaseURL(value string) (string, error) {
 func normalizeProviderCode(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	value = strings.ReplaceAll(value, " ", "-")
+	if value == "openai-responses" {
+		return "openai"
+	}
 	return value
 }
 
@@ -1049,6 +1383,27 @@ func validateModelNameAndID(name string, modelID string) error {
 	}
 	if modelID == "" || len([]rune(modelID)) > 100 {
 		return badRequest("model_id 长度必须在 1 到 100 之间")
+	}
+	return nil
+}
+
+func validateModelKey(modelKey string) error {
+	if modelKey == "" || len([]rune(modelKey)) > 100 {
+		return badRequest("model_key 长度必须在 1 到 100 之间")
+	}
+	return nil
+}
+
+func validateChannelPriority(priority int) error {
+	if priority < 0 || priority > maxChannelRoutingValue {
+		return badRequest("priority 必须在 0 到 1000 之间")
+	}
+	return nil
+}
+
+func validateChannelWeight(weight int) error {
+	if weight < 1 || weight > maxChannelRoutingValue {
+		return badRequest("weight 必须在 1 到 1000 之间")
 	}
 	return nil
 }

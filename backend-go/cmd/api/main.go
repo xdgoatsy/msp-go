@@ -18,13 +18,17 @@ import (
 	adminsettingshttp "mathstudy/backend-go/internal/adapter/http/adminsettings"
 	adminstatshttp "mathstudy/backend-go/internal/adapter/http/adminstats"
 	adminuserhttp "mathstudy/backend-go/internal/adapter/http/adminuser"
+	announcementhttp "mathstudy/backend-go/internal/adapter/http/announcement"
 	authhttp "mathstudy/backend-go/internal/adapter/http/auth"
 	classroomhttp "mathstudy/backend-go/internal/adapter/http/classroom"
+	conversationhttp "mathstudy/backend-go/internal/adapter/http/conversation"
 	exercisehttp "mathstudy/backend-go/internal/adapter/http/exercise"
 	knowledgehttp "mathstudy/backend-go/internal/adapter/http/knowledge"
 	mistakehttp "mathstudy/backend-go/internal/adapter/http/mistake"
+	noticehttp "mathstudy/backend-go/internal/adapter/http/notice"
 	portraithttp "mathstudy/backend-go/internal/adapter/http/portrait"
 	progresshttp "mathstudy/backend-go/internal/adapter/http/progress"
+	qathreadhttp "mathstudy/backend-go/internal/adapter/http/qathread"
 	questionhttp "mathstudy/backend-go/internal/adapter/http/question"
 	resourcehttp "mathstudy/backend-go/internal/adapter/http/resource"
 	securityloghttp "mathstudy/backend-go/internal/adapter/http/securitylog"
@@ -34,6 +38,7 @@ import (
 	xidianhttp "mathstudy/backend-go/internal/adapter/http/xidian"
 	einoagent "mathstudy/backend-go/internal/adapter/llm/einoagent"
 	moderationadapter "mathstudy/backend-go/internal/adapter/llm/moderation"
+	openaicompatadapter "mathstudy/backend-go/internal/adapter/llm/openaicompat"
 	adapterpostgres "mathstudy/backend-go/internal/adapter/postgres"
 	adapterredis "mathstudy/backend-go/internal/adapter/redis"
 	storageadapter "mathstudy/backend-go/internal/adapter/storage"
@@ -43,14 +48,18 @@ import (
 	adminstatsapp "mathstudy/backend-go/internal/application/adminstats"
 	adminuserapp "mathstudy/backend-go/internal/application/adminuser"
 	airiskapp "mathstudy/backend-go/internal/application/airisk"
+	announcementapp "mathstudy/backend-go/internal/application/announcement"
 	answerocrapp "mathstudy/backend-go/internal/application/answerocr"
 	authapp "mathstudy/backend-go/internal/application/auth"
 	classroomapp "mathstudy/backend-go/internal/application/classroom"
+	conversationapp "mathstudy/backend-go/internal/application/conversation"
 	exerciseapp "mathstudy/backend-go/internal/application/exercise"
 	knowledgeapp "mathstudy/backend-go/internal/application/knowledge"
 	mistakeapp "mathstudy/backend-go/internal/application/mistake"
+	noticeapp "mathstudy/backend-go/internal/application/notice"
 	portraitapp "mathstudy/backend-go/internal/application/portrait"
 	progressapp "mathstudy/backend-go/internal/application/progress"
+	qathreadapp "mathstudy/backend-go/internal/application/qathread"
 	questionapp "mathstudy/backend-go/internal/application/question"
 	resourceapp "mathstudy/backend-go/internal/application/resource"
 	securitylogapp "mathstudy/backend-go/internal/application/securitylog"
@@ -63,6 +72,7 @@ import (
 	"mathstudy/backend-go/internal/platform/health"
 	"mathstudy/backend-go/internal/platform/httpserver"
 	"mathstudy/backend-go/internal/platform/metrics"
+	"mathstudy/backend-go/internal/platform/outbound"
 	platformpostgres "mathstudy/backend-go/internal/platform/postgres"
 	platformredis "mathstudy/backend-go/internal/platform/redis"
 	"mathstudy/backend-go/internal/platform/secret"
@@ -230,7 +240,8 @@ func main() {
 		logger.Error("configure admin AI config repository", "error", err)
 		os.Exit(1)
 	}
-	adminAIConfigService, err := adminaiconfigapp.NewService(adminAIConfigRepo, appCipher)
+	providerHTTPClient := openaicompatadapter.WrapClient(outbound.NewPublicHTTPSClient(20 * time.Second))
+	adminAIConfigService, err := adminaiconfigapp.NewService(adminAIConfigRepo, appCipher, providerHTTPClient)
 	if err != nil {
 		logger.Error("configure admin AI config service", "error", err)
 		os.Exit(1)
@@ -472,6 +483,57 @@ func main() {
 		logger.Error("configure teacher handler", "error", err)
 		os.Exit(1)
 	}
+	// Message center: conversations
+	conversationRepo, err := adapterpostgres.NewConversationRepository(dbPool)
+	if err != nil {
+		logger.Error("configure conversation repository", "error", err)
+		os.Exit(1)
+	}
+	conversationService, err := conversationapp.NewService(conversationRepo)
+	if err != nil {
+		logger.Error("configure conversation service", "error", err)
+		os.Exit(1)
+	}
+	conversationHandler, err := conversationhttp.NewHandler(logger, conversationService, authService)
+	if err != nil {
+		logger.Error("configure conversation handler", "error", err)
+		os.Exit(1)
+	}
+
+	// Message center: notices
+	noticeRepo, err := adapterpostgres.NewNoticeRepository(dbPool)
+	if err != nil {
+		logger.Error("configure notice repository", "error", err)
+		os.Exit(1)
+	}
+	noticeService, err := noticeapp.NewService(noticeRepo)
+	if err != nil {
+		logger.Error("configure notice service", "error", err)
+		os.Exit(1)
+	}
+	noticeHandler, err := noticehttp.NewHandler(logger, noticeService, authService)
+	if err != nil {
+		logger.Error("configure notice handler", "error", err)
+		os.Exit(1)
+	}
+
+	// Message center: Q&A threads
+	qaThreadRepo, err := adapterpostgres.NewQAThreadRepository(dbPool)
+	if err != nil {
+		logger.Error("configure qathread repository", "error", err)
+		os.Exit(1)
+	}
+	qaThreadService, err := qathreadapp.NewService(qaThreadRepo)
+	if err != nil {
+		logger.Error("configure qathread service", "error", err)
+		os.Exit(1)
+	}
+	qaThreadHandler, err := qathreadhttp.NewHandler(logger, qaThreadService, authService)
+	if err != nil {
+		logger.Error("configure qathread handler", "error", err)
+		os.Exit(1)
+	}
+
 	knowledgeRepo, err := adapterpostgres.NewKnowledgeRepository(dbPool)
 	if err != nil {
 		logger.Error("configure knowledge repository", "error", err)
@@ -505,6 +567,21 @@ func main() {
 	adminInboxHandler, err := admininboxhttp.NewHandler(logger, adminInboxService, authService)
 	if err != nil {
 		logger.Error("configure admin inbox handler", "error", err)
+		os.Exit(1)
+	}
+	announcementRepo, err := adapterpostgres.NewAnnouncementRepository(dbPool)
+	if err != nil {
+		logger.Error("configure announcement repository", "error", err)
+		os.Exit(1)
+	}
+	announcementService, err := announcementapp.NewService(announcementRepo)
+	if err != nil {
+		logger.Error("configure announcement service", "error", err)
+		os.Exit(1)
+	}
+	announcementHandler, err := announcementhttp.NewHandler(logger, announcementService, authService)
+	if err != nil {
+		logger.Error("configure announcement handler", "error", err)
 		os.Exit(1)
 	}
 	adminStatsRepo, err := adapterpostgres.NewAdminStatsRepository(dbPool)
@@ -620,6 +697,7 @@ func main() {
 		store,
 		httpserver.WithRoutes(func(mux *http.ServeMux) {
 			authHandler.Register(mux, cfg.APIV1Prefix+"/auth")
+			announcementHandler.RegisterUser(mux, cfg.APIV1Prefix+"/announcements")
 			progressHandler.Register(mux, cfg.APIV1Prefix+"/progress")
 			portraitHandler.Register(mux, cfg.APIV1Prefix+"/portrait")
 			mistakeHandler.Register(mux, cfg.APIV1Prefix+"/mistakes")
@@ -631,9 +709,13 @@ func main() {
 			questionHandler.Register(mux, cfg.APIV1Prefix+"/questions")
 			classHandler.Register(mux, cfg.APIV1Prefix+"/classes")
 			teacherHandler.Register(mux, cfg.APIV1Prefix+"/teacher")
+			conversationHandler.Register(mux, cfg.APIV1Prefix+"/conversations")
+			noticeHandler.Register(mux, cfg.APIV1Prefix+"/notices")
+			qaThreadHandler.Register(mux, cfg.APIV1Prefix+"/qa-threads")
 			adminUserHandler.Register(mux, cfg.APIV1Prefix+"/admin/users")
 			aiRiskHandler.Register(mux, cfg.APIV1Prefix+"/admin/risk-control")
 			adminInboxHandler.Register(mux, cfg.APIV1Prefix+"/admin/inbox")
+			announcementHandler.RegisterAdmin(mux, cfg.APIV1Prefix+"/admin/announcements")
 			adminAIConfigHandler.Register(mux, cfg.APIV1Prefix+"/admin/ai-config")
 			adminStatsHandler.Register(mux, cfg.APIV1Prefix+"/admin/stats")
 			adminSettingsHandler.Register(mux, cfg.APIV1Prefix+"/admin/settings")

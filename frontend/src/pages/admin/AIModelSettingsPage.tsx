@@ -4,7 +4,7 @@
  * 管理 AI 渠道（提供商 + 模型）和智能体配置
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { AdminLayout } from '@/modules/admin/components/AdminLayout';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -70,7 +70,7 @@ export const AIModelSettingsPage: React.FC = () => {
   const providers = useAppSelector(selectProviders) ?? [];
   const providersLoading = useAppSelector(selectProvidersLoading) ?? 'idle';
   const providersError = useAppSelector(selectProvidersError) ?? null;
-  const models = useAppSelector(selectModels) ?? [];
+  const models = useAppSelector(selectModels);
   const modelsLoading = useAppSelector(selectModelsLoading) ?? 'idle';
   const agentConfigs = useAppSelector(selectAgentConfigs) ?? [];
   const agentTypes = useAppSelector(selectAgentTypes) ?? [];
@@ -92,13 +92,16 @@ export const AIModelSettingsPage: React.FC = () => {
   // 刷新数据
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await Promise.all([
-      dispatch(fetchProviders(true)),
-      dispatch(fetchModels({ includeInactive: true })),
-      dispatch(fetchAgentConfigs()),
-      dispatch(fetchAgentTypes()),
-    ]);
-    setIsRefreshing(false);
+    try {
+      await Promise.all([
+        dispatch(fetchProviders(true)),
+        dispatch(fetchModels({ includeInactive: true })),
+        dispatch(fetchAgentConfigs()),
+        dispatch(fetchAgentTypes()),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // 打开新建 Modal
@@ -121,7 +124,7 @@ export const AIModelSettingsPage: React.FC = () => {
 
   // 创建渠道（提供商 + 模型）
   const handleCreateChannel = async (data: CreateProviderWithModelsRequest) => {
-    await dispatch(createProviderWithModels(data)).unwrap();
+    return dispatch(createProviderWithModels(data)).unwrap();
   };
 
   // 更新提供商
@@ -190,11 +193,10 @@ export const AIModelSettingsPage: React.FC = () => {
     return models.filter((m) => m.provider_id === providerId);
   };
 
-  // 获取编辑中提供商的模型 ID 列表
-  const getEditingProviderModels = () => {
-    if (!editingProvider) return [];
-    return models.filter((m) => m.provider_id === editingProvider.id).map((m) => m.model_id);
-  };
+  const editingProviderModels = useMemo(
+    () => editingProvider ? models.filter((model) => model.provider_id === editingProvider.id) : [],
+    [editingProvider, models]
+  );
 
   // 统计数据
   const stats = {
@@ -386,7 +388,7 @@ export const AIModelSettingsPage: React.FC = () => {
           onUpdateModels={handleUpdateProviderModels}
           onFetchModels={handleFetchModels}
           editingProvider={editingProvider}
-          existingModels={getEditingProviderModels()}
+          existingModels={editingProviderModels}
         />
       </div>
     </AdminLayout>

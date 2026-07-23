@@ -2,8 +2,8 @@
 
 > 文档定位：本文是仓库规则要求保留的迁移阶段跟踪与验证证据，不作为通用路线图。当前跨模块未完成事项统一维护在 [项目待办](TODO.md)；任何迁移阶段的开始、阻塞、恢复或完成仍必须同步更新本文。
 
-**Document status**: P4 in progress; P5 done; P6 AI/Agent in progress (Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR/Content Moderator Agents, admin LLM/Agent config loop, and uniform student AI risk center wired; OCR, general-math, student AI risk-control, and model-moderation slices delivered, token streaming and live external-provider quality acceptance pending); P7 in progress; P8 static contract handoff done; P9 Python backend removed by user confirmation; repository-wide quality cleanup batch done 2026-07-12
-**Last updated**: 2026-07-21
+**Document status**: P4 in progress; P5 done; P6 AI/Agent in progress (Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR/Content Moderator Agents, admin LLM/Agent config loop, and uniform student AI risk center wired; unified channel scheduling/model catalog slice in progress; OCR, general-math, student AI risk-control, model-moderation, and multi-key channel-management slices delivered, token streaming and live external-provider quality acceptance pending); P7 in progress; P8 static contract handoff done; P9 Python backend removed by user confirmation; repository-wide quality cleanup batch done 2026-07-12
+**Last updated**: 2026-07-23
 **适用范围**：原 `backend/` Python FastAPI 后端整体迁移到 Go 后端；`backend/` 已从当前工作区删除
 **重构原则**：接口兼容、数据连续、分阶段验收、每阶段完成必须更新本文档
 
@@ -47,7 +47,7 @@
 - Go 后端承接所有非 AI `/api/v1` 业务接口、健康检查、监控指标和文件访问入口。
 - Python 后端不再承载线上业务流量。
 - 数据库迁移、缓存、对象存储、鉴权和审计能力在 Go 后端中具备等价实现。
-- AI/Agent、LLM、OCR 和数学求解质量能力不沿旧 Python 实现迁移；P6 已接入 Go/Eino 会话导师、画像、错因诊断、通用数学求解、题目解析、题目生成和 OCR Agent，并完成后台 LLM/Agent 配置闭环。P6 剩余范围是 token 级流式和真实外部 provider 质量验收。
+- AI/Agent、LLM、OCR 和数学求解质量能力不沿旧 Python 实现迁移；P6 已接入 Go/Eino 会话导师、画像、错因诊断、通用数学求解、题目解析、题目生成和 OCR Agent，并完成支持同类型多渠道、批量密钥与加密密钥环的后台 LLM/Agent 配置闭环。P6 剩余范围是 token 级流式和真实外部 provider 质量验收。
 - 旧 Python 服务已按用户确认从当前工作区删除。
 
 ### 2.2 非目标
@@ -220,7 +220,7 @@ backend-go/
 | P3 鉴权与用户域 | DONE | 迁移认证、用户、密码、权限基础能力 | `/auth`、用户上下文、管理员初始化 | 12.4 |
 | P4 核心学习域 | IN_PROGRESS | 迁移会话、练习、错题、进度、画像 | `/session`、`/exercise`、`/mistakes`、`/progress`、`/portrait` | 12.5 |
 | P5 内容与教学管理域 | DONE | 迁移题库、资源、班级、教师统计、知识点 | `/questions`、`/resources`、`/classes`、`/teacher`、`/admin/knowledge` | 12.6 |
-| P6 AI and Agent capabilities | IN_PROGRESS | Integrate the new Eino-based AI/Agent architecture and remove explicit TODO/placeholders incrementally | Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR Agent and admin config loop wired; OCR/general-math slice delivered; token streaming and live provider quality acceptance pending | 12.7 |
+| P6 AI and Agent capabilities | IN_PROGRESS | Integrate the new Eino-based AI/Agent architecture and remove explicit TODO/placeholders incrementally | Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR Agent, admin config loop, and same-type multi-channel/multi-key management wired; OCR/general-math slice delivered; token streaming and live provider quality acceptance pending | 12.7 |
 | P7 集成与运维域 | IN_PROGRESS | 维护西电账户绑定、上传、系统设置、安全日志、监控和管理员辅助能力 | `/xidian`、`/upload`、`/admin/settings`、`/admin/security-logs`、`/admin/inbox`、`/admin/stats`、`/metrics` | 12.8 |
 | P8 静态契约验证与用户验收交接 | DONE | 完成 Go 静态契约验证并保留证据，运行时双跑和业务验收由用户自行执行 | 历史契约验证记录、用户验收交接记录 | 12.9 |
 | P9 流量切换与 Python 下线 | DONE | 切换默认生产入口并删除旧 Python 后端目录 | 部署配置、下线记录、删除清单 | 12.10 |
@@ -339,6 +339,7 @@ backend-go/
 - 已落地 Go/Eino 错因诊断 Diagnostician Agent：`/exercise/submit` 对错误答案优先读取持久化 `diagnostician` Agent 配置生成结构化 C/P/L/S-Type 诊断；没有后台配置、模型不可用、JSON 格式无效或生成空内容时保留本地基础诊断降级。
 - 已落地 Go/Eino 题目解析 Question Parser Agent：`/questions/ai-parse` 优先读取持久化 `question_parser` Agent 配置抽取题目候选；没有后台配置、模型不可用、JSON 格式无效或必填字段缺失时保留确定性形状兼容解析降级。
 - `/admin/ai-config/*` 已实现管理员鉴权后的 provider/model/Agent 配置闭环，支持 provider/model CRUD、provider test、模型拉取、provider 模型列表替换和 Agent 配置 CRUD；前端 AI 模型设置页已具备后端闭环，并支持配置内容审核 `content_moderator` Agent。
+- Provider 渠道允许同一 `code` 创建多个独立实例；创建/更新契约支持 `api_keys`、`key_strategy` 和 `is_active`，多密钥以加密密钥环保存并按轮询或加密随机策略选择，旧单密钥加密格式继续兼容。测试连接和模型拉取固定使用首个密钥，避免一次管理操作推进运行时轮询状态。
 - 已落地管理员学生 AI 风控中心：所有学生共享系统级每日成功聊天回复额度和每生并发上限，不提供单生差异化额度；额度按 `Asia/Shanghai` 自然日统计，仅成功持久化的真实 Tutor 回复计数，欢迎语、模型失败/空回复降级、取消和风控拦截不计数。会话聊天、AI 出题、判题、解析和画像生成共享 AI 独立封禁、管理员解封、关键词内容拦截、可选模型同步前置审查和 Redis 分布式并发租约；非聊天 AI 能力按产品口径不消耗回复额度。
 - 已落地学生 AI 模型内容审查：复用加密 provider/model/Agent 配置调用 OpenAI-compatible `/v1/moderations`，严格校验 13 类风险分数并按管理员阈值 fail-closed 前置阻断；模型未配置、调用失败或响应不完整时同样拒绝请求并记录审查异常。该能力默认关闭，需先配置 `content_moderator` Agent 再由管理员显式启用。
 - 已落地 Go/Eino 图片答案 OCR：`/exercise/submit` 从当前 Local/Qiniu/S3 存储可信命名空间回读并完整解码 PNG/JPEG/GIF，以多模态 Base64 调用 `ocr` Agent；文本与图片同时提交时文本优先。授权、OCR、数学判定和诊断都在事务前完成，任何不确定、超时、不可用或无效响应均不创建 attempt、diagnosis、learning session，不更新 DKT/profile。
@@ -359,7 +360,7 @@ backend-go/
 - Eino Diagnostician Agent 配置选择、诊断 prompt 构造、结构化 JSON 解析、taxonomy 校验和本地降级路径测试通过。
 - Eino Question Parser Agent 配置选择、题目解析 prompt 构造、结构化 JSON 解析、必填字段校验和确定性解析降级路径测试通过。
 - OCR 成功、不可读、低置信度、超时、不可用、非法图片和题目并发变化均有稳定 HTTP/前端契约；解析成功及确定判题前的 attempt、diagnosis、learning session、DKT/profile 写入增量为零。
-- LLM provider/model CRUD、provider test/fetch、Agent 配置 CRUD 与前端 AI 模型设置页联通。
+- LLM provider/model CRUD、同类型多渠道、单密钥/批量创建/多密钥、轮询/随机选择、provider test/fetch、Agent 配置 CRUD 与前端 AI 模型设置页联通。
 - Agent 配置可被运行时选择使用，而不是仅依赖 `EINO_*` 单组环境变量。
 - OCR、通用数学求解和教学反馈 Agent 的正常路径、失败路径、超时、限流、降级路径测试通过。
 
@@ -419,6 +420,7 @@ backend-go/
 | P1 | `/auth` | DONE | Go P3 已承接登录、注册、刷新、登出、当前用户、修改密码、注册状态、忘记密码公开申请/状态查询 |
 | P1 | `/admin/users` | DONE | Go P3 追加承接管理员用户统计、列表、创建、更新、状态切换、删除、CSV 导入导出 |
 | P1 | `/admin/settings` | DONE | Go P7 已承接注册开关、通用信息、可导出表、数据库 JSON 导入导出和数据库监控 |
+| P1 | `/admin/announcements`、`/announcements` | DONE | Go P7 已承接管理员公告 CRUD、学生/教师有效公告队列和账号级“不再弹出”；version 9 保存公告修订与用户关闭记录 |
 | P2 | `/session` | DONE | Go P4 已承接会话创建、历史、列表、结束、模式、删除、批删、任务取消和 SSE 响应；P6 已接入可配置的 Eino Tutor Agent 第一片能力，token 级流式和资源推荐仍待后续 slice |
 | P2 | `/exercise` | DONE | Go P4 已承接班级下一题、学生 AI 自主出题、提交答案、题目详情和题目解析；P6 已接入可配置 Eino Math Solver、Diagnostician、Question Generator 与 OCR Agent。`POST /exercise/generate` 仅学生可用，按知识点/难度生成严格四选一题，模型不可用或输出非法时返回 503 且不落库；生成题目在落库前经 SolutionSolver 独立求解与 VerifySolution 双重验证，验证失败时携带原因重试一次，二次仍失败返回 503 且不落库；图片答案支持可信存储回读和 PNG/JPEG/GIF 多模态 OCR，OCR/数学不确定或失败时在事务前终止且不更新学习状态 |
 | P2 | `/mistakes` | DONE | Go P4 已承接列表、统计、详情、标记掌握、删除和复习推荐 |
@@ -577,6 +579,7 @@ git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx" "test
 | R66 | 学生 AI 内容风控的关键词规则和可选上游模型审查仍存在语义边界 | 模型审查关闭时，变体、谐音、拆字、多语言或隐含意图可能绕过关键词；启用后仍依赖上游分类语义、13 类固定分类和人工设定阈值，可能误拦正常学习讨论或漏过教育场景特有风险 | MITIGATED | 2026-07-21 首版关键词命中时不调用模型并记录规则、内容摘要和哈希；version 5 新增可配置 `content_moderator` 同步前置审查、13 类阈值、模型失败关闭和分类分数审计。模型审查默认关闭，管理员需先配置审核 Agent 再启用；规则版本、申诉/人工复核、误报/漏报指标和教育场景阈值校准仍待补齐 |
 | R67 | 学生 AI 并发与在途额度预留依赖 Redis，且数据库用量账本与 Redis 租约不存在跨系统事务 | Redis 故障会暂时拒绝全部受控 AI 请求；回复持久化失败或租约释放失败时可能在 TTL 内少一个可用槽位 | MITIGATED | 2026-07-21 风控采用 fail-closed，禁止 Redis 故障时绕过封禁/并发/额度；每个租约有 10 分钟 TTL，释放幂等，数据库以单条 CTE 原子写入成功回复和不可回退的额度账本。后续应增加 Redis 可用性告警、租约拒绝指标和多节点故障演练；当前 key 设计仅按单节点 Redis 验证，未声明 Redis Cluster 兼容 |
 | R68 | 仓库不再永久保留测试用例源码 | 后续变更缺少持续回归守卫，历史用例无法直接重复运行，缺陷可能在临时验证未覆盖时回归 | ACCEPTED | 2026-07-21 按用户要求改为“实现完成后创建临时测试、运行并记录、提交前删除”；保留 Go/Vitest 测试运行能力，以 `.gitignore` 和提交前检查阻止测试源码入库，并要求迁移批次保存验证命令、结果、覆盖率与残余风险。该策略不能提供永久回归保护，需用更严格的变更级临时测试、静态检查、构建和运行时验收补偿 |
+| R69 | 生产更新脚本只备份配置且依赖固定 sleep，forward migration 前缺少数据库/上传快照和真实就绪检查 | 迁移失败时缺少可恢复数据，数据库未就绪时更新中断，旧镜像又被自动清理导致回滚窗口缩短 | MITIGATED | 2026-07-23 完成 P7 部署迁移安全链路切片：更新脚本在停止应用写入后备份 PostgreSQL 与 uploads，记录旧镜像引用、不可变镜像 ID 和原运行状态，使用 `pg_isready`/容器健康状态等待，迁移或新版本健康检查失败时保持应用停止且不再自动 prune；首次部署同步使用真实就绪检查，恢复手册覆盖数据库、uploads 和旧镜像。临时 7 路正常/故障测试、脚本语法、Go 全仓 test/vet/build、本地 version 10 幂等迁移、SQL 表核对和差异检查通过；真实 Compose 烟测与生产备份恢复演练仍需在有 Docker 的受控环境执行 |
 | R9 | 当前机器未配置可连接 PostgreSQL 测试库且 Docker CLI 不可用 | P2 数据库迁移/Repository 集成验收不能在本机闭环 | CLOSED | 已使用本地 PostgreSQL `math_platform` 执行清库、Go 迁移、重复迁移和迁移集成测试；Docker CLI 仍不可用但不阻塞 P2 |
 
 ---
@@ -663,6 +666,19 @@ git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx" "test
 
 ### 12.6 P5 内容与教学管理域
 
+- 2026-07-23 消息中心健壮性补充：通知创建 API 改为使用 `class_id`，避免同一教师同名班级导致插入冲突；师生消息中心的私信、通知和答疑列表根据 API `total` 自动读取所有分页，避免第 50 条之后数据不可见；未确认学生名单查询、会话已读写入均改为向上返回数据库错误；答疑状态使用应用层白名单并将非法状态映射为 `422 VALIDATION_ERROR`。验证：相关 Go 包测试/Go vet 与前端 `npm run build` 通过，`git diff --check` 通过。
+- 2026-07-23 消息中心私信范围调整：学生与教师均可通过对方 ID 向任意有效异角色账号创建私信，不受班级归属限制；后续消息写入仍严格验证会话参与者和角色。
+- 2026-07-23 说明更正：上述私信范围调整取代本节旧记录中“教师主动创建会话仍限本班学生”的描述；当前师生双方均可按对方 ID 创建私信。
+- 2026-07-23 消息中心前端交互完善：`DONE`。学生归档或删除当前私信后会加载下一条会话详情；私信详情读取失败会恢复本地未读数；私信、通知和答疑的关键写操作失败会反馈给用户；教师没有可用班级时无法提交通知。验证：frontend `npm run build` 通过；`npm run lint` 无 error（保留 3 个既有 React Hook dependency warning）；`git diff --check` 通过。交付物：师生消息中心页面与本跟踪记录。残余风险：仍需使用真实师生账号验收失败提示、会话归档/删除切换和通知发布边界。
+- 2026-07-23 消息详情分页完善：`DONE`。私信与答疑详情 API 支持 `messages_page` 和 `messages_page_size`（1–100），默认只返回最新 50 条消息及总数/页码元数据；师生消息中心可按“加载更早消息”追加历史记录，并保持时间正序。验证：`GOCACHE=/private/tmp/msp-go-build-cache go test ./internal/application/conversation ./internal/application/qathread ./internal/adapter/postgres ./internal/adapter/http/conversation ./internal/adapter/http/qathread`、frontend `npm run build` 和 `git diff --check` 通过。交付物：conversation/qathread application、HTTP、PostgreSQL adapter 与师生消息中心页面。残余风险：跨页期间若有新消息写入，offset 分页仍可能产生边界重复；后续大规模数据场景可迁移至游标分页。
+- 2026-07-23 消息中心列表按需加载：`DONE`。师生端私信、通知和答疑列表首次仅请求 50 条，按“加载更多”继续读取既有列表分页接口，避免全量记录常驻浏览器内存；搜索词经 300ms 防抖后下推到后端 `search` 参数并重置为第一页，因此搜索范围不受已加载项目限制。验证：frontend `npm run build` 和 `git diff --check` 通过。交付物：师生消息中心页面。残余风险：搜索结果仍使用 offset 分页；高并发写入时可进一步迁移至游标分页。
+- 2026-07-23 消息中心首屏错误态：`DONE`。师生端初始联系人、私信、通知和答疑列表任一加载失败时显示明确错误与“重新加载”按钮，不再将失败伪装为空列表；重试会重新请求首屏数据。验证：frontend `npm run build` 和 `git diff --check` 通过。交付物：师生消息中心页面。残余风险：列表分页“加载更多”失败仍只保留既有数据；后续可补充列表级错误提示。
+- 2026-07-23 消息中心定时刷新：`DONE`。师生端在可见页面每 30 秒轮询私信、通知和答疑；当前打开的私信/答疑详情合并最新消息且保留已加载的早期分页，后台标签页不发起轮询。已加载多页的列表不会被自动刷新重置，仍保留用户已加载结果。验证：frontend `npm run build` 和 `git diff --check` 通过。交付物：师生消息中心页面。残余风险：已加载多页的列表只在手动刷新/加载更多后才更新排序；需要强实时能力时应改用 SSE 或 WebSocket。
+- 2026-07-23 消息中心写入兼容修复：`DONE`。私信与答疑消息写入 SQL 显式将 ID 参数统一为 `character varying` 并使用 `text` 比较参与者 ID，避免遗留数据库中同名 ID 字段类型不一致导致 PostgreSQL 参数 `$3` 推断冲突（SQLSTATE `42P08`）和发送消息 500。验证：`GOCACHE=/private/tmp/msp-go-build-cache go test ./internal/adapter/postgres ./internal/application/conversation ./internal/application/qathread ./internal/adapter/http/conversation ./internal/adapter/http/qathread` 与 `git diff --check` 通过。交付物：conversation/qathread PostgreSQL adapter 与本跟踪记录。残余风险：真实环境仍需验证私信及答疑双方角色的发送路径。
+- 2026-07-23 消息中心语义与已读一致性完善：`DONE`。移除未实际投递的“提醒未确认学生”入口，继续直接展示未确认名单；私信在读取详情前完成带会话参与者校验的已读写入，使同一响应的已读状态一致。验证：`GOCACHE=/private/tmp/msp-go-build-cache go test ./internal/application/conversation ./internal/adapter/postgres ./internal/adapter/http/conversation`、frontend `npm run build` 和 `git diff --check` 通过。交付物：conversation application/PostgreSQL adapter、教师消息中心页面与本跟踪记录。残余风险：个人提醒需要先引入独立的站内通知投递产品与数据模型后才能实现。
+- 2026-07-23 消息中心安全与迁移兼容切片：`DONE`。开始与完成日期：2026-07-23。协作者远端的渠道调度与系统公告提交已优先合并；消息中心迁移从冲突的 `0007` 重编号为 `0010`，将通知持久化关联改为 `class_id` 外键。原消息中心 commit 中附带的多班级迁移已于同日移除：现有产品设计仍保持一名学生只能绑定一个班级。师生均可通过对方 ID 与任意有效异角色账号创建私信；会话和答疑的后续消息均在 PostgreSQL 写入边界验证发送者为对应参与者；教师创建会话时首条消息写入实际创建者身份；通知读取/确认按班级成员校验，发布通知按教师班级归属校验。验证命令：`GOCACHE=/private/tmp/msp-go-build-cache go test ./migrations -run TestMessageCenterMigrationsHaveUniqueForwardVersions -count=1 -v`（临时测试源码已删除）、`GOCACHE=/private/tmp/msp-go-build-cache go test ./internal/application/conversation ./internal/application/notice ./internal/application/qathread ./internal/adapter/http/conversation ./internal/adapter/http/notice ./internal/adapter/http/qathread ./internal/adapter/postgres ./cmd/api`、`GOCACHE=/private/tmp/msp-go-build-cache go test ./migrations`、`GOCACHE=/private/tmp/msp-go-build-cache go vet ./internal/application/conversation ./internal/application/notice ./internal/application/qathread ./internal/adapter/http/conversation ./internal/adapter/http/notice ./internal/adapter/http/qathread ./internal/adapter/postgres ./cmd/api`、frontend `npm run build`、`git diff --check`、`go run ./cmd/migrate`（连续两次）。验证结果：临时迁移加载测试和定向 Go 包编译/测试通过，Go vet 与差异检查通过，前端 TypeScript/Vite 生产构建通过；本地 `math_platform` 在完整备份后重建，首次迁移 `applied_count=10`（版本 1–10），第二次 `applied_count=0`，并确认 `conversations`、`notices` 和 `question_threads` 已创建。交付物：`backend-go/migrations/0010_message_center.up.sql`、消息中心 conversation/notice/qathread 的 application、HTTP 与 PostgreSQL adapter，以及本跟踪记录。残余风险：跨用户权限仍需以真实师生账号完成端到端数据库验收，验证 403/404 边界。
+- 2026-07-23 PR #3 合并后增量迁移复核：当前本地 `math_platform` 起始为 9 条迁移记录且消息中心表均不存在；先用 PostgreSQL 18 `pg_dump --format=custom --no-owner --no-privileges` 生成 `backups/manual/msp-go-pre-0010-20260723-212938.dump`，`pg_restore --list` 确认 custom archive 可读、251 个 TOC entries。随后在 `backend-go/` 连续两次执行 `go run ./cmd/migrate`，首次返回 `applied_count=1` 并应用 `10_message_center`，第二次返回 `applied_count=0`；只读 SQL 确认 `10:message_center` 已记录，六张消息中心表均已创建。备份目录由 `.gitignore` 排除，不作为仓库交付物。
+
 - 状态：DONE
 - 开始日期：2026-04-26
 - 完成日期：2026-04-27
@@ -680,6 +696,12 @@ git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx" "test
 - 2026-07-15 切片验证结果：真实 PNG/JPEG 非网络验收通过，覆盖 `upload.Service -> LocalStorage -> 完整图片解码 -> Eino 多模态 Base64 -> exercise HTTP/application`；成功路径仅写入一次 attempt、session update、DKT/profile，空白 PNG、低对比 JPEG、截断图片、WebP、低置信度、OCR/数学不可用、超时、取消、无效/重复/缺失 JSON 字段、无效选择题 reference 和题目并发变化均在事务前失败，学习状态写入增量为零。事务内题目复核使用 PostgreSQL `FOR SHARE` 持锁到全部学习状态写入提交，阻断比较后的教师更新/软删除窗口；应用层锁调用和 SQL 形状测试通过。Math Solver 覆盖本地三态比较、通用 answer check、独立 solution generation、答案验证和步骤二次验证；正确最终答案携带错误步骤时不返回解析。受影响 Go 包、race、vet 和排除已知目录守卫后的契约测试通过；statement coverage：mathsolver 92.9%、answerocr 91.1%、exercise 82.5%、storage 81.0%。前端 60 个测试文件、404 个用例和 coverage 运行通过，核心改动文件 line coverage 为 84.0% 至 100%；TypeScript/生产构建通过；lint 无 error，仅已有 `coverage/` 报告文件产生 6 条 unused-disable warning。浏览器已覆盖桌面 `indeterminate -> retry -> correct` 和 390x844 移动布局，无控制台 error/warn。`go test ./... -count=1` 的业务包全部通过，唯一失败是任务前已存在的空目录 `backend/uploads` 触发 `TestLegacyPythonBackendDirectoryIsAbsent`；未删除用户工作目录。live OCR/Math Solver 测试入口编译通过，但当前环境未设置验收 API key/model，按预期 skip；PostgreSQL 锁并发测试入口编译通过，但未设置 `MSP_GO_TEST_DATABASE_URL`，按预期 skip。
 - 2026-07-15 切片交付物：`backend-go/internal/application/answerocr/`、`backend-go/internal/application/mathsolver/`、`backend-go/internal/application/exercise/`、`backend-go/internal/application/question/`、`backend-go/internal/adapter/llm/einoagent/ocr.go`、`backend-go/internal/adapter/llm/einoagent/ocr_submission_acceptance_test.go`、`backend-go/internal/adapter/llm/einoagent/math_solver_live_acceptance_test.go`、`backend-go/internal/adapter/storage/image_loader.go`、`backend-go/internal/adapter/http/exercise/`、`backend-go/cmd/api/main.go`、`frontend/src/modules/exercise/`、`frontend/src/pages/student/ExercisePage.tsx`、`README.md`、`docs/technical/architecture.md`、`docs/technical/deployment.md`、`docs/TODO.md`。
 - 2026-07-15 切片残余风险：OCR 当前只接受能由运行时完整解码的 PNG/JPEG/GIF，WebP 在 OCR 链路显式拒绝；真实视觉/数学 provider 的模型质量和 OpenAI-compatible 差异必须在部署目标模型上运行 env-gated live 验收，归入独立“外部 provider 真实运行质量验收”待办；真实 PostgreSQL `FOR SHARE` 并发测试需在配置 `MSP_GO_TEST_DATABASE_URL` 的环境执行；历史图片作答污染扫描/清理仍为独立待办；P6 总体仍有 Tutor token 级流式；任务前 `backend/uploads` 空目录仍会触发 legacy 目录契约守卫。
+
+- 2026-07-22 智能体渠道管理切片：`COMPLETED`（P6 总体保持 `IN_PROGRESS`）。完成日期：2026-07-22。范围包括参考 New API 的抽屉式渠道编辑器、单密钥/批量创建/多密钥三种凭证模式、轮询/随机策略、连接信息粘贴、模型预设与上游拉取、可视化/JSON 模型映射、高级设置、同类型多渠道，以及 Go 运行时加密密钥环选择与 legacy 单密钥兼容。
+- 2026-07-22 切片验证命令：frontend `npm.cmd test -- --passWithNoTests --reporter=dot`、`npm.cmd run lint`、`npm.cmd run build`；backend-go `gofmt` 定向格式化、`GOCACHE=E:\code\msp-go\.gocache go test ./... -count=1`、`GOCACHE=E:\code\msp-go\.gocache go vet ./...`、连续两次 `GOCACHE=E:\code\msp-go\.gocache go run ./cmd/migrate`；repository root `git diff --check`、测试源码扫描和临时预览标记扫描；内置浏览器桌面、默认视口和 390x844 移动端视觉及键盘交互验收。
+- 2026-07-22 切片验证结果：临时 Vitest 覆盖重复 `api_key` 行收集与去重并 1/1 通过；临时 Go 定向测试覆盖损坏/截断密钥环拒绝和 legacy 单密钥兼容并 2/2 通过，所有临时测试源码随后删除。前端测试命令确认仓库无保留测试文件，lint 0 error，生产构建通过；Go 全量测试和 vet 通过。版本 7 迁移首次执行 `applied_count=1`，第二次执行 `applied_count=0`。浏览器确认抽屉固定头尾、步骤导航、密钥模式与策略、模型区、Escape 关闭、双向 Tab 焦点陷阱均可用；390x844 无文档级横向滚动，默认 1280x720 底部操作栏可见，干净加载无新增 console error/warn。
+- 2026-07-22 切片交付物：`backend-go/internal/application/adminaiconfig/service.go`、`backend-go/internal/adapter/postgres/admin_ai_config_repository.go`、`backend-go/migrations/0007_allow_multiple_llm_provider_channels.up.sql`、`frontend/src/modules/admin/components/ChannelFormModal.tsx`、`ChannelBasicFields.tsx`、`ChannelApiConfig.tsx`、`ChannelModelSelector.tsx`、`ChannelFormActions.tsx`、`ChannelAdvancedSettings.tsx`、`ChannelEditorSidebar.tsx`、`ChannelProviderIcon.tsx`、`ChannelSectionHeader.tsx`、`channelFormUtils.ts`、`frontend/src/modules/ai-config/types/aiConfig.ts`、`frontend/src/pages/admin/AIModelSettingsPage.tsx`、`design-qa.md`。
+- 2026-07-22 切片残余风险：轮询游标仅保存在单进程内存，进程重启会重置且多实例之间不共享；批量创建为逐渠道请求，成功项不会因后续失败回滚；版本 7 使用普通 `CREATE INDEX`，大表迁移时可能短暂持有写锁；尚未用真实外部 provider 验收多密钥下的 429、成本和模型质量行为；非 OpenAI-compatible provider 仍可能需要专用协议适配。P6 总体仍有 Tutor token 级流式和真实外部 provider 质量验收。
 
 - Status: IN_PROGRESS
 - Start date: 2026-05-08 (Go 501 placeholders were added on 2026-05-06; Eino framework integration started on 2026-05-08 under /goal)
@@ -699,6 +721,13 @@ git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx" "test
 - 开始日期：2026-05-01
 - 完成日期：TODO
 - 负责人：Codex
+- 2026-07-23 部署迁移安全链路切片启动状态：`IN_PROGRESS`；最终状态：`DONE`；启动与完成日期：2026-07-23。P7 总体仍保持 `IN_PROGRESS`。范围包括将生产更新顺序收敛为旧应用持续运行期间确认数据库并拉取镜像、停止应用写入后备份 PostgreSQL 与本地 uploads、执行 Go forward migration、等待 backend/frontend 容器健康；首次部署以 `pg_isready` 代替固定 sleep。更新过程记录解析后的 Compose 配置、旧镜像引用与不可变镜像 ID、原运行状态，不再自动 prune；备份或迁移前二次数据库就绪失败时只恢复原本运行的应用，migration 失败时保持应用停止。
+- 2026-07-23 部署迁移安全链路临时验证：生产实现完成后创建一次性 Bash mock Docker/Compose 测试，覆盖正常的拉取、停写、数据库/uploads 备份、迁移、启动顺序，`pg_dump` 失败、首次 PostgreSQL 未就绪、备份后二次 PostgreSQL 未就绪、migration 失败、原服务未运行时备份失败不得误启动，以及新版本健康失败后再次停止应用，共 7 条路径全部通过；随后删除临时测试脚本、mock fixture 和运行目录。
+- 2026-07-23 部署迁移安全链路最终验证命令：Git Bash `bash -n scripts/deployment-common.sh scripts/deploy.sh scripts/update.sh`；`GOCACHE=E:\code\msp-go\.gocache go test ./... -count=1`、`go vet ./...`、`go build ./...`；`go run ./cmd/migrate`；PostgreSQL 只读 SQL 核对 `go_schema_migrations.version=10` 和六张消息中心表；`git diff --check`；`git ls-files --cached --others --exclude-standard` 测试源码扫描。
+- 2026-07-23 部署迁移安全链路最终验证结果：三个生产脚本 Bash 语法通过；Go 全仓编译测试、vet 和 build 通过；PR #3 合并后已在备份基础上实际应用 version 10，本轮重复执行返回 `applied_count=0`，SQL 返回 `migration_count=1`、`table_count=6`；差异检查通过，仓库无测试源码或部署测试临时产物。首次 Go 验证因 Windows 全局构建缓存无写权限被环境拦截，改用仓库内 `.gocache` 后通过。
+- 2026-07-23 部署迁移安全链路交付物：`scripts/deployment-common.sh`、`scripts/update.sh`、`scripts/deploy.sh`、`docs/technical/deployment.md`、`.gitignore` 和本迁移跟踪记录。更新备份产物为 `.env`、`docker-compose.resolved.yml`、`previous-images.txt`、`postgres.dump`，以及 `uploads.tar.gz` 或 `uploads.absent.txt`。
+- 2026-07-23 部署迁移安全链路残余风险：当前 Windows 环境没有 Docker CLI，临时测试通过 mock 验证命令顺序和失败状态，未执行真实 Docker Compose 容器烟测；custom-format 备份已用 `pg_restore --list` 验证可读，但未对生产数据执行覆盖性恢复演练。恢复仍是人工维护窗口操作，需确认目标备份、旧版本 schema 兼容性和本地/外部对象存储边界；永久测试源码按仓库策略不保留。
+- 2026-07-22 系统公告横切切片：`COMPLETED`。开始日期：2026-07-22；完成日期：2026-07-22。新增 version 9 公告 schema、管理员/学生/教师 API、管理端发布预览和登录后全局公告队列；完整验收证据、交付物和残余风险记录在本文 2026-07-22 更新记录。P7 总体仍为 `IN_PROGRESS`。
 - 2026-07-21 西电衍生能力下线切片：`COMPLETED`。开始日期：2026-07-21；完成日期：2026-07-21。删除课表/考试/成绩同步和快照 API、前端课程概览与教务成绩分析，保留错题本、学生画像及设置中的西电账户绑定；绑定完成后仅保存账号标识和验证时间，不持久化西电密码或门户 Cookie。
 - 2026-07-21 切片验证命令：Go `gofmt -w ...`、`go test ./internal/application/xidian ./internal/adapter/http/xidian ./internal/integration/xidian ./internal/adapter/postgres ./internal/platform/config ./cmd/api -count=1`、`go test ./migrations -count=1`、`go test -cover ./internal/application/xidian ./internal/adapter/http/xidian ./internal/integration/xidian -count=1`、`go test ./... -count=1`、`go test ./tests/contract -skip '^TestLegacyPythonBackendDirectoryIsAbsent$' -count=1`、`go vet ./...`；前端 `npm test -- --reporter=dot`、`npm test -- src/pages/common/ProfilePage.test.tsx`、`npm run lint`、`npm run build`；数据库两次执行 `go run ./cmd/migrate`；新版 API 在 8001 端口执行 `/health`、`GET /api/v1/xidian/binding` 和已删除 `POST /api/v1/xidian/sync/scores` smoke；浏览器验证桌面和 390x844 移动视口。
 - 2026-07-21 切片验证结果：前端 61 个测试文件、374 个用例通过，最终 Profile 定向 2 个用例通过，lint 0 error（仅跟踪中的 `coverage/` 既有 6 条 warning），生产构建通过；Xidian application/HTTP/integration 覆盖率分别为 91.2%、84.7%、62.9%，Go 业务包、排除既有 `backend/` 空目录守卫后的契约测试和 vet 通过。全量 `go test ./...` 唯一失败为任务前已有 `backend/` 目录触发 `TestLegacyPythonBackendDirectoryIsAbsent`。迁移首次执行应用版本 6 且 `applied_count=1`，重复执行为 0；绑定端点保持 401 鉴权边界，已删除同步端点返回 JSON 404。浏览器确认学生首页为“我的班级”、旧 `/course/overview` 为 404、错题本无成绩分析、设置页无同步按钮，桌面/移动端无横向溢出且控制台无相关 error。
@@ -1440,6 +1469,10 @@ git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx" "test
 
 ### 2026-07-22
 
+- 智能体统一渠道调度与模型目录切片（P6 横切）启动状态：`IN_PROGRESS`；启动日期：2026-07-22。P6 总体保持 `IN_PROGRESS`。
+- 本切片参考来源：[QuantumNous/new-api](https://github.com/QuantumNous/new-api)。参考范围限定为其 `ability` 模型到渠道能力映射、渠道优先级/权重选择、失败重试换渠、统一 relay 边界和渠道模型映射维护思路；结合本项目 Eino Agent、加密密钥环、SSRF 防护和现有 PostgreSQL 契约重新实现，不引入 new-api 的计费、用户分组、复杂供应商 adaptor 矩阵或跨组亲和缓存。
+- 计划范围：为渠道补充优先级和权重；为 Agent 持久化与渠道无关的逻辑模型键并兼容既有模型 UUID；运行时按逻辑模型自动汇总、排序和重试可用渠道；OpenAI-compatible 同步 Agent 调用自动兼容 Chat Completions 与 Responses 上游，不要求管理员选择端点类型；模型映射继续维护“逻辑模型名 -> 上游模型 ID”，前端 Agent 配置改为选择逻辑模型并展示可用渠道数。该切片会修改数据库 schema、管理员 AI 配置 API 和运行时调度语义，完成后必须补充迁移幂等、临时测试、构建结果、交付物与残余风险。
+
 - 管理员运维控制台切片（P4/P7 横切）启动状态：`IN_PROGRESS`；启动日期：2026-07-22；最终状态：`DONE`；完成日期：2026-07-22。P4、P7 既有阶段状态不变，本切片只扩展管理员可观测性与展示，不修改数据库 schema、认证边界或部署入口。
 - 本切片范围与口径：将 `GET /api/v1/admin/stats/system-status` 从基础依赖探测扩展为项目内可执行的单进程运维快照，同时保留原 `status`、`checked_at`、`services`、`alerts` 字段兼容。CPU 为 Go API 进程利用率，内存为 Go 堆使用量，Redis 复用率为连接池复用而非业务缓存命中率；在线学习人数按未结束且 `is_active=true` 的学习会话去重学生，活跃会话按同一口径计数。
 - 已完成后端实现：新增低开销、并发安全的 HTTP 请求累计值与延迟直方图快照，输出请求总量、平均 QPS、4xx/5xx 数量和比例、平均响应与 P95；补充 Go 版本、环境、启动时间、运行时长、CPU、堆内存、Goroutines、逻辑核与 GOMAXPROCS；通过中立 provider 输出 PostgreSQL 与 Redis 连接池状态，并由 adminstats repository 查询在线学习人数和活跃会话。依赖探测失败时仍返回结构化降级状态和告警，不暴露连接串、凭据或内部错误细节。
@@ -1458,3 +1491,14 @@ git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx" "test
 - 最终验证结果：Go 全包编译测试、vet、build 均通过；Vitest 确认无保留测试源码并以 code 0 退出，ESLint 0 error，TypeScript 与 Vite 生产构建通过。Chrome 使用受控 API fixture 验证按钮、取消、确认、成功提示、新窗口数据和统计起点；桌面/移动端均无横向溢出，移动弹窗为 342x394 px、确认按钮为 96x40 px，控制台无 error/warn。视觉证据为 `operations-reset-confirm-desktop.png` 与 `operations-reset-confirm-mobile.png`。
 - 交付物：`backend-go/internal/platform/metrics/metrics.go`、`backend-go/internal/application/adminstats/service.go`、`backend-go/internal/adapter/http/adminstats/handler.go`、`backend-go/cmd/api/main.go`、`frontend/src/modules/admin/components/OperationsPanel.tsx`、admin stats service/store/types/selectors、`frontend/src/pages/admin/AdminDashboardPage.tsx`、本迁移追踪记录与 `design-qa.md`。
 - 增量残余风险：重置边界以内存 mutex 定义，重置请求本身及随后状态查询会成为新窗口的最早请求，因此刚重置后请求量可能立即大于零；这是实际管理流量而非旧窗口泄漏。重置仅作用于当前 API 实例，跨实例聚合和持久化对比仍需外部观测系统；本轮未对生产管理员会话执行不可恢复操作，浏览器视觉验收使用受控 fixture，真实接口契约由临时 handler/application/metrics 测试覆盖。
+
+- 系统公告切片（P7 横切）启动状态：`IN_PROGRESS`；启动日期：2026-07-22；最终状态：`DONE`；完成日期：2026-07-22。P7 总体保持 `IN_PROGRESS`。
+- 本切片范围与语义：新增管理员系统公告发布与管理能力，受众可选学生、教师或二者；正文格式显式区分 Markdown 与 HTML，管理端编辑时提供与用户端一致的渲染预览。未勾选“追加”时，新公告替换同一受众下既有有效公告；勾选后保留既有公告并进入展示队列。“常驻”公告允许用户关闭当前浏览器会话，但下次会话继续弹出；普通公告额外允许账号级“不再弹出”，公告内容更新后以新修订重新进入展示队列。
+- API 与数据实现：version 9 Go forward migration 新增 `system_announcements` 与 `announcement_dismissals`，以 `revision` 让公告更新后旧关闭记录自动失效；管理员鉴权的 `/api/v1/admin/announcements` 提供 CRUD，学生/教师鉴权的 `GET /api/v1/announcements` 返回适用且未永久关闭的有效队列，`POST /api/v1/announcements/{id}/dismiss` 只接受普通公告。未追加写操作在 PostgreSQL advisory transaction lock 内停用同一受众的其他有效公告，避免并发替换竞态；数据库备份白名单和父子表导入顺序同步覆盖两张新表。
+- 前端与安全实现：管理员侧新增 `/admin/announcements` 路由、导航、列表、启停/删除和发布/编辑弹窗，受众、Markdown/HTML、追加、常驻和立即生效均为明确控件，并提供实时预览。学生/教师登录后由全局 Provider 串行轮询公告队列；普通公告支持会话关闭和服务端“不再弹出”，常驻公告只支持会话关闭。Markdown 复用既有安全链接/渲染边界；HTML 只写入 `sandbox=""`、`referrerPolicy="no-referrer"` 且 CSP 为 `default-src 'none'` 的 `srcDoc` iframe，不授予脚本或同源能力。
+- 临时测试与覆盖结果：生产实现完成后创建临时 Go application、HTTP handler、migration loader、PostgreSQL repository 集成测试及 4 个 Vitest 文件，覆盖公开行为、校验/权限/仓储失败、追加/替换/修订、常驻关闭、账号关闭、Markdown/HTML 安全预览和发布交互。Go application、HTTP handler、migration loader 语句覆盖率分别为 96.8%、83.6%、100%；前端 9 项测试全部通过，语句覆盖率 89.56%、行覆盖率 94.73%；真实 PostgreSQL 事务内 repository 集成测试通过。全部临时测试源码和测试专用 fixture 已按仓库策略删除。
+- 验证命令：临时测试阶段执行 `go test ./internal/application/announcement -cover -count=1`、`go test ./internal/adapter/http/announcement -cover -count=1`、`go test ./migrations -cover -count=1`、配置 `MSP_GO_TEST_DATABASE_URL` 后运行公告 PostgreSQL repository 临时集成测试，以及公告模块 4 个临时 Vitest 文件的定向测试与 coverage；最终执行后端 `go test ./... -count=1`、`go vet ./...`、`go build ./...`，前端 `pnpm.cmd exec vitest run --passWithNoTests`、`pnpm.cmd run lint`、`pnpm.cmd run build`，连续两次 `go run ./cmd/migrate`，测试源码/fixture 定向扫描、`git diff --check`，以及应用内 Browser 桌面/移动端 QA。
+- 最终验证结果：Go 全包编译测试、vet 和 build 通过；Vitest 在无保留测试源码时以 code 0 退出，ESLint 0 error，TypeScript 与 Vite 生产构建通过。version 9 在当前 PostgreSQL 首次执行返回 `applied_count=1`，重复执行返回 `applied_count=0`，确认迁移幂等；定向扫描确认仓库无 `*_test.go`、`*.test.*`、`*.spec.*`、Python 测试目录/文件和 `frontend/coverage` 残留。
+- 浏览器验收结果：应用内 Browser 使用临时受控认证/API fixture 验证真实生产组件，fixture 在验收后删除。`1440x900` 桌面视口确认页面身份、2 条初始公告、Markdown 与 HTML 非空预览、空 `sandbox` iframe、教师受众、追加/常驻选项和发布成功；提交后列表由 2 条增至 3 条并显示成功通知。`390x844` 移动视口无文档级横向溢出，342px 内容区内 896px 表格由 341px `overflow-x:auto` 容器承载；管理抽屉可开合，发布弹窗为 342x812px、内部滚动 1631px，顶部字段与底部发布/取消按钮均可达且无重叠。学生会话确认常驻公告显示 `1 / 2` 且无“不再弹出”，关闭后普通 HTML 公告接续并可账号级关闭；新标签页会话中常驻公告重新显示。最终各流程无框架错误覆盖层或新增 console error/warn。
+- 交付物：`backend-go/migrations/0009_system_announcements.up.sql`、`backend-go/internal/application/announcement/`、`backend-go/internal/adapter/http/announcement/`、`backend-go/internal/adapter/postgres/announcement_repository.go`、`backend-go/cmd/api/main.go`、`backend-go/internal/application/adminsettings/service.go`、`frontend/src/modules/announcement/`、`frontend/src/pages/admin/AnnouncementManagementPage.tsx`、管理员路由/导航、全局 Provider 接线及本迁移追踪记录。
+- 残余风险：浏览器验收使用受控 fixture，没有使用真实管理员/学生/教师凭据执行端到端登录与生产数据写入；真实 API/数据库契约由临时 HTTP、application 和 PostgreSQL 集成测试覆盖。当前“替换”只停用完全相同受众，`all` 与 `student`/`teacher` 公告可同时进入队列；这符合“同一受众替换、追加排队”的当前语义，但若产品期望跨受众互斥需另行明确并修改事务规则。HTML CSP 有意禁止外部资源和脚本，仅允许 data 图片与内联样式；未执行 Safari/Firefox、多实例高并发压力或生产备份恢复演练。version 9 为 forward-only migration，生产应用前仍需备份；永久回归测试源码按仓库策略不保留。
