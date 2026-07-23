@@ -135,6 +135,10 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.CreateThread(r.Context(), principal.UserID, req.TeacherID, req.Content, req.Source)
 	if err != nil {
+		if errors.Is(err, qathreadapp.ErrForbidden) {
+			writeQAError(w, http.StatusForbidden, "FORBIDDEN", "只能向本班教师发起答疑")
+			return
+		}
 		h.logError("create thread failed", err)
 		writeQAError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "创建提问失败")
 		return
@@ -163,6 +167,10 @@ func (h *Handler) importThread(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.CreateThread(r.Context(), principal.UserID, req.TeacherID, req.Content, req.Source)
 	if err != nil {
+		if errors.Is(err, qathreadapp.ErrForbidden) {
+			writeQAError(w, http.StatusForbidden, "FORBIDDEN", "只能向本班教师发起答疑")
+			return
+		}
 		h.logError("import thread failed", err)
 		writeQAError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "导入提问失败")
 		return
@@ -189,6 +197,10 @@ func (h *Handler) createMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.CreateThreadMessage(r.Context(), r.PathValue("id"), principal.UserID, string(principal.Role), req.Text)
 	if err != nil {
+		if errors.Is(err, qathreadapp.ErrNotFound) {
+			writeQAError(w, http.StatusNotFound, "NOT_FOUND", "提问不存在或无权发送消息")
+			return
+		}
 		h.logError("create thread message failed", err)
 		writeQAError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "发送消息失败")
 		return

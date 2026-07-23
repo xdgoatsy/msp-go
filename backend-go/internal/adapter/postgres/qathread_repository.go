@@ -294,6 +294,18 @@ func extractTitle(content string, maxLen int) string {
 
 // CreateThread creates a new question thread with the first message.
 func (r QAThreadRepository) CreateThread(ctx context.Context, studentID string, teacherID string, content string, source string, now time.Time) (qathreadapp.ThreadDetail, error) {
+	var permitted bool
+	if err := r.DB().QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM public.classes c
+			JOIN public.class_enrollments ce ON ce.class_id = c.id
+			WHERE c.teacher_id = $1 AND ce.student_id = $2
+		)`, teacherID, studentID).Scan(&permitted); err != nil {
+		return qathreadapp.ThreadDetail{}, err
+	}
+	if !permitted {
+		return qathreadapp.ThreadDetail{}, qathreadapp.ErrForbidden
+	}
 	threadID, err := newUUID()
 	if err != nil {
 		return qathreadapp.ThreadDetail{}, err
@@ -370,13 +382,18 @@ func (r QAThreadRepository) CreateThreadMessage(ctx context.Context, threadID st
 	}
 	defer tx.Rollback(ctx)
 
-	_, err = tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO public.question_thread_messages (id, thread_id, sender_id, sender_role, text, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
+		SELECT $1, qt.id, $3, $4, $5, $6
+		FROM public.question_threads qt
+		WHERE qt.id = $2 AND ((qt.student_id = $3 AND $4 = 'student') OR (qt.teacher_id = $3 AND $4 = 'teacher'))`,
 		msgID, threadID, senderID, senderRole, text, now,
 	)
 	if err != nil {
 		return qathreadapp.Message{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return qathreadapp.Message{}, qathreadapp.ErrNotFound
 	}
 
 	// Update status: student follow-up → 待回复, teacher reply → 已回复

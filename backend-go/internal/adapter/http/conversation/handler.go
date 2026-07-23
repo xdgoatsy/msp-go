@@ -20,7 +20,7 @@ import (
 type Service interface {
 	ListConversations(ctx context.Context, userID string, role user.Role, search string, status string, className string, page int, pageSize int) (conversationapp.ListResponse, error)
 	GetConversation(ctx context.Context, userID string, conversationID string) (conversationapp.ConversationDetail, error)
-	CreateConversation(ctx context.Context, studentID string, teacherID string, subject string, initialMessage string) (conversationapp.ConversationDetail, error)
+	CreateConversation(ctx context.Context, creatorID string, creatorRole user.Role, targetID string, subject string, initialMessage string) (conversationapp.ConversationDetail, error)
 	SendMessage(ctx context.Context, conversationID string, senderID string, senderRole string, text string) (conversationapp.Message, error)
 	ArchiveConversation(ctx context.Context, conversationID string, studentID string) error
 	DeleteConversation(ctx context.Context, conversationID string, studentID string) error
@@ -135,16 +135,12 @@ func (h *Handler) createConversation(w http.ResponseWriter, r *http.Request) {
 		writeConvError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "target_id 不能为空")
 		return
 	}
-	var studentID, teacherID string
-	if principal.Role == user.RoleStudent {
-		studentID = principal.UserID
-		teacherID = req.TargetID
-	} else {
-		studentID = req.TargetID
-		teacherID = principal.UserID
-	}
-	response, err := h.service.CreateConversation(r.Context(), studentID, teacherID, req.Subject, req.InitialMessage)
+	response, err := h.service.CreateConversation(r.Context(), principal.UserID, principal.Role, req.TargetID, req.Subject, req.InitialMessage)
 	if err != nil {
+		if errors.Is(err, conversationapp.ErrForbidden) {
+			writeConvError(w, http.StatusForbidden, "FORBIDDEN", "目标用户无效或无权创建会话")
+			return
+		}
 		if errors.Is(err, conversationapp.ErrConflict) {
 			writeConvError(w, http.StatusConflict, "CONFLICT", "会话已存在")
 			return
@@ -176,6 +172,10 @@ func (h *Handler) sendMessage(w http.ResponseWriter, r *http.Request) {
 	senderRole := string(principal.Role)
 	response, err := h.service.SendMessage(r.Context(), r.PathValue("id"), principal.UserID, senderRole, req.Text)
 	if err != nil {
+		if errors.Is(err, conversationapp.ErrNotFound) {
+			writeConvError(w, http.StatusNotFound, "NOT_FOUND", "会话不存在或无权发送消息")
+			return
+		}
 		h.logError("send message failed", err)
 		writeConvError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "发送消息失败")
 		return
@@ -219,33 +219,43 @@ func (h *Handler) deleteConversation(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) listTeacherContacts(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.requireStudent(w, r)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	contacts, err := h.service.ListTeacherContacts(r.Context(), principal.UserID)
 	if err != nil {
 		h.logError("list teacher contacts failed", err)
 		writeConvError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取联系人失败")
 		return
 	}
-	if contacts == nil { contacts = []conversationapp.Contact{} }
+	if contacts == nil {
+		contacts = []conversationapp.Contact{}
+	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"contacts": contacts})
 }
 
 func (h *Handler) listStudentContacts(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.requireTeacher(w, r)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	contacts, err := h.service.ListStudentContacts(r.Context(), principal.UserID)
 	if err != nil {
 		h.logError("list student contacts failed", err)
 		writeConvError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "获取联系人失败")
 		return
 	}
-	if contacts == nil { contacts = []conversationapp.Contact{} }
+	if contacts == nil {
+		contacts = []conversationapp.Contact{}
+	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"contacts": contacts})
 }
 
 func (h *Handler) searchUsers(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.requirePrincipal(w, r)
-	if !ok { return }
+	if !ok {
+		return
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
 		httpjson.Write(w, http.StatusOK, map[string]any{"contacts": []conversationapp.Contact{}})
@@ -257,7 +267,9 @@ func (h *Handler) searchUsers(w http.ResponseWriter, r *http.Request) {
 		writeConvError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "搜索用户失败")
 		return
 	}
-	if contacts == nil { contacts = []conversationapp.Contact{} }
+	if contacts == nil {
+		contacts = []conversationapp.Contact{}
+	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"contacts": contacts})
 }
 

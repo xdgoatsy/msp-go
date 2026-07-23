@@ -40,39 +40,9 @@ func (r NoticeRepository) ListNotices(ctx context.Context, userID string, role u
 }
 
 func (r NoticeRepository) listStudentNotices(ctx context.Context, studentID string, search string, status string, page Page) ([]any, int, error) {
-	// Get all class names the student is enrolled in
-	rows, err := r.DB().Query(ctx, `
-		SELECT c.name FROM public.classes c
-		JOIN public.class_enrollments e ON e.class_id = c.id
-		WHERE e.student_id = $1`, studentID)
-	if err != nil {
-		return nil, 0, err
-	}
-	var classNames []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			rows.Close()
-			return nil, 0, err
-		}
-		classNames = append(classNames, name)
-	}
-	rows.Close()
-
-	if len(classNames) == 0 {
-		return []any{}, 0, nil
-	}
-
-	// Build IN clause with individual parameters for pgx compatibility
-	args := make([]any, 0, len(classNames)+4)
-	placeholders := make([]string, len(classNames))
-	for i, name := range classNames {
-		placeholders[i] = "$" + idxStr(i+1)
-		args = append(args, name)
-	}
-	idx := len(classNames) + 1
-
-	where := " WHERE n.class_name IN (" + strings.Join(placeholders, ", ") + ")"
+	args := []any{studentID}
+	idx := 2
+	where := " WHERE EXISTS (SELECT 1 FROM public.class_enrollments e WHERE e.class_id = n.class_id AND e.student_id = $1)"
 
 	if strings.TrimSpace(search) != "" {
 		where += ` AND (n.title ILIKE $` + idxStr(idx) + ` OR n.body ILIKE $` + idxStr(idx) + `)`
@@ -101,10 +71,11 @@ func (r NoticeRepository) listStudentNotices(ctx context.Context, studentID stri
 	args = append(args, studentID, page.Limit, page.Offset)
 
 	rows2, err := r.DB().Query(ctx, `
-		SELECT n.id, n.class_name, n.title, n.body, n.created_at,
+		SELECT n.id, c.name, n.title, n.body, n.created_at,
 			n.attachments,
 			nc.notice_id IS NOT NULL AS confirmed
 		FROM public.notices n
+		JOIN public.classes c ON c.id = n.class_id
 		LEFT JOIN public.notice_confirmations nc ON nc.notice_id = n.id AND nc.student_id = $`+idxStr(studentParamIdx)+`
 		`+where+`
 		ORDER BY n.created_at DESC
@@ -145,13 +116,13 @@ func (r NoticeRepository) listTeacherNotices(ctx context.Context, teacherID stri
 		idx++
 	}
 	if strings.TrimSpace(className) != "" {
-		where += ` AND n.class_name ILIKE $` + idxStr(idx)
+		where += ` AND c.name ILIKE $` + idxStr(idx)
 		args = append(args, "%"+className+"%")
 		idx++
 	}
 
 	var total int
-	if err := r.DB().QueryRow(ctx, `SELECT COUNT(*) FROM public.notices n`+where, args...).Scan(&total); err != nil {
+	if err := r.DB().QueryRow(ctx, `SELECT COUNT(*) FROM public.notices n JOIN public.classes c ON c.id = n.class_id`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -159,10 +130,11 @@ func (r NoticeRepository) listTeacherNotices(ctx context.Context, teacherID stri
 	args = append(args, page.Limit, page.Offset)
 
 	rows, err := r.DB().Query(ctx, `
-		SELECT n.id, n.class_name, n.title, n.body, n.created_at,
+		SELECT n.id, c.name, n.title, n.body, n.created_at,
 			COALESCE(conf.confirmed_count, 0),
 			COALESCE(class_counts.total_count, 0)
 		FROM public.notices n
+		JOIN public.classes c ON c.id = n.class_id
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) AS confirmed_count
 			FROM public.notice_confirmations nc
@@ -171,8 +143,7 @@ func (r NoticeRepository) listTeacherNotices(ctx context.Context, teacherID stri
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) AS total_count
 			FROM public.class_enrollments e
-			JOIN public.classes c ON c.id = e.class_id
-			WHERE c.name = n.class_name
+			WHERE e.class_id = n.class_id
 		) class_counts ON true
 		`+where+`
 		ORDER BY n.created_at DESC
@@ -196,10 +167,9 @@ func (r NoticeRepository) listTeacherNotices(ctx context.Context, teacherID stri
 			SELECT COALESCE(u.display_name, u.username)
 			FROM public.users u
 			JOIN public.class_enrollments e ON e.student_id = u.id
-			JOIN public.classes c ON c.id = e.class_id
-			WHERE c.name = $1 AND u.id NOT IN (
-				SELECT nc.student_id FROM public.notice_confirmations nc WHERE nc.notice_id = $2
-			)`, item.ClassName, item.ID)
+			WHERE e.class_id = (SELECT class_id FROM public.notices WHERE id = $1) AND u.id NOT IN (
+				SELECT nc.student_id FROM public.notice_confirmations nc WHERE nc.notice_id = $1
+			)`, item.ID)
 		if err == nil {
 			names := make([]string, 0)
 			for studentRows.Next() {
@@ -228,11 +198,12 @@ func (r NoticeRepository) getStudentNotice(ctx context.Context, noticeID string,
 	var item noticeapp.StudentNoticeItem
 	var attachmentsJSON []byte
 	err := r.DB().QueryRow(ctx, `
-		SELECT n.id, n.class_name, n.title, n.body, n.created_at, n.attachments,
+		SELECT n.id, c.name, n.title, n.body, n.created_at, n.attachments,
 			nc.notice_id IS NOT NULL AS confirmed
 		FROM public.notices n
+		JOIN public.classes c ON c.id = n.class_id
 		LEFT JOIN public.notice_confirmations nc ON nc.notice_id = n.id AND nc.student_id = $2
-		WHERE n.id = $1`,
+		WHERE n.id = $1 AND EXISTS (SELECT 1 FROM public.class_enrollments e WHERE e.class_id = n.class_id AND e.student_id = $2)`,
 		noticeID, studentID,
 	).Scan(&item.ID, &item.ClassName, &item.Title, &item.Body, &item.PublishedAt, &attachmentsJSON, &item.Confirmed)
 	if err != nil {
@@ -253,16 +224,17 @@ func (r NoticeRepository) getStudentNotice(ctx context.Context, noticeID string,
 func (r NoticeRepository) getTeacherNotice(ctx context.Context, noticeID string, teacherID string) (any, bool, error) {
 	var item noticeapp.TeacherNoticeItem
 	err := r.DB().QueryRow(ctx, `
-		SELECT n.id, n.class_name, n.title, n.body, n.created_at,
+		SELECT n.id, c.name, n.title, n.body, n.created_at,
 			COALESCE(conf.confirmed_count, 0),
 			COALESCE(class_counts.total_count, 0)
 		FROM public.notices n
+		JOIN public.classes c ON c.id = n.class_id
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) AS confirmed_count FROM public.notice_confirmations nc WHERE nc.notice_id = n.id
 		) conf ON true
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) AS total_count FROM public.class_enrollments e
-			JOIN public.classes c ON c.id = e.class_id WHERE c.name = n.class_name
+			WHERE e.class_id = n.class_id
 		) class_counts ON true
 		WHERE n.id = $1 AND n.teacher_id = $2`,
 		noticeID, teacherID,
@@ -278,10 +250,9 @@ func (r NoticeRepository) getTeacherNotice(ctx context.Context, noticeID string,
 		SELECT COALESCE(u.display_name, u.username)
 		FROM public.users u
 		JOIN public.class_enrollments e ON e.student_id = u.id
-		JOIN public.classes c ON c.id = e.class_id
-		WHERE c.name = $1 AND u.id NOT IN (
-			SELECT nc.student_id FROM public.notice_confirmations nc WHERE nc.notice_id = $2
-		)`, item.ClassName, item.ID)
+		WHERE e.class_id = (SELECT class_id FROM public.notices WHERE id = $1) AND u.id NOT IN (
+			SELECT nc.student_id FROM public.notice_confirmations nc WHERE nc.notice_id = $1
+		)`, item.ID)
 	if err == nil {
 		names := make([]string, 0)
 		for studentRows.Next() {
@@ -302,22 +273,25 @@ func (r NoticeRepository) CreateNotice(ctx context.Context, teacherID string, cl
 	if err != nil {
 		return noticeapp.TeacherNoticeItem{}, err
 	}
-	_, err = r.DB().Exec(ctx, `
-		INSERT INTO public.notices (id, teacher_id, class_name, title, body, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
+	tag, err := r.DB().Exec(ctx, `
+		INSERT INTO public.notices (id, teacher_id, class_id, title, body, created_at)
+		SELECT $1, $2, c.id, $4, $5, $6 FROM public.classes c WHERE c.teacher_id = $2 AND c.name = $3`,
 		id, teacherID, className, title, body, now,
 	)
 	if err != nil {
 		return noticeapp.TeacherNoticeItem{}, err
 	}
+	if tag.RowsAffected() == 0 {
+		return noticeapp.TeacherNoticeItem{}, noticeapp.ErrForbidden
+	}
 	return noticeapp.TeacherNoticeItem{
-		ID:                 id,
-		ClassName:          className,
-		Title:              title,
-		Body:               body,
-		PublishedAt:        now,
-		ConfirmedCount:     0,
-		TotalCount:         0,
+		ID:                  id,
+		ClassName:           className,
+		Title:               title,
+		Body:                body,
+		PublishedAt:         now,
+		ConfirmedCount:      0,
+		TotalCount:          0,
 		UnconfirmedStudents: []string{},
 	}, nil
 }
@@ -329,9 +303,7 @@ func (r NoticeRepository) ConfirmNotice(ctx context.Context, noticeID string, st
 	if err := r.DB().QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM public.notices n
-			JOIN public.class_enrollments e ON e.class_id IN (
-				SELECT id FROM public.classes WHERE name = n.class_name
-			)
+		JOIN public.class_enrollments e ON e.class_id = n.class_id
 			WHERE n.id = $1 AND e.student_id = $2
 		)`, noticeID, studentID,
 	).Scan(&exists); err != nil || !exists {
@@ -374,7 +346,7 @@ func (r NoticeRepository) RemindUnconfirmed(ctx context.Context, noticeID string
 		FROM public.users u
 		JOIN public.class_enrollments e ON e.student_id = u.id
 		JOIN public.classes c ON c.id = e.class_id
-		JOIN public.notices n ON n.class_name = c.name
+		JOIN public.notices n ON n.class_id = c.id
 		WHERE n.id = $1 AND u.id NOT IN (
 			SELECT nc.student_id FROM public.notice_confirmations nc WHERE nc.notice_id = $1
 		)`, noticeID)

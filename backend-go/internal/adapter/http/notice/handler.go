@@ -129,6 +129,10 @@ func (h *Handler) createNotice(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.service.CreateNotice(r.Context(), principal.UserID, req.ClassName, req.Title, req.Body)
 	if err != nil {
+		if errors.Is(err, noticeapp.ErrForbidden) {
+			writeNoticeError(w, http.StatusForbidden, "FORBIDDEN", "只能向本人班级发布通知")
+			return
+		}
 		h.logError("create notice failed", err)
 		writeNoticeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "发布通知失败")
 		return
@@ -142,6 +146,10 @@ func (h *Handler) confirmNotice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.service.ConfirmNotice(r.Context(), r.PathValue("id"), principal.UserID); err != nil {
+		if errors.Is(err, noticeapp.ErrForbidden) {
+			writeNoticeError(w, http.StatusForbidden, "FORBIDDEN", "无权确认该通知")
+			return
+		}
 		if errors.Is(err, noticeapp.ErrNotFound) {
 			writeNoticeError(w, http.StatusNotFound, "NOT_FOUND", "通知不存在")
 			return

@@ -24,7 +24,7 @@ type Repository interface {
 	// MarkConversationRead marks all messages in a conversation as read for the given user.
 	MarkConversationRead(ctx context.Context, conversationID string, userID string) error
 	// CreateConversation creates a new conversation between a student and teacher.
-	CreateConversation(ctx context.Context, studentID string, teacherID string, subject string, initialMessage string, now time.Time) (ConversationDetail, error)
+	CreateConversation(ctx context.Context, creatorID string, creatorRole user.Role, targetID string, subject string, initialMessage string, now time.Time) (ConversationDetail, error)
 	// SendMessage adds a message to a conversation.
 	SendMessage(ctx context.Context, conversationID string, senderID string, senderRole string, text string, now time.Time) (Message, error)
 	// ArchiveConversation archives a conversation for the student.
@@ -41,11 +41,11 @@ type Repository interface {
 
 // Message is a single message in a conversation.
 type Message struct {
-	ID              string     `json:"id"`
-	From            string     `json:"from"`
-	Text            string     `json:"text"`
-	Time            time.Time  `json:"time"`
-	ReadByRecipient *bool      `json:"read_by_recipient,omitempty"`
+	ID              string    `json:"id"`
+	From            string    `json:"from"`
+	Text            string    `json:"text"`
+	Time            time.Time `json:"time"`
+	ReadByRecipient *bool     `json:"read_by_recipient,omitempty"`
 }
 
 // Contact is a teacher the student can start a conversation with.
@@ -68,7 +68,7 @@ type ConversationItem struct {
 	LastTime     time.Time `json:"last_time"`
 	Unread       int       `json:"unread"`
 	PendingReply bool      `json:"pending_reply,omitempty"`
-	Archived    bool      `json:"archived"`
+	Archived     bool      `json:"archived"`
 }
 
 // ConversationDetail includes full message history.
@@ -121,8 +121,8 @@ func (s *Service) GetConversation(ctx context.Context, userID string, conversati
 }
 
 // CreateConversation creates a new student-teacher conversation.
-func (s *Service) CreateConversation(ctx context.Context, studentID string, teacherID string, subject string, initialMessage string) (ConversationDetail, error) {
-	return s.repo.CreateConversation(ctx, studentID, teacherID, subject, initialMessage, time.Now())
+func (s *Service) CreateConversation(ctx context.Context, creatorID string, creatorRole user.Role, targetID string, subject string, initialMessage string) (ConversationDetail, error) {
+	return s.repo.CreateConversation(ctx, creatorID, creatorRole, targetID, subject, initialMessage, time.Now())
 }
 
 // SendMessage sends a message in an existing conversation.

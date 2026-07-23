@@ -3,7 +3,7 @@
 > 文档定位：本文是仓库规则要求保留的迁移阶段跟踪与验证证据，不作为通用路线图。当前跨模块未完成事项统一维护在 [项目待办](TODO.md)；任何迁移阶段的开始、阻塞、恢复或完成仍必须同步更新本文。
 
 **Document status**: P4 in progress; P5 done; P6 AI/Agent in progress (Eino Tutor/Portrait/Diagnostician/Math Solver/Question Parser/Question Generator/OCR/Content Moderator Agents, admin LLM/Agent config loop, and uniform student AI risk center wired; unified channel scheduling/model catalog slice in progress; OCR, general-math, student AI risk-control, model-moderation, and multi-key channel-management slices delivered, token streaming and live external-provider quality acceptance pending); P7 in progress; P8 static contract handoff done; P9 Python backend removed by user confirmation; repository-wide quality cleanup batch done 2026-07-12
-**Last updated**: 2026-07-22
+**Last updated**: 2026-07-23
 **适用范围**：原 `backend/` Python FastAPI 后端整体迁移到 Go 后端；`backend/` 已从当前工作区删除
 **重构原则**：接口兼容、数据连续、分阶段验收、每阶段完成必须更新本文档
 
@@ -664,6 +664,9 @@ git ls-files "*_test.go" "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx" "test
 - 2026-07-10 错题复习候选择优算法残余风险：本切片只优化内存中候选择优，不改变仓储查询范围、掌握度阈值、错误次数阈值或 API 契约；P4 仍缺 mistake/session/exercise/progress/portrait 仓储的真实 PostgreSQL 验证和核心流程运行时验收，因此状态保持 `IN_PROGRESS`。
 
 ### 12.6 P5 内容与教学管理域
+
+- 2026-07-23 消息中心私信范围调整：学生与教师均可通过对方 ID 向任意有效异角色账号创建私信，不受班级归属限制；后续消息写入仍严格验证会话参与者和角色。
+- 2026-07-23 消息中心安全与迁移兼容切片：`DONE`。开始与完成日期：2026-07-23。协作者远端的渠道调度与系统公告提交已优先合并；消息中心迁移从冲突的 `0007` 重编号为 `0010`，将通知持久化关联改为 `class_id` 外键。原消息中心 commit 中附带的多班级迁移已于同日移除：现有产品设计仍保持一名学生只能绑定一个班级。学生可通过教师 ID 与任意有效教师创建私信；教师主动创建会话仍限本班学生。会话和答疑的后续消息均在 PostgreSQL 写入边界验证发送者为对应参与者；教师创建会话时首条消息写入实际创建者身份；通知读取/确认按班级成员校验，发布通知按教师班级归属校验。验证命令：`GOCACHE=/private/tmp/msp-go-build-cache go test ./migrations -run TestMessageCenterMigrationsHaveUniqueForwardVersions -count=1 -v`（临时测试源码已删除）、`GOCACHE=/private/tmp/msp-go-build-cache go test ./internal/application/conversation ./internal/application/notice ./internal/application/qathread ./internal/adapter/http/conversation ./internal/adapter/http/notice ./internal/adapter/http/qathread ./internal/adapter/postgres ./cmd/api`、`GOCACHE=/private/tmp/msp-go-build-cache go test ./migrations`、`GOCACHE=/private/tmp/msp-go-build-cache go vet ./internal/application/conversation ./internal/application/notice ./internal/application/qathread ./internal/adapter/http/conversation ./internal/adapter/http/notice ./internal/adapter/http/qathread ./internal/adapter/postgres ./cmd/api`、frontend `npm run build`、`git diff --check`、`go run ./cmd/migrate`（连续两次）。验证结果：临时迁移加载测试和定向 Go 包编译/测试通过，Go vet 与差异检查通过，前端 TypeScript/Vite 生产构建通过；本地 `math_platform` 在完整备份后重建，首次迁移 `applied_count=10`（版本 1–10），第二次 `applied_count=0`，并确认 `conversations`、`notices` 和 `question_threads` 已创建。交付物：`backend-go/migrations/0010_message_center.up.sql`、消息中心 conversation/notice/qathread 的 application、HTTP 与 PostgreSQL adapter，以及本跟踪记录。残余风险：跨用户权限仍需以真实师生账号完成端到端数据库验收，验证 403/404 边界。
 
 - 状态：DONE
 - 开始日期：2026-04-26

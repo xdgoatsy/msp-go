@@ -35,14 +35,14 @@ type StudentNoticeItem struct {
 
 // TeacherNoticeItem is the teacher view of a notice.
 type TeacherNoticeItem struct {
-	ID                 string    `json:"id"`
-	ClassName          string    `json:"class_name"`
-	Title              string    `json:"title"`
-	Body               string    `json:"body"`
-	PublishedAt        time.Time `json:"published_at"`
-	ConfirmedCount     int       `json:"confirmed_count"`
-	TotalCount         int       `json:"total_count"`
-	UnconfirmedStudents []string `json:"unconfirmed_students"`
+	ID                  string    `json:"id"`
+	ClassName           string    `json:"class_name"`
+	Title               string    `json:"title"`
+	Body                string    `json:"body"`
+	PublishedAt         time.Time `json:"published_at"`
+	ConfirmedCount      int       `json:"confirmed_count"`
+	TotalCount          int       `json:"total_count"`
+	UnconfirmedStudents []string  `json:"unconfirmed_students"`
 }
 
 // ListResponse is the paginated list response.
@@ -99,7 +99,7 @@ func (s *Service) ConfirmNotice(ctx context.Context, noticeID string, studentID 
 		return err
 	}
 	if !ok {
-		return ErrNotFound
+		return ErrForbidden
 	}
 	return nil
 }

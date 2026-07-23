@@ -512,7 +512,6 @@ export const MessageCenterPage: React.FC = () => {
                   <div className="border-b border-surface-100 p-4 dark:border-surface-800">
                     <Button
                       className="w-full"
-                      disabled={availableContacts.length === 0}
                       onClick={() => {
                         setContactSearch('');
                         setSelectedTeacherId(availableContacts[0]?.id ?? '');
@@ -520,7 +519,7 @@ export const MessageCenterPage: React.FC = () => {
                       }}
                     >
                       <Plus className="mr-2 h-4 w-4" />
-                      {availableContacts.length > 0 ? '新建对话' : '已和所有班级老师建立对话'}
+                      新建对话
                     </Button>
                   </div>
                   {filteredConversations.map((c) => (
@@ -886,7 +885,7 @@ export const MessageCenterPage: React.FC = () => {
             ) : contactSearch.trim() ? (
               <p className="text-sm text-surface-500 dark:text-surface-400">未找到匹配的教师。</p>
             ) : availableContacts.length === 0 ? (
-              <p className="text-sm text-surface-500 dark:text-surface-400">已和所有班级老师建立对话。</p>
+              <p className="text-sm text-surface-500 dark:text-surface-400">输入教师姓名或 ID 搜索并建立对话。</p>
             ) : null}
             <textarea value={newConvDraft} onChange={(e) => setNewConvDraft(e.target.value)}
               placeholder="可以先写一句要发给老师的消息"

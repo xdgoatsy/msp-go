@@ -270,7 +270,28 @@ func (r ConversationRepository) MarkConversationRead(ctx context.Context, conver
 }
 
 // CreateConversation creates a conversation and its first message.
-func (r ConversationRepository) CreateConversation(ctx context.Context, studentID string, teacherID string, subject string, initialMessage string, now time.Time) (conversationapp.ConversationDetail, error) {
+func (r ConversationRepository) CreateConversation(ctx context.Context, creatorID string, creatorRole user.Role, targetID string, subject string, initialMessage string, now time.Time) (conversationapp.ConversationDetail, error) {
+	if creatorRole != user.RoleStudent && creatorRole != user.RoleTeacher {
+		return conversationapp.ConversationDetail{}, conversationapp.ErrForbidden
+	}
+	studentID, teacherID := creatorID, targetID
+	if creatorRole != user.RoleStudent {
+		studentID, teacherID = targetID, creatorID
+	}
+	var permitted bool
+	targetRole := user.RoleStudent
+	if creatorRole == user.RoleStudent {
+		targetRole = user.RoleTeacher
+	}
+	if err := r.DB().QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM public.users u WHERE u.id = $1 AND u.role::text = $2
+		)`, targetID, targetRole.DBValue()).Scan(&permitted); err != nil {
+		return conversationapp.ConversationDetail{}, err
+	}
+	if !permitted {
+		return conversationapp.ConversationDetail{}, conversationapp.ErrForbidden
+	}
 	convID, err := newUUID()
 	if err != nil {
 		return conversationapp.ConversationDetail{}, err
@@ -301,8 +322,8 @@ func (r ConversationRepository) CreateConversation(ctx context.Context, studentI
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO public.conversation_messages (id, conversation_id, sender_id, sender_role, text, created_at)
-			VALUES ($1, $2, $3, 'student', $4, $5)`,
-			msgID, convID, studentID, initialMessage, now,
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			msgID, convID, creatorID, string(creatorRole), initialMessage, now,
 		)
 		if err != nil {
 			return conversationapp.ConversationDetail{}, err
@@ -313,7 +334,7 @@ func (r ConversationRepository) CreateConversation(ctx context.Context, studentI
 		return conversationapp.ConversationDetail{}, err
 	}
 
-	detail, found, err := r.GetConversation(ctx, convID, studentID)
+	detail, found, err := r.GetConversation(ctx, convID, creatorID)
 	if err != nil || !found {
 		return conversationapp.ConversationDetail{}, err
 	}
@@ -333,13 +354,18 @@ func (r ConversationRepository) SendMessage(ctx context.Context, conversationID 
 	}
 	defer tx.Rollback(ctx)
 
-	_, err = tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO public.conversation_messages (id, conversation_id, sender_id, sender_role, text, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
+		SELECT $1, c.id, $3, $4, $5, $6
+		FROM public.conversations c
+		WHERE c.id = $2 AND ((c.student_id = $3 AND $4 = 'student') OR (c.teacher_id = $3 AND $4 = 'teacher'))`,
 		msgID, conversationID, senderID, senderRole, text, now,
 	)
 	if err != nil {
 		return conversationapp.Message{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return conversationapp.Message{}, conversationapp.ErrNotFound
 	}
 
 	_, err = tx.Exec(ctx, `

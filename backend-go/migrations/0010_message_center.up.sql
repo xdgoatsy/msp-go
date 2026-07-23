@@ -1,4 +1,4 @@
--- 0007: Message Center — conversations, notices, and Q&A threads
+-- 0010: Message Center — conversations, notices, and Q&A threads
 -- Adds student-teacher private messaging, class notices, and question-answer threads.
 
 -- ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ CREATE INDEX ix_conversation_messages_conversation_id ON public.conversation_mes
 CREATE TABLE public.notices (
     id character varying(36) PRIMARY KEY,
     teacher_id character varying(36) NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    class_name character varying(200) NOT NULL,
+    class_id character varying(36) NOT NULL REFERENCES public.classes(id) ON DELETE CASCADE,
     title character varying(500) NOT NULL,
     body text NOT NULL DEFAULT ''::text,
     attachments jsonb DEFAULT '[]'::jsonb NOT NULL,
@@ -47,7 +47,7 @@ CREATE TABLE public.notices (
 );
 
 CREATE INDEX ix_notices_teacher_id ON public.notices USING btree (teacher_id, created_at DESC);
-CREATE INDEX ix_notices_class_name ON public.notices USING btree (class_name);
+CREATE INDEX ix_notices_class_id ON public.notices USING btree (class_id);
 
 CREATE TABLE public.notice_confirmations (
     id character varying(36) PRIMARY KEY,
